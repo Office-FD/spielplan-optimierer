@@ -17,6 +17,7 @@ import sys
 import tempfile
 import threading
 import time
+import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -127,8 +128,10 @@ def _parse_club_upload(uploaded_file) -> List[dict]:
             df = pd.read_csv(uploaded_file, encoding='utf-8-sig', dtype=str).fillna('')
         df.columns = [c.strip() for c in df.columns]
         return _records_from_df(df)
-    except Exception:
-        pass
+    except zipfile.BadZipFile:
+        st.error('Die Datei ist beschädigt oder kein gültiges Excel-Format (.xlsx).')
+    except Exception as exc:
+        st.error(f'Fehler beim Lesen der Vereinsdatei: {exc}')
     return []
 
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
@@ -607,6 +610,12 @@ def _load_teams_excel(uploaded_file) -> Optional[dict]:
             st.error('Keine Ligen gefunden. Bitte prüfen, ob die Liga-ID-Spalte korrekt befüllt ist.')
             return None
         return {'league_order': league_order, 'leagues': leagues}
+    except zipfile.BadZipFile:
+        st.error('Die Datei ist beschädigt oder kein gültiges Excel-Format (.xlsx).')
+        return None
+    except ValueError as exc:
+        st.error(f'Sheet nicht gefunden oder ungültiges Format: {exc}')
+        return None
     except Exception as exc:
         st.error(f'Lesefehler beim Import: {exc}')
         return None
@@ -1097,6 +1106,12 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
 
         return result
 
+    except zipfile.BadZipFile:
+        st.error('Die Datei ist beschädigt oder kein gültiges Excel-Format (.xlsx).')
+        return None
+    except ValueError as exc:
+        st.error(f'Sheet nicht gefunden oder ungültiges Format: {exc}')
+        return None
     except Exception as exc:
         st.error(f'Lesefehler beim Import: {exc}')
         return None
@@ -3679,6 +3694,8 @@ def _show_results():
                                 f'vorher {_prev_total_km:,} km · '
                                 f'Differenz **{_d_total:+,} km**'
                             )
+                except zipfile.BadZipFile:
+                    st.error('Die Vergleichsdatei ist beschädigt oder kein gültiges Excel-Format (.xlsx).')
                 except Exception as _ce:
                     st.error(f'Fehler beim Lesen der Vergleichsdatei: {_ce}')
 
