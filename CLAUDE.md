@@ -37,7 +37,7 @@ spielplan_multi/
   multi_solver.py         ← Pipeline-Orchestrierung: Phase 1+2+3, run_phase1/2/3()
   solver.py               ← CP-SAT-Modellbau: build_league_vars(), add_league_objective()
   sa_refine.py            ← Simulated Annealing Phase 3: refine_schedule()
-  tt_scheduler.py         ← Turniertag Post-Processing: apply_tournament_ordering(), Ausrichter-Zuweisung, Heim-Balance
+  tt_scheduler.py         ← Turniertag Post-Processing (nach Phase 3): apply_tournament_ordering(), Ausrichter-Zuweisung, Heim-Balance
   excel_output.py         ← Excel-Export: write_league_excel(), write_cohome_excel()
   schedule_utils.py       ← Nachbearbeitung + Export-Hilfsfunktionen (siehe §6)
   distances.py            ← Distanzmatrix: get_distance_matrix() per Google Maps API / CSV
