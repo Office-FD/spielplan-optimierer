@@ -212,7 +212,7 @@ Die neue Funktion `_balance_home_away()` (tt_scheduler.py, Zeile 23-63) hat kein
 **Aufwand:** Klein
 **Beschreibung:**
 `pd.read_excel()` in app.py (Zeilen ~125, ~565, ~892) kann bei beschädigten XLSX-Dateien die Streamlit-Session crashen ohne User-Feedback. Spezifische Exceptions abfangen: `zipfile.BadZipFile` (korrupte Datei), `ValueError` (Sheet nicht gefunden), Out-of-Memory via `nrows`-Limit. Nutzer soll klare Fehlermeldung sehen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
