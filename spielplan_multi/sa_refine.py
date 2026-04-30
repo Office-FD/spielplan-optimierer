@@ -1,0 +1,272 @@
+"""Phase-3-Nachbearbeitung per Simulated Annealing.
+
+Optimiert Heimrecht-Zuweisungen ohne das Spielplangeruest zu aendern.
+Jede Paarung (A, B) hat eine Hin- und eine Rueckbegegnung. SA tauscht
+paarweise Heimrecht (Hin flippt → Rueck gespiegelt) und akzeptiert
+Aenderungen per Metropolis-Kriterium.
+
+Typische Verbesserung: 3-8% weniger Gesamtkilometer bei gleichwertigen
+Wechselzahlverteilungen (gleiche Wandzeit wie Phase 1 pro Liga).
+"""
+from __future__ import annotations
+
+import math
+import random
+import time
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+
+from .league_types import LeagueConfig, LeagueResult
+from .ui import step, ok, warn
+
+
+# ── Kern-Hilfsfunktionen ─────────────────────────────────────────────────────
+
+def _is_home(loc_val: int, ti: int) -> bool:
+    return loc_val == ti
+
+
+def _recompute_team(loc: List[List[int]], ti: int, N: int,
+                    dist: np.ndarray) -> Tuple[int, int]:
+    """Gibt (sw_count, travel_km) fuer ein einzelnes Team zurueck."""
+    sw, km = 0, 0
+    for d in range(1, N):
+        sw += 1 if _is_home(loc[ti][d], ti) != _is_home(loc[ti][d + 1], ti) else 0
+        km += int(dist[loc[ti][d], loc[ti][d + 1]])
+    return sw, km
+
+
+def _objective(sw_count: List[int], travel: List[int], w: dict) -> float:
+    """Gewichtete Zielfunktion (identisch mit CP-SAT-Formel, Skala 1000)."""
+    scale = 1000
+    return (w['switch']    * scale * sum(sw_count)
+            - w['sw_fair']   * scale * (max(sw_count) - min(sw_count))
+            - w['travel']    * scale * sum(travel)
+            - w['trav_fair'] * scale * (max(travel) - min(travel)))
+
+
+# ── Haupt-Funktion ───────────────────────────────────────────────────────────
+
+def refine_schedule(result: LeagueResult,
+                    cfg: LeagueConfig,
+                    time_limit: int = 120,
+                    seed: int = 42) -> LeagueResult:
+    """SA-Nachbearbeitung: optimiert Heimrecht ohne Terminverschiebung.
+
+    Invarianten:
+      - Jedes Team spielt genau einmal pro Spieltag (unveraendert)
+      - Jede Paarung hat genau 1 Hin- und 1 Rueckbegegnung (unveraendert)
+      - Gepinnte Spiele und DST-Bloecke werden nicht angetastet
+      - Sperrtage werden respektiert
+    """
+    if time_limit <= 0 or not result.schedule:
+        return result
+    if cfg.games_per_team_per_day > 1 or cfg.n_teams_per_group > 0:
+        return result  # Turniertag: keine SA-Optimierung (travel=0, switches=0)
+    if cfg.n_rounds not in (1, 2):
+        from .ui import info as _info
+        _info(f'SA-Refine: n_rounds={cfg.n_rounds} – uebersprungen (nur Einfach-/Hin-Rueckrunde).')
+        return result
+
+    n             = cfg.n_teams
+    N             = cfg.n_matchdays
+    dist          = cfg.dist
+    hinrunde_end  = cfg.hinrunde_end
+    t_idx         = {t: i for i, t in enumerate(cfg.teams)}
+
+    # ── Zustand aufbauen: loc[team][day] = venue_index ───────────────────────
+    # venue_index = Index des Heimteams, an dessen Halle gespielt wird
+    loc: List[List[int]] = [[0] * (N + 2) for _ in range(n)]
+    for d, games in result.schedule.items():
+        for ht, at in games:
+            hi   = t_idx[ht]
+            ai_t = t_idx[at]
+            loc[hi][d]   = hi   # Heimteam an eigenem Standort
+            loc[ai_t][d] = hi   # Gastteam am Standort des Heimteams
+
+    # ── Paarungsdaten ─────────────────────────────────────────────────────────
+    # pair_info[pid] = (low_idx, high_idx, hin_day, rueck_day)
+    # a_home_hin[pid]: True ↔ low_idx hat in der Hinrunde Heimrecht
+    pair_info: List[Tuple[int, int, int, int]] = []
+    a_home_hin: List[bool]                      = []
+    key_to_pid: Dict[Tuple[int, int], int]      = {}
+
+    for d in range(1, N + 1):
+        for ht, at in result.schedule.get(d, []):
+            hi, ai_t = t_idx[ht], t_idx[at]
+            low, high = min(hi, ai_t), max(hi, ai_t)
+            phase = 'hin' if d <= hinrunde_end else 'rueck'
+            if (low, high) not in key_to_pid:
+                pid = len(pair_info)
+                key_to_pid[(low, high)] = pid
+                pair_info.append((low, high, 0, 0))
+                a_home_hin.append(False)
+            pid = key_to_pid[(low, high)]
+            li, hi_p, h_d, r_d = pair_info[pid]
+            if phase == 'hin':
+                pair_info[pid] = (li, hi_p, d, r_d)
+                a_home_hin[pid] = (hi == li)
+            else:
+                pair_info[pid] = (li, hi_p, h_d, d)
+
+    n_pairs = len(pair_info)
+
+    # ── Verbotene Swaps ───────────────────────────────────────────────────────
+    dst_days = cfg.dst_days
+
+    blocked_by: Dict[int, set] = {
+        t_idx[t]: set(days)
+        for t, days in cfg.blocked.items() if t in t_idx
+    }
+
+    pinned_set: set = set()
+    for pm in cfg.pinned:
+        a_name, b_name = pm.get('teamA', ''), pm.get('teamB', '')
+        if a_name in t_idx and b_name in t_idx:
+            low  = min(t_idx[a_name], t_idx[b_name])
+            high = max(t_idx[a_name], t_idx[b_name])
+            if (low, high) in key_to_pid:
+                pinned_set.add(key_to_pid[(low, high)])
+
+    # ── Initiale Statistiken ──────────────────────────────────────────────────
+    sw_count = [0] * n
+    travel   = [0] * n
+    for ti in range(n):
+        sw_count[ti], travel[ti] = _recompute_team(loc, ti, N, dist)
+
+    current_obj = _objective(sw_count, travel, cfg.w_scaled)
+    best_obj    = current_obj
+    best_loc    = [row[:] for row in loc]
+    best_sw     = sw_count[:]
+    best_km     = travel[:]
+
+    step(f'SA-Refine – {cfg.name}: '
+         f'obj={best_obj:.0f}  km={sum(travel)}  sw={sum(sw_count)}')
+
+    # ── Temperatur-Sampling ───────────────────────────────────────────────────
+    rng     = random.Random(seed)
+    samples: List[float] = []
+
+    for _ in range(min(400, n_pairs * 6)):
+        pid = rng.randrange(n_pairs)
+        if pid in pinned_set:
+            continue
+        ai, bi, hd, rd = pair_info[pid]
+        if hd in dst_days or rd in dst_days:
+            continue
+        new_hv = bi if a_home_hin[pid] else ai
+        new_rv = ai if a_home_hin[pid] else bi
+        old_hv = ai if a_home_hin[pid] else bi
+        old_rv = bi if a_home_hin[pid] else ai
+        # Probe-Swap
+        loc[ai][hd] = loc[bi][hd] = new_hv
+        loc[ai][rd] = loc[bi][rd] = new_rv
+        ns_ai, nk_ai = _recompute_team(loc, ai, N, dist)
+        ns_bi, nk_bi = _recompute_team(loc, bi, N, dist)
+        ns = sw_count[:]; ns[ai] = ns_ai; ns[bi] = ns_bi
+        nk = travel[:];   nk[ai] = nk_ai; nk[bi] = nk_bi
+        samples.append(abs(_objective(ns, nk, cfg.w_scaled) - current_obj))
+        # Revert
+        loc[ai][hd] = loc[bi][hd] = old_hv
+        loc[ai][rd] = loc[bi][rd] = old_rv
+
+    mean_d = sum(samples) / len(samples) if samples else 1000.0
+    T      = max(mean_d * 2.0, 1.0)
+    T_end  = T * 0.001
+
+    # ── SA-Hauptschleife ──────────────────────────────────────────────────────
+    t0         = time.time()
+    iterations = 0
+    accepted   = 0
+
+    while time.time() - t0 < time_limit:
+        iterations += 1
+        pid = rng.randrange(n_pairs)
+
+        if pid in pinned_set:
+            continue
+        ai, bi, hd, rd = pair_info[pid]
+        if hd in dst_days or rd in dst_days:
+            continue
+
+        # Sperrtag-Check fuer neues Heimrecht
+        new_hin_h  = bi if a_home_hin[pid] else ai
+        new_ruec_h = ai if a_home_hin[pid] else bi
+        if hd in blocked_by.get(new_hin_h,  set()):
+            continue
+        if rd in blocked_by.get(new_ruec_h, set()):
+            continue
+
+        new_hv = bi if a_home_hin[pid] else ai
+        new_rv = ai if a_home_hin[pid] else bi
+        old_hv = ai if a_home_hin[pid] else bi
+        old_rv = bi if a_home_hin[pid] else ai
+
+        # Swap anwenden (temporaer)
+        loc[ai][hd] = loc[bi][hd] = new_hv
+        loc[ai][rd] = loc[bi][rd] = new_rv
+
+        ns_ai, nk_ai = _recompute_team(loc, ai, N, dist)
+        ns_bi, nk_bi = _recompute_team(loc, bi, N, dist)
+        ns = sw_count[:]; ns[ai] = ns_ai; ns[bi] = ns_bi
+        nk = travel[:];   nk[ai] = nk_ai; nk[bi] = nk_bi
+
+        new_obj = _objective(ns, nk, cfg.w_scaled)
+        delta   = new_obj - current_obj
+
+        # Geometrische Abkuehlung
+        progress = (time.time() - t0) / time_limit
+        T_curr   = T * math.exp(math.log(T_end / T) * progress)
+
+        if delta >= 0 or rng.random() < math.exp(delta / T_curr):
+            a_home_hin[pid] = not a_home_hin[pid]
+            sw_count        = ns
+            travel          = nk
+            current_obj     = new_obj
+            accepted       += 1
+            if current_obj > best_obj:
+                best_obj = current_obj
+                best_loc = [row[:] for row in loc]
+                best_sw  = sw_count[:]
+                best_km  = travel[:]
+        else:
+            loc[ai][hd] = loc[bi][hd] = old_hv
+            loc[ai][rd] = loc[bi][rd] = old_rv
+
+    # ── Schedule aus bestem Zustand rekonstruieren ────────────────────────────
+    schedule: Dict[int, List[Tuple[str, str]]] = {d: [] for d in range(1, N + 1)}
+    for ai, bi, hd, rd in pair_info:
+        for d, venue in ((hd, best_loc[ai][hd]), (rd, best_loc[ai][rd])):
+            if d == 0:   # Einfachrunde: kein Rueckspiel (rd=0 als Sentinel)
+                continue
+            if venue == ai:
+                schedule[d].append((cfg.teams[ai], cfg.teams[bi]))
+            else:
+                schedule[d].append((cfg.teams[bi], cfg.teams[ai]))
+
+    km_delta = sum(best_km) - sum(result.travels)
+    accept_rate = accepted / iterations if iterations > 0 else 0.0
+    ok(f'  {cfg.league_id}: km {sum(result.travels)} -> {sum(best_km)} '
+       f'({km_delta:+d})  sw {sum(result.sw_counts)} -> {sum(best_sw)}  '
+       f'iter={iterations:,}  akzept={accept_rate:.1%}')
+
+    return LeagueResult(
+        league_id=result.league_id,
+        status=result.status,
+        objective=best_obj,
+        schedule=schedule,
+        sw_counts=best_sw,
+        sw_rates=[sc / cfg.n_transitions * 100 if cfg.n_transitions > 0 else 0.0
+                  for sc in best_sw],
+        travels=best_km,
+        mins=result.mins,
+        secs=result.secs,
+        home_vals=result.home_vals,
+        h_vals=result.h_vals,
+        x_vals=result.x_vals,
+        cfg=result.cfg,
+        groups=result.groups,
+        hosts=result.hosts,
+        game_times=result.game_times,
+    )

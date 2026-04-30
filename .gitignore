@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# App-Ausgaben (lokal, nicht versionieren)
+Spielplaene/
+.cache/
+
+# Persönliche Notizen/Memory (lokal)
+memory/
+
+# Claude Code – nur lokale Einstellungen ausschließen
+.claude/settings.local.json
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
