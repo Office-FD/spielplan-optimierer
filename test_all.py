@@ -603,6 +603,75 @@ def main():
         return 'Duplikat-Slots werden sicher behandelt'
     check('Duplikat-Slots in host_slots kein Datenverlust', t9_keine_duplikate_in_host_slots)
 
+    print('\n--- _balance_home_away (Turniertag Heim-Balance) ---')
+
+    def _make_tt_cfg(teams, days):
+        raw = {k: 5.0 for k in WEIGHT_SCALES}
+        n = len(teams)
+        return LeagueConfig(
+            league_id='BAL', name='BAL', teams=teams, locations=teams,
+            dist=np.zeros((n, n)), dst_blocks=[],
+            weekends=build_weekends(days, []),
+            apply_routing=False, f_num=125, f_den=100,
+            w_scaled={k: v * WEIGHT_SCALES[k] for k, v in raw.items()},
+            raw_weights=raw, pinned=[], blocked={},
+            games_per_team_per_day=2, n_rounds=1, n_teams_per_group=0,
+            tt_settings={},
+        )
+
+    def t9_balance_basic():
+        from spielplan_multi.tt_scheduler import _balance_home_away
+        teams4 = ['A', 'B', 'C', 'D']
+        # Absichtlich unausgewogen: A=3 Heim, B=2, C=1, D=0
+        schedule = {
+            1: [('A', 'B'), ('A', 'C')],
+            2: [('A', 'D'), ('B', 'C')],
+            3: [('B', 'D'), ('C', 'D')],
+        }
+        _balance_home_away(schedule, {}, _make_tt_cfg(teams4, [1, 2, 3]))
+        t_idx = {t: i for i, t in enumerate(teams4)}
+        home_count = [0] * 4
+        for games in schedule.values():
+            for ht, at in games:
+                home_count[t_idx[ht]] += 1
+        diff = max(home_count) - min(home_count)
+        assert diff <= 1, f'Unbalanciert: home_count={home_count} max-min={diff}'
+        return f'home_count={home_count} max-min={diff}'
+    check('_balance_home_away: unausgewogener Plan wird ausgeglichen', t9_balance_basic)
+
+    def t9_balance_host_protected():
+        from spielplan_multi.tt_scheduler import _balance_home_away
+        teams3 = ['A', 'B', 'C']
+        # A Ausrichter Tag 1, B Ausrichter Tag 2 -> ihre Spiele duerfen nicht geflippt werden
+        schedule = {
+            1: [('A', 'B'), ('A', 'C'), ('B', 'C')],
+            2: [('B', 'A'), ('B', 'C'), ('A', 'C')],
+        }
+        _balance_home_away(schedule, {1: 'A', 2: 'B'}, _make_tt_cfg(teams3, [1, 2]))
+        for ht, at in schedule[1]:
+            if 'A' in (ht, at):
+                assert ht == 'A', f'Tag 1: A ist Gastteam in ({ht},{at})'
+        for ht, at in schedule[2]:
+            if 'B' in (ht, at):
+                assert ht == 'B', f'Tag 2: B ist Gastteam in ({ht},{at})'
+        return 'Ausrichter-Spiele unberuehrt'
+    check('_balance_home_away: Ausrichter-Spiele werden nicht veraendert', t9_balance_host_protected)
+
+    def t9_balance_already_balanced():
+        from spielplan_multi.tt_scheduler import _balance_home_away
+        import copy
+        teams4 = ['A', 'B', 'C', 'D']
+        # Perfekt balanciert: jeder genau 1 Heimspiel -> kein Flip noetig
+        schedule = {
+            1: [('A', 'B'), ('C', 'D')],
+            2: [('B', 'A'), ('D', 'C')],
+        }
+        before = copy.deepcopy(schedule)
+        _balance_home_away(schedule, {}, _make_tt_cfg(teams4, [1, 2]))
+        assert schedule == before, f'Balancierter Plan wurde veraendert: {schedule}'
+        return 'Plan unveraendert (Differenz < 2)'
+    check('_balance_home_away: bereits ausgeglichener Plan bleibt unveraendert', t9_balance_already_balanced)
+
     # =========================================================================
     # ZUSAMMENFASSUNG
     # =========================================================================
