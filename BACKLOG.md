@@ -177,3 +177,111 @@ Konfiguration per JSON-Request übergeben, optimierten Spielplan per JSON zurüc
 Beim Modus Turniertag ist der alternierende Wechsel von Heimrechten nicht so wichtig, da sowieso mehrere Teams zu einem Ausrichter fahren und das Heimrecht da nur auf dem Papier existiert. Wichtig sind da nur, dass am Ende der Saison alle Teams gleiche Anzahl an Heim- wie Auswärtsbegegnungen habe und im besten fall der Ausrichter eines Spieltages an diesem immer Heimrecht hat.
 
 **Status:** Erledigt
+
+---
+
+### [intern] Tests für _balance_home_away() in tt_scheduler.py
+
+**Typ:** Verbesserung
+**Bereich:** Tests
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein
+**Beschreibung:**
+Die neue Funktion `_balance_home_away()` (tt_scheduler.py, Zeile 23-63) hat keine Tests. Folgende Fälle abdecken: (1) Nach Aufruf ist max(home_count) - min(home_count) <= 1, (2) Ausrichter-Spiele werden nicht angetastet, (3) Edge-Case: kein Ausrichter definiert.
+**Status:** Offen
+
+---
+
+### [intern] Tests für build_print_html() Phase-Spalten-Fix
+
+**Typ:** Verbesserung
+**Bereich:** Tests
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein
+**Beschreibung:**
+`build_print_html()` (schedule_utils.py) hat keinen Test der die korrekte Spaltenanzahl in der „Alle Spiele"-Tabelle prüft. Regressionsschutz für den Phase-Spalten-Bug: Header-Count == td-Count je Zeile, Phase-Spalte vorhanden, Tabelle mit/ohne DST/Datum/Uhrzeiten korrekt.
+**Status:** Offen
+
+---
+
+### [intern] Excel-Upload Fehlerbehandlung robuster machen
+
+**Typ:** Verbesserung
+**Bereich:** Streamlit-UI
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein
+**Beschreibung:**
+`pd.read_excel()` in app.py (Zeilen ~125, ~565, ~892) kann bei beschädigten XLSX-Dateien die Streamlit-Session crashen ohne User-Feedback. Spezifische Exceptions abfangen: `zipfile.BadZipFile` (korrupte Datei), `ValueError` (Sheet nicht gefunden), Out-of-Memory via `nrows`-Limit. Nutzer soll klare Fehlermeldung sehen.
+**Status:** Offen
+
+---
+
+### [intern] .gitattributes hinzufügen (CRLF-Konsistenz)
+
+**Typ:** Verbesserung
+**Bereich:** Sonstiges
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+Bei jedem Commit auf Windows erscheinen CRLF-Warnungen. `.gitattributes` mit `*.py text eol=lf`, `*.bat text eol=crlf`, `*.xlsx binary` etc. beseitigt das dauerhaft.
+**Status:** Offen
+
+---
+
+### [intern] Code-Duplikation in Excel-Ladefunktionen
+
+**Typ:** Verbesserung
+**Bereich:** Streamlit-UI
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Mittel
+**Beschreibung:**
+`_parse_club_upload()`, `_load_teams_excel()` und `_load_full_config_excel()` in app.py haben alle dasselbe Pattern (pd.read_excel + fillna + strip columns + Exception-Handling). In eine gemeinsame Hilfsfunktion `_load_excel_safe()` zusammenführen.
+**Status:** Offen
+
+---
+
+### [intern] Google Maps API: KeyError bei malformed Response
+
+**Typ:** Fehler/Bug
+**Bereich:** Distanzen / Karte
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+In `distances.py` kann `el['distance']['value']` einen KeyError werfen wenn die API eine unvollständige Response liefert (z.B. Status != OK). Pro Element try/except mit Fallback auf UNREACHABLE_KM einbauen.
+**Status:** Offen
+
+---
+
+### [intern] create_overview_doc.py dokumentieren oder einordnen
+
+**Typ:** Verbesserung
+**Bereich:** Sonstiges
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+`create_overview_doc.py` (434 Zeilen, generiert DOCX) ist nicht in CLAUDE.md erwähnt und `python-docx` fehlt in requirements.txt. Klären: produktionsrelevant → dokumentieren + requirements ergänzen; oder Wegwerfcode → in BACKLOG archivieren.
+**Status:** Offen
+
+---
+
+### [intern] wizard.py Legacy-Status klären
+
+**Typ:** Verbesserung
+**Bereich:** Sonstiges
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+`wizard.py` ist in CLAUDE.md als "Legacy CLI-Wizard" markiert, aber ungeklärt ob noch genutzt. Prüfen ob `__main__.py` noch importiert → falls nicht: entweder löschen oder in CLAUDE.md als "nur für Notfall ohne Streamlit" dokumentieren.
+**Status:** Offen
+
+---
+
+### [intern] CLAUDE.md Dateistruktur vervollständigen
+
+**Typ:** Verbesserung
+**Bereich:** Sonstiges
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+Folgende Dateien fehlen in der Dateistruktur (§2): `test_features.py`, `config_validator.py`. Je eine Zeile mit Kurzbeschreibung ergänzen.
+**Status:** Offen

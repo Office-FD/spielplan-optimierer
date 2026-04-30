@@ -1,0 +1,22 @@
+# Zeilenenden konsistent halten (LF im Repo, OS-nativ beim Checkout)
+* text=auto
+
+# Python/Text: immer LF
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.csv   text eol=lf
+*.json  text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+
+# Windows-Skripte: CRLF
+*.bat   text eol=crlf
+
+# Binärdateien: keine Konvertierung
+*.xlsx  binary
+*.xls   binary
+*.png   binary
+*.ico   binary
+*.docx  binary
+*.zip   binary
