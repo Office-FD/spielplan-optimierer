@@ -188,7 +188,7 @@ Beim Modus Turniertag ist der alternierende Wechsel von Heimrechten nicht so wic
 **Aufwand:** Klein
 **Beschreibung:**
 Die neue Funktion `_balance_home_away()` (tt_scheduler.py, Zeile 23-63) hat keine Tests. Folgende Fälle abdecken: (1) Nach Aufruf ist max(home_count) - min(home_count) <= 1, (2) Ausrichter-Spiele werden nicht angetastet, (3) Edge-Case: kein Ausrichter definiert.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -200,7 +200,7 @@ Die neue Funktion `_balance_home_away()` (tt_scheduler.py, Zeile 23-63) hat kein
 **Aufwand:** Klein
 **Beschreibung:**
 `build_print_html()` (schedule_utils.py) hat keinen Test der die korrekte Spaltenanzahl in der „Alle Spiele"-Tabelle prüft. Regressionsschutz für den Phase-Spalten-Bug: Header-Count == td-Count je Zeile, Phase-Spalte vorhanden, Tabelle mit/ohne DST/Datum/Uhrzeiten korrekt.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
