@@ -605,13 +605,13 @@ def main():
 
     print('\n--- _balance_home_away (Turniertag Heim-Balance) ---')
 
-    def _make_tt_cfg(teams):
+    def _make_tt_cfg(teams, days):
         raw = {k: 5.0 for k in WEIGHT_SCALES}
         n = len(teams)
         return LeagueConfig(
             league_id='BAL', name='BAL', teams=teams, locations=teams,
             dist=np.zeros((n, n)), dst_blocks=[],
-            weekends=build_weekends(list(range(1, n)), []),
+            weekends=build_weekends(days, []),
             apply_routing=False, f_num=125, f_den=100,
             w_scaled={k: v * WEIGHT_SCALES[k] for k, v in raw.items()},
             raw_weights=raw, pinned=[], blocked={},
@@ -628,7 +628,7 @@ def main():
             2: [('A', 'D'), ('B', 'C')],
             3: [('B', 'D'), ('C', 'D')],
         }
-        _balance_home_away(schedule, {}, _make_tt_cfg(teams4))
+        _balance_home_away(schedule, {}, _make_tt_cfg(teams4, [1, 2, 3]))
         t_idx = {t: i for i, t in enumerate(teams4)}
         home_count = [0] * 4
         for games in schedule.values():
@@ -647,7 +647,7 @@ def main():
             1: [('A', 'B'), ('A', 'C'), ('B', 'C')],
             2: [('B', 'A'), ('B', 'C'), ('A', 'C')],
         }
-        _balance_home_away(schedule, {1: 'A', 2: 'B'}, _make_tt_cfg(teams3))
+        _balance_home_away(schedule, {1: 'A', 2: 'B'}, _make_tt_cfg(teams3, [1, 2]))
         for ht, at in schedule[1]:
             if 'A' in (ht, at):
                 assert ht == 'A', f'Tag 1: A ist Gastteam in ({ht},{at})'
@@ -667,7 +667,7 @@ def main():
             2: [('B', 'A'), ('D', 'C')],
         }
         before = copy.deepcopy(schedule)
-        _balance_home_away(schedule, {}, _make_tt_cfg(teams4))
+        _balance_home_away(schedule, {}, _make_tt_cfg(teams4, [1, 2]))
         assert schedule == before, f'Balancierter Plan wurde veraendert: {schedule}'
         return 'Plan unveraendert (Differenz < 2)'
     check('_balance_home_away: bereits ausgeglichener Plan bleibt unveraendert', t9_balance_already_balanced)
