@@ -342,6 +342,24 @@ def main():
         return 'HTML auch ohne Kalender-Daten generierbar'
     check('HTML auch ohne Kalender generierbar', t_print_html_ohne_kalender)
 
+    def t_print_html_phase_spalte():
+        import re
+        html = build_print_html(result, season_year=2026)
+        assert '<th>Phase</th>' in html, 'Phase-Spalten-Header fehlt im <thead>'
+        # Jeder Spieltag hat genau eine Phase-Datenzelle mit rowspan.
+        # style="color:#666" ohne text-align ist eindeutig fuer die Phase-Zelle.
+        phase_cells = re.findall(
+            r'<td rowspan="\d+" style="color:#666">'
+            r'(Hinrunde|R\xfcckrunde|Dritte Runde|Runde \d+)</td>',
+            html
+        )
+        assert len(phase_cells) == cfg.n_matchdays, (
+            f'{len(phase_cells)} Phase-Zellen gefunden, '
+            f'{cfg.n_matchdays} erwartet (eine pro Spieltag)'
+        )
+        return f'{len(phase_cells)} Phase-Datenzellen fuer {cfg.n_matchdays} Spieltage'
+    check('HTML Alle-Spiele-Tabelle: Phase-Spalte in Header und Datenzeilen', t_print_html_phase_spalte)
+
     # ── Feature 5 (neu): Constraint-Validierung ──────────────────────────────
     print('\n--- Feature 5: Constraint-Validierung ---')
 
