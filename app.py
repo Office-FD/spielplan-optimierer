@@ -123,9 +123,9 @@ def _parse_club_upload(uploaded_file) -> List[dict]:
     try:
         fname = getattr(uploaded_file, 'name', '')
         if fname.lower().endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(uploaded_file, dtype=str).fillna('')
+            df = pd.read_excel(uploaded_file, dtype=str, nrows=2000).fillna('')
         else:
-            df = pd.read_csv(uploaded_file, encoding='utf-8-sig', dtype=str).fillna('')
+            df = pd.read_csv(uploaded_file, encoding='utf-8-sig', dtype=str, nrows=2000).fillna('')
         df.columns = [c.strip() for c in df.columns]
         return _records_from_df(df)
     except zipfile.BadZipFile:
@@ -565,7 +565,7 @@ def _teams_excel_bytes(leagues: dict, league_order: list) -> bytes:
 def _load_teams_excel(uploaded_file) -> Optional[dict]:
     """Liest die Excel-Vorlage und gibt {league_order, leagues} zurück."""
     try:
-        df = pd.read_excel(uploaded_file, sheet_name='Ligen & Teams', dtype=str).fillna('')
+        df = pd.read_excel(uploaded_file, sheet_name='Ligen & Teams', dtype=str, nrows=500).fillna('')
         df.columns = [c.strip() for c in df.columns]
         if 'Spielformat' in df.columns and 'Format' not in df.columns:
             df.rename(columns={'Spielformat': 'Format'}, inplace=True)
@@ -3696,6 +3696,8 @@ def _show_results():
                             )
                 except zipfile.BadZipFile:
                     st.error('Die Vergleichsdatei ist beschädigt oder kein gültiges Excel-Format (.xlsx).')
+                except ValueError as _ve:
+                    st.error(f'Sheet nicht gefunden oder ungültiges Format: {_ve}')
                 except Exception as _ce:
                     st.error(f'Fehler beim Lesen der Vergleichsdatei: {_ce}')
 
