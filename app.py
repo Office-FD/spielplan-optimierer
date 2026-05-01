@@ -348,14 +348,14 @@ _LOGO_PATH = str(_HERE / 'assets' / 'floorball_logo.png')
 
 def _sidebar():
     with st.sidebar:
-        st.image(_LOGO_PATH, use_container_width=True)
+        st.image(_LOGO_PATH, width='stretch')
         st.markdown('### Spielplan-Optimierer')
         st.caption('Automatische Spielplanerstellung')
 
         # Übersicht-Link + Wizard-Menü
         if S._wizard_started:
             st.divider()
-            if st.button('← Zur Übersicht', key='nav_intro', use_container_width=True):
+            if st.button('← Zur Übersicht', key='nav_intro', width='stretch'):
                 S._wizard_started = False
                 st.rerun()
             # max_step mitführen: höchster je erreichter Schritt
@@ -372,7 +372,7 @@ def _sidebar():
                     _btn_key = f'nav_{i}'
                     if not S.opt_running:
                         if st.button(f'{_icon} {i+1}. {label}', key=_btn_key,
-                                     use_container_width=True):
+                                     width='stretch'):
                             S.step = i
                             st.rerun()
                     else:
@@ -448,7 +448,7 @@ def _sidebar():
                     st.session_state.extra_clubs = []
                     st.rerun()
         st.caption('v1.0 · Spielplan-Optimierer')
-        if st.button('📋 Funktionswunsch / Fehler melden', use_container_width=True):
+        if st.button('📋 Funktionswunsch / Fehler melden', width='stretch'):
             _show_backlog_dialog()
 
 
@@ -469,7 +469,7 @@ def _nav(back=True, fwd_label='Weiter →', fwd_disabled=False):
                 file_name='Spielplan_Konfiguration.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 key=f'dl_cfg_{S.step}',
-                use_container_width=True,
+                width='stretch',
             )
     with c3:
         if st.button(fwd_label, key=f'fwd_{S.step}', type='primary',
@@ -1161,7 +1161,7 @@ def _step0():
             st.download_button('⬇ Leere Vorlage herunterladen',
                 data=xl_bytes, file_name='Ligen_Teams_Vorlage.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                key='dl_tmpl_empty', use_container_width=True)
+                key='dl_tmpl_empty', width='stretch')
         with c_up:
             st.markdown('**2. Konfiguration hochladen**')
             st.caption('Vollständige Konfigurationsdatei oder ausgefüllte Vorlage (Ligen & Teams) hochladen.')
@@ -1773,7 +1773,7 @@ def _step1():
             edited = st.data_editor(df, key=f'de_{lid}', width='stretch',
                 column_config={t: st.column_config.NumberColumn(t, min_value=0,
                     format='%.0f') for t in teams})
-            mat2 = edited.to_numpy(dtype=float)
+            mat2 = edited.to_numpy(dtype=float).copy()
             # Obere Dreiecksmatrix auf untere spiegeln
             for r in range(n):
                 for c in range(r + 1, n):
@@ -2813,7 +2813,7 @@ def _step8():
         st.divider()
         _rcol_a, _rcol_b = st.columns(2)
         with _rcol_a:
-            if st.button('🔄  Neu berechnen', key='reopt', use_container_width=True,
+            if st.button('🔄  Neu berechnen', key='reopt', width='stretch',
                          help='Konfiguration behalten und Optimierung erneut starten – '
                               'z. B. nach Änderung einzelner Einstellungen.'):
                 S.opt_done     = False
@@ -2826,7 +2826,7 @@ def _step8():
                 S.hall_bytes   = None
                 st.rerun()
         with _rcol_b:
-            if st.button('↺  Neuen Spielplan erstellen', key='restart', use_container_width=True):
+            if st.button('↺  Neuen Spielplan erstellen', key='restart', width='stretch'):
                 for k, v in _DEFAULTS.items():
                     st.session_state[k] = v
                 st.rerun()
@@ -3693,7 +3693,7 @@ def _show_results():
                     if _rows_cmp:
                         st.markdown(f'**{_cr.cfg.name}**')
                         _cmp_frame = pd.DataFrame(_rows_cmp)
-                        st.dataframe(_cmp_frame, hide_index=True, use_container_width=True)
+                        st.dataframe(_cmp_frame, hide_index=True, width='stretch')
                         _cur_tot = sum(_cr.travels)
                         _prev_tot = sum(
                             v[0] for v in _cmp_lookup.values()
@@ -3862,7 +3862,7 @@ Außerdem je Liga verfügbar:
     _, btn_col, _ = st.columns([2, 3, 2])
     with btn_col:
         if st.button('Konfiguration starten →', type='primary',
-                     use_container_width=True, key='intro_start'):
+                     width='stretch', key='intro_start'):
             S._wizard_started = True
             st.rerun()
 
