@@ -594,7 +594,7 @@ def solve_league_phase1(cfg: LeagueConfig,
 
     t0       = time.time()
     callback = _ProgressCallback(cfg.league_id, cfg.name, t0)
-    status   = solver.SolveWithSolutionCallback(model, callback)
+    status   = solver.Solve(model, callback)
     elapsed = time.time() - t0
     mins, secs = int(elapsed // 60), int(elapsed % 60)
 

@@ -220,7 +220,7 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
     banner('SOLVER GESTARTET (PHASE 2)')
     t0     = time.time()
     _p2_cb._t0 = t0
-    status = solver.SolveWithSolutionCallback(model, _p2_cb)
+    status = solver.Solve(model, _p2_cb)
     elapsed = time.time() - t0
     mins_total, secs_total = int(elapsed // 60), int(elapsed % 60)
 
