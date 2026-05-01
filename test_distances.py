@@ -262,6 +262,51 @@ def main():
         return 'Netzwerkfehler korrekt als None zurueckgegeben'
     check('Netzwerkfehler -> None', t4_netzwerkfehler)
 
+    def t4_element_ok_ohne_distance():
+        """Status=OK aber distance-Key fehlt (malformed API response)."""
+        locs = ['Hamburg', 'Bremen', 'Berlin']
+        n = len(locs)
+        dist_row0 = [
+            {'status': 'OK', 'distance': {'value': 0},      'duration': {}},
+            {'status': 'OK', 'distance': {'value': 120000}, 'duration': {}},
+            {'status': 'OK'},   # distance-Key fehlt komplett
+        ]
+        dist_row1 = [
+            {'status': 'OK', 'distance': {'value': 120000}, 'duration': {}},
+            {'status': 'OK', 'distance': {'value': 0},      'duration': {}},
+            {'status': 'OK', 'distance': {'value': 395000}, 'duration': {}},
+        ]
+        dist_row2 = [
+            {'status': 'OK'},   # distance-Key fehlt
+            {'status': 'OK', 'distance': {'value': 395000}, 'duration': {}},
+            {'status': 'OK', 'distance': {'value': 0},      'duration': {}},
+        ]
+
+        responses = []
+        for row in [dist_row0, dist_row1, dist_row2]:
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.json.return_value = {'status': 'OK', 'rows': [{'elements': row}]}
+            responses.append(resp)
+        session = MagicMock()
+        session.get.side_effect = responses
+
+        from spielplan_multi.config import UNREACHABLE_KM
+        import sys as _sys
+        with tempfile.TemporaryDirectory() as td:
+            mock_stdin = MagicMock()
+            mock_stdin.isatty.return_value = False
+            with patch.object(_sys, 'stdin', mock_stdin), \
+                 patch('spielplan_multi.distances._build_session', return_value=session):
+                mat = calculate_distance_matrix(locs, 'KEY', Path(td) / 'c.json')
+
+        assert mat is not None, 'Malformed response sollte nicht None zurueckgeben'
+        assert mat[0, 1] == 120, f'Hamburg->Bremen sollte 120 sein, war {mat[0, 1]}'
+        assert mat[0, 2] == UNREACHABLE_KM, f'Fehlende distance sollte UNREACHABLE_KM sein'
+        assert mat[2, 0] == UNREACHABLE_KM
+        return f'status=OK ohne distance-Key -> UNREACHABLE_KM={UNREACHABLE_KM}'
+    check('status=OK aber distance-Key fehlt -> UNREACHABLE_KM (kein KeyError)', t4_element_ok_ohne_distance)
+
     print('\n--- Test 5: CSV/Excel laden ---')
 
     def t5_matrix_format_csv():
