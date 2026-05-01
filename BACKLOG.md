@@ -285,3 +285,17 @@ In `distances.py` kann `el['distance']['value']` einen KeyError werfen wenn die 
 **Beschreibung:**
 Folgende Dateien fehlen in der Dateistruktur (§2): `test_features.py`, `config_validator.py`. Je eine Zeile mit Kurzbeschreibung ergänzen.
 **Status:** Erledigt – test_features.py, config_validator.py, main.py, __main__.py, create_overview_doc.py alle in §2 ergänzt.
+
+---
+
+### [intern] Style-Cleanup: _clubs_excel_bytes und io-Import (app.py)
+
+**Typ:** Verbesserung
+**Bereich:** Streamlit-UI
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+Zwei Style-Punkte aus PR #7-Review:
+1. `_clubs_excel_bytes()` ist aktuell innerhalb von `_sidebar()` definiert (wird bei jedem Render neu erstellt). Sollte wie `_parse_club_upload` und `_load_excel_safe` auf Modulebene liegen.
+2. `import io as _io` steht innerhalb der Funktion – `io` ist stdlib und immer verfügbar, Import auf Modulebene verschieben, `_io`-Alias entfernen.
+**Status:** Offen
