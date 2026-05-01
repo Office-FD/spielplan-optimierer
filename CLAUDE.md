@@ -221,6 +221,7 @@ Zielfunktion: `sum(switch·scale·sw) - sum(sw_fair·scale·(max_sw-min_sw)) - s
 | `app.py:3769` | `S.step` außerhalb [0,8] → IndexError | `max(0,min(S.step,8))` Clamp |
 | `calendar_parser.py` | DST-Blöcke mit Spieltagen außerhalb der Range → KeyError im Solver | `build_weekends()` filtert beide Tage |
 | `solver.py` | 4er-Fenster bei back-to-back-DST → INFEASIBLE | Fenster überspringt DST-Tage |
+| `solver.py` + `multi_solver.py` | OR-Tools 9.15 entfernte `SolveWithSolutionCallback()` → AttributeError in Phase 1+2 (kein Ergebnis, kein sichtbarer Fehler) | Auf `solver.Solve(model, callback)` umgestellt |
 
 ---
 
