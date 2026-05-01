@@ -423,21 +423,43 @@ def _sidebar():
                         st.session_state.extra_clubs = _extra_now
                         st.rerun()
 
-            # ── Aktuelle Liste als CSV herunterladen ─────────────────────────
-            _csv_lines = ['Verein,Stadt,Adresse']
-            for _r in _all_clubs:
-                _v = _r.get('verein', _r.get('teamname', ''))
-                _s = ''; _a = _r.get('adresse', '')
-                _csv_lines.append(f'{_v},{_s},{_a}')
-            _csv_bytes = '\n'.join(_csv_lines).encode('utf-8-sig')
+            # ── Aktuelle Liste als Excel herunterladen ───────────────────────
+            def _clubs_excel_bytes(clubs: list) -> bytes:
+                from openpyxl import Workbook
+                from openpyxl.styles import Font, PatternFill
+                wb = Workbook()
+                ws = wb.active
+                ws.title = 'Vereinsdatenbank'
+                headers = ['Liga', 'Verein', 'Teamname', 'Adresse']
+                hdr_fill = PatternFill('solid', fgColor='1F4E79')
+                hdr_font = Font(bold=True, color='FFFFFF')
+                for ci, h in enumerate(headers, 1):
+                    cell = ws.cell(1, ci, h)
+                    cell.fill = hdr_fill
+                    cell.font = hdr_font
+                for r in clubs:
+                    ws.append([
+                        r.get('liga', ''),
+                        r.get('verein', r.get('teamname', '')),
+                        r.get('teamname', ''),
+                        r.get('adresse', ''),
+                    ])
+                for col in ws.columns:
+                    ws.column_dimensions[col[0].column_letter].width = max(
+                        len(str(c.value or '')) for c in col) + 4
+                import io as _io
+                buf = _io.BytesIO()
+                wb.save(buf)
+                return buf.getvalue()
+
             st.download_button(
-                'Aktuelle Liste als CSV',
-                data=_csv_bytes,
-                file_name='clubs_db.csv',
-                mime='text/csv',
-                key='dl_clubs_csv',
-                help='CSV herunterladen → als clubs_db.csv im Programmordner speichern, '
-                     'um die Liste dauerhaft zu übernehmen.',
+                'Aktuelle Liste als Excel herunterladen',
+                data=_clubs_excel_bytes(_all_clubs),
+                file_name='clubs_db.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                key='dl_clubs_xlsx',
+                help='Excel-Datei mit allen Einträgen (Liga / Verein / Teamname / Adresse). '
+                     'Kann direkt wieder hochgeladen werden.',
             )
 
             _extra = st.session_state.get('extra_clubs', [])
