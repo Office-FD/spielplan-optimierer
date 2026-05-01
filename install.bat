@@ -10,9 +10,19 @@ echo   FLOORBALL VERBAND DEUTSCHLAND (FD)
 echo  ============================================================
 echo.
 
-:: ── Python prüfen ────────────────────────────────────────────────────────────
+:: ── Python ermitteln (python oder py-Launcher) ───────────────────────────────
+set PYTHON=
 python --version >nul 2>&1
-if %errorlevel% neq 0 (
+if %errorlevel% equ 0 (
+    set PYTHON=python
+) else (
+    py --version >nul 2>&1
+    if %errorlevel% equ 0 (
+        set PYTHON=py
+    )
+)
+
+if "%PYTHON%"=="" (
     echo  Python wurde nicht gefunden.
     echo.
     echo  Versuche automatische Installation via winget...
@@ -43,14 +53,14 @@ if %errorlevel% neq 0 (
 )
 
 :: ── Python-Version anzeigen ──────────────────────────────────────────────────
-for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set PYVER=%%v
-echo  Python %PYVER% gefunden.
+for /f "tokens=2 delims= " %%v in ('%PYTHON% --version 2^>^&1') do set PYVER=%%v
+echo  Python %PYVER% gefunden (via %PYTHON%).
 echo.
 
 :: ── Virtuelle Umgebung erstellen ─────────────────────────────────────────────
 if not exist ".venv\Scripts\activate.bat" (
     echo  Erstelle virtuelle Umgebung (.venv)...
-    python -m venv .venv
+    %PYTHON% -m venv .venv
     if !errorlevel! neq 0 (
         echo.
         echo  [FEHLER] Virtuelle Umgebung konnte nicht erstellt werden.
