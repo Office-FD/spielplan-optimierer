@@ -127,7 +127,12 @@ def calculate_distance_matrix(locations: List[str],
 
         for j, el in enumerate(elements):
             if el.get('status') == 'OK':
-                dist[i, j] = int(el['distance']['value'] / 1000)
+                try:
+                    dist[i, j] = int(el['distance']['value'] / 1000)
+                except (KeyError, TypeError):
+                    warn(f'Unvollstaendige API-Antwort fuer {locations[i]} -> {locations[j]}, '
+                         f'setze {UNREACHABLE_KM} km')
+                    dist[i, j] = UNREACHABLE_KM
             else:
                 warn(f'Keine Route {locations[i]} -> {locations[j]}, setze {UNREACHABLE_KM} km')
                 dist[i, j] = UNREACHABLE_KM
