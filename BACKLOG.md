@@ -248,7 +248,7 @@ Bei jedem Commit auf Windows erscheinen CRLF-Warnungen. `.gitattributes` mit `*.
 **Aufwand:** Klein
 **Beschreibung:**
 In `distances.py` kann `el['distance']['value']` einen KeyError werfen wenn die API eine unvollständige Response liefert (z.B. Status != OK). Pro Element try/except mit Fallback auf UNREACHABLE_KM einbauen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
