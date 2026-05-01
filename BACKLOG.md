@@ -236,7 +236,7 @@ Bei jedem Commit auf Windows erscheinen CRLF-Warnungen. `.gitattributes` mit `*.
 **Aufwand:** Mittel
 **Beschreibung:**
 `_parse_club_upload()`, `_load_teams_excel()` und `_load_full_config_excel()` in app.py haben alle dasselbe Pattern (pd.read_excel + fillna + strip columns + Exception-Handling). In eine gemeinsame Hilfsfunktion `_load_excel_safe()` zusammenführen.
-**Status:** Offen
+**Status:** Erledigt – _load_excel_safe() extrahiert; _parse_club_upload und _load_teams_excel nutzen sie. _load_full_config_excel verwendet pd.ExcelFile (anderes Muster, nicht refactored).
 
 ---
 
@@ -260,7 +260,7 @@ In `distances.py` kann `el['distance']['value']` einen KeyError werfen wenn die 
 **Aufwand:** Klein
 **Beschreibung:**
 `create_overview_doc.py` (434 Zeilen, generiert DOCX) ist nicht in CLAUDE.md erwähnt und `python-docx` fehlt in requirements.txt. Klären: produktionsrelevant → dokumentieren + requirements ergänzen; oder Wegwerfcode → in BACKLOG archivieren.
-**Status:** Offen
+**Status:** Erledigt – Standalone-Skript (kein Teil der App-Pipeline), in CLAUDE.md §2 dokumentiert. python-docx bleibt bewusst außerhalb von requirements.txt.
 
 ---
 
@@ -272,7 +272,7 @@ In `distances.py` kann `el['distance']['value']` einen KeyError werfen wenn die 
 **Aufwand:** Klein
 **Beschreibung:**
 `wizard.py` ist in CLAUDE.md als "Legacy CLI-Wizard" markiert, aber ungeklärt ob noch genutzt. Prüfen ob `__main__.py` noch importiert → falls nicht: entweder löschen oder in CLAUDE.md als "nur für Notfall ohne Streamlit" dokumentieren.
-**Status:** Offen
+**Status:** Erledigt – wizard.py ist aktiv: main.py importiert run_wizard(), Einstieg via python -m spielplan_multi. In CLAUDE.md §2 als CLI-Alternative korrekt dokumentiert.
 
 ---
 
@@ -284,4 +284,4 @@ In `distances.py` kann `el['distance']['value']` einen KeyError werfen wenn die 
 **Aufwand:** Klein
 **Beschreibung:**
 Folgende Dateien fehlen in der Dateistruktur (§2): `test_features.py`, `config_validator.py`. Je eine Zeile mit Kurzbeschreibung ergänzen.
-**Status:** Offen
+**Status:** Erledigt – test_features.py, config_validator.py, main.py, __main__.py, create_overview_doc.py alle in §2 ergänzt.

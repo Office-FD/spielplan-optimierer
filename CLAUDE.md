@@ -29,11 +29,16 @@ clubs_db.csv              ← Vereinsdatenbank mit Adressen (für Team-Suche in 
 test_all.py               ← Umfassende Tests (Solver, Constraints, Export)
 test_smoke.py             ← Schnelle Smoke-Tests
 test_distances.py         ← Distanzmatrix-Tests
+test_features.py          ← Feature-Tests (HTML-Druckansicht, iCal, Hallenbelegung, Co-Home)
+create_overview_doc.py    ← Standalone-Skript: generiert DOCX-Projektübersicht (python-docx nötig, nicht in requirements.txt; kein Teil der App-Pipeline)
 
 spielplan_multi/
   __init__.py
+  __main__.py             ← Einstiegspunkt für python -m spielplan_multi (ruft main.py auf)
+  main.py                 ← CLI-Pipeline: Wizard → solve_all → Excel-Export
   league_types.py         ← Datenklassen: LeagueConfig, LeagueVars, LeagueResult
   config.py               ← Solver-Gewichte (WEIGHT_LABELS, w_scaled), Teamfarben (get_team_color)
+  config_validator.py     ← Constraint-Vorab-Prüfung vor dem Solver: validate() → [{level, lid, msg}]
   multi_solver.py         ← Pipeline-Orchestrierung: Phase 1+2+3, run_phase1/2/3()
   solver.py               ← CP-SAT-Modellbau: build_league_vars(), add_league_objective()
   sa_refine.py            ← Simulated Annealing Phase 3: refine_schedule()
@@ -43,7 +48,7 @@ spielplan_multi/
   distances.py            ← Distanzmatrix: get_distance_matrix() per Google Maps API / CSV
   calendar_parser.py      ← Rahmenterminplan-Parser: parse_calendar(), build_weekends()
   ui.py                   ← CLI-Ausgabe: banner(), step(), ok(), warn(), err(), info()
-  wizard.py               ← (Legacy CLI-Wizard, nicht mehr primärer Einstieg)
+  wizard.py               ← CLI-Wizard (Alternative zu Streamlit): Schritt-für-Schritt-Konfiguration via Terminal; Einstieg über python -m spielplan_multi
 ```
 
 ---

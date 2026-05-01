@@ -118,21 +118,42 @@ def load_club_db() -> List[dict]:
     return base + extra
 
 
+def _load_excel_safe(
+    uploaded_file,
+    sheet_name: Optional[str] = None,
+    nrows: Optional[int] = None,
+    label: str = 'Excel-Datei',
+) -> Optional[pd.DataFrame]:
+    """Liest eine Excel-Datei ein und zeigt bei Fehler st.error(). Gibt None bei Fehler zurück."""
+    try:
+        df = pd.read_excel(uploaded_file, sheet_name=sheet_name, dtype=str, nrows=nrows).fillna('')
+        df.columns = [c.strip() for c in df.columns]
+        return df
+    except zipfile.BadZipFile:
+        st.error(f'{label}: Datei ist beschädigt oder kein gültiges Excel-Format (.xlsx).')
+    except ValueError as exc:
+        st.error(f'{label}: Sheet nicht gefunden oder ungültiges Format: {exc}')
+    except Exception as exc:
+        st.error(f'{label}: Lesefehler: {exc}')
+    return None
+
+
 def _parse_club_upload(uploaded_file) -> List[dict]:
     """Liest Excel (Liga/Verein/Teamname/Adresse) oder CSV (Verein/Stadt) → Datensatz-Liste."""
-    try:
-        fname = getattr(uploaded_file, 'name', '')
-        if fname.lower().endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(uploaded_file, dtype=str, nrows=2000).fillna('')
-        else:
+    fname = getattr(uploaded_file, 'name', '')
+    df: Optional[pd.DataFrame] = None
+    if fname.lower().endswith(('.xlsx', '.xls')):
+        df = _load_excel_safe(uploaded_file, nrows=2000, label='Vereinsdatei')
+    else:
+        try:
             df = pd.read_csv(uploaded_file, encoding='utf-8-sig', dtype=str, nrows=2000).fillna('')
-        df.columns = [c.strip() for c in df.columns]
-        return _records_from_df(df)
-    except zipfile.BadZipFile:
-        st.error('Die Datei ist beschädigt oder kein gültiges Excel-Format (.xlsx).')
-    except Exception as exc:
-        st.error(f'Fehler beim Lesen der Vereinsdatei: {exc}')
-    return []
+            df.columns = [c.strip() for c in df.columns]
+        except Exception as exc:
+            st.error(f'Fehler beim Lesen der Vereinsdatei: {exc}')
+            return []
+    if df is None:
+        return []
+    return _records_from_df(df)
 
 # ── Seitenkonfiguration ───────────────────────────────────────────────────────
 st.set_page_config(
@@ -564,9 +585,10 @@ def _teams_excel_bytes(leagues: dict, league_order: list) -> bytes:
 
 def _load_teams_excel(uploaded_file) -> Optional[dict]:
     """Liest die Excel-Vorlage und gibt {league_order, leagues} zurück."""
+    df = _load_excel_safe(uploaded_file, sheet_name='Ligen & Teams', nrows=500, label='Konfigurationsdatei')
+    if df is None:
+        return None
     try:
-        df = pd.read_excel(uploaded_file, sheet_name='Ligen & Teams', dtype=str, nrows=500).fillna('')
-        df.columns = [c.strip() for c in df.columns]
         if 'Spielformat' in df.columns and 'Format' not in df.columns:
             df.rename(columns={'Spielformat': 'Format'}, inplace=True)
         required = {'Liga-ID', 'Teamname'}
@@ -610,14 +632,8 @@ def _load_teams_excel(uploaded_file) -> Optional[dict]:
             st.error('Keine Ligen gefunden. Bitte prüfen, ob die Liga-ID-Spalte korrekt befüllt ist.')
             return None
         return {'league_order': league_order, 'leagues': leagues}
-    except zipfile.BadZipFile:
-        st.error('Die Datei ist beschädigt oder kein gültiges Excel-Format (.xlsx).')
-        return None
-    except ValueError as exc:
-        st.error(f'Sheet nicht gefunden oder ungültiges Format: {exc}')
-        return None
     except Exception as exc:
-        st.error(f'Lesefehler beim Import: {exc}')
+        st.error(f'Fehler beim Verarbeiten der Excel-Datei: {exc}')
         return None
 
 
