@@ -411,6 +411,15 @@ def build_league_vars(model: cp_model.CpModel,
             if d in days:
                 model.Add(home[ti, d] == 0)
 
+    # Heimspiel-Pflichttage
+    for team, force_days in getattr(cfg, 'forced_home', {}).items():
+        ti = t_idx.get(team)
+        if ti is None:
+            continue
+        for d in force_days:
+            if d in days:
+                model.Add(home[ti, d] == 1)
+
     return LeagueVars(
         x=x, h=h, home=home, switch=switch,
         sw_count=sw_count, travel=travel,

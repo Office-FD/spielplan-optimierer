@@ -150,6 +150,15 @@ def build_league_excel(result: LeagueResult) -> Workbook:
         kv(r, 'Keine', ''); r += 1
     r += 1
 
+    sec(r, 'HEIMSPIEL-PFLICHTTAGE'); r += 1
+    forced_home = getattr(cfg, 'forced_home', {})
+    if forced_home:
+        for t, fdays in forced_home.items():
+            kv(r, t + ':', ', '.join(f'ST{d}' for d in fdays)); r += 1
+    else:
+        kv(r, 'Keine', ''); r += 1
+    r += 1
+
     sec(r, 'STATISTIKEN'); r += 1
     kv(r, 'Gesamt-km:', f'{total_km} km'); r += 1
     kv(r, 'O km/Team:', f'{np.mean(result.travels):.1f} km'); r += 1

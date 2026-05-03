@@ -120,6 +120,11 @@ def refine_schedule(result: LeagueResult,
         for t, days in cfg.blocked.items() if t in t_idx
     }
 
+    forced_by: Dict[int, set] = {
+        t_idx[t]: set(fdays)
+        for t, fdays in getattr(cfg, 'forced_home', {}).items() if t in t_idx
+    }
+
     pinned_set: set = set()
     for pm in cfg.pinned:
         a_name, b_name = pm.get('teamA', ''), pm.get('teamB', '')
@@ -196,6 +201,14 @@ def refine_schedule(result: LeagueResult,
         if hd in blocked_by.get(new_hin_h,  set()):
             continue
         if rd in blocked_by.get(new_ruec_h, set()):
+            continue
+
+        # Pflichttag-Check: aktuelles Heimteam darf nicht auf Pflichttag zu Auswärts werden
+        old_hin_h  = ai if a_home_hin[pid] else bi
+        old_ruec_h = bi if a_home_hin[pid] else ai
+        if hd in forced_by.get(old_hin_h,  set()):
+            continue
+        if rd in forced_by.get(old_ruec_h, set()):
             continue
 
         new_hv = bi if a_home_hin[pid] else ai

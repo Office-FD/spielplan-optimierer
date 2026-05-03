@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional
 
 from ortools.sat.python import cp_model
@@ -72,7 +72,7 @@ def run_phase1(cfgs: Dict[str, LeagueConfig],
     ]
 
     raw: Dict[str, list] = {lid: [] for lid in active}
-    with ProcessPoolExecutor(max_workers=n_jobs) as pool:
+    with ThreadPoolExecutor(max_workers=n_jobs) as pool:
         futures = {pool.submit(_phase1_worker, task): task[0] for task in tasks}
         for f in as_completed(futures):
             try:

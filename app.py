@@ -10,6 +10,7 @@ Starten:
 from __future__ import annotations
 
 import io
+import json
 import math
 import queue
 import re
@@ -32,7 +33,7 @@ if str(_HERE) not in sys.path:
 
 from spielplan_multi.config import WEIGHT_SCALES
 from spielplan_multi.calendar_parser import build_weekends
-from spielplan_multi.league_types import LeagueConfig
+from spielplan_multi.league_types import LeagueConfig, LeagueResult
 from spielplan_multi.multi_solver import solve_all
 from spielplan_multi.schedule_utils import (
     recompute_result_stats  as _recompute_result_stats_fn,
@@ -251,7 +252,9 @@ _DEFAULTS: dict = dict(
     w_cohome=5.0,
     pinned={},            # {lid: [{'teamA','teamB','day','home'}]}
     blocked={},           # {lid: {team:[days]}}
+    forced_home={},       # {lid: {team:[days]}}
     clubs={},             # {club_name: {lid: team}}
+    team_verein_map={},   # {teamname: verein} – beim Hinzufügen aus DB befüllt
     solver=dict(p1=900, p2=5400, nm=False, seeds=2, sa=120),
     opt_running=False,
     opt_done=False,
@@ -275,6 +278,31 @@ for _k, _v in _DEFAULTS.items():
         st.session_state[_k] = _v
 
 S = st.session_state
+
+
+# ── Sitzung-laden-Dialog ──────────────────────────────────────────────────────
+@st.dialog('Gespeicherte Sitzung laden')
+def _show_load_session_dialog():
+    st.caption(
+        'Lade eine zuvor gespeicherte Sitzungs-Datei (.json), um direkt zur '
+        'Ergebnisansicht zu springen – inkl. Spielzeiten zuweisen, '
+        'Spiele verschieben und Absagen & Nachholspiele.'
+    )
+    _up = st.file_uploader(
+        'Sitzungs-Datei (.json)',
+        type=['json'],
+        key='sess_dlg_upload',
+        label_visibility='collapsed',
+    )
+    if _up is not None:
+        with st.spinner('Sitzung wird geladen…'):
+            _err = _session_from_json(_up.getvalue())
+        if _err:
+            st.error(f'Fehler beim Laden: {_err}')
+        else:
+            S.step     = 8
+            S.max_step = 8
+            st.rerun()
 
 
 # ── Backlog-Dialog ────────────────────────────────────────────────────────────
@@ -469,7 +497,9 @@ def _sidebar():
                 if st.button('Eigene Einträge entfernen', key='clear_extra'):
                     st.session_state.extra_clubs = []
                     st.rerun()
-        st.caption('v1.0 · Spielplan-Optimierer')
+        st.caption('v1.1 · Spielplan-Optimierer')
+        if st.button('💾 Gespeicherte Sitzung laden', width='stretch'):
+            _show_load_session_dialog()
         if st.button('📋 Funktionswunsch / Fehler melden', width='stretch'):
             _show_backlog_dialog()
 
@@ -839,9 +869,22 @@ def _full_config_excel_bytes() -> bytes:
             _d(ws_b, br, 3, ', '.join(str(d) for d in sorted(days)))
             br += 1
 
-    # ── Sheet 9: Co-Home ──────────────────────────────────────────────────────
+    # ── Sheet 9: Pflichtheim ──────────────────────────────────────────────────
+    ws_fh = wb.create_sheet('Pflichtheim')
+    _set_col_w(ws_fh, [16, 30, 30])
+    for col, h in enumerate(['Liga-ID', 'Team', 'Spieltage'], 1):
+        _h(ws_fh, 1, col, h)
+    fhr = 2
+    for lid in S.league_order:
+        for team, days in S.forced_home.get(lid, {}).items():
+            _d(ws_fh, fhr, 1, lid)
+            _d(ws_fh, fhr, 2, team)
+            _d(ws_fh, fhr, 3, ', '.join(str(d) for d in sorted(days)))
+            fhr += 1
+
+    # ── Sheet 10: Co-Home ─────────────────────────────────────────────────────
     # Automatisch erkannte Vereine als Basis, explizit konfigurierte haben Vorrang
-    _auto_clubs = _autodetect_cohome(S.league_order, S.leagues, load_club_db())
+    _auto_clubs = _autodetect_cohome(S.league_order, S.leagues, load_club_db(), S.team_verein_map)
     _all_clubs: Dict[str, Dict[str, str]] = dict(_auto_clubs)
     _all_clubs.update(S.clubs)
 
@@ -1091,6 +1134,25 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                     pass
             result['blocked'] = blocked
 
+        # Pflichtheim
+        if 'Pflichtheim' in sn:
+            df_fh = xl.parse('Pflichtheim', dtype=str).fillna('')
+            forced_home_loaded: dict = {}
+            for _, row in df_fh.iterrows():
+                lid  = str(row.get('Liga-ID', '')).strip()
+                team = str(row.get('Team',    '')).strip()
+                if not lid or lid.lower() == 'nan' or not team or team.lower() == 'nan':
+                    continue
+                try:
+                    days_str = str(row.get('Spieltage', '') or '').strip()
+                    days = sorted({int(x.strip()) for x in days_str.split(',')
+                                   if x.strip() and x.strip() != 'nan'})
+                    if days:
+                        forced_home_loaded.setdefault(lid, {})[team] = days
+                except Exception:
+                    pass
+            result['forced_home'] = forced_home_loaded
+
         # Co-Home
         if 'Co-Home' in sn:
             df_c = xl.parse('Co-Home', dtype=str).fillna('')
@@ -1231,8 +1293,23 @@ def _step0():
                         S.pinned = parsed['pinned']
                     if 'blocked' in parsed:
                         S.blocked = parsed['blocked']
+                    if 'forced_home' in parsed:
+                        S.forced_home = parsed['forced_home']
                     if 'clubs' in parsed:
                         S.clubs = parsed['clubs']
+                    # team_verein_map aus DB für alle geladenen Teams aufbauen
+                    _db_tv = {r['teamname']: (r['verein'] or r['teamname'])
+                              for r in load_club_db() if r.get('verein')}
+                    _tvm: dict = {}
+                    for _lid in S.league_order:
+                        for _tn, _ in S.leagues.get(_lid, {}).get('teams', []):
+                            if _tn in _db_tv:
+                                _tvm[_tn] = _db_tv[_tn]
+                            else:
+                                _norm = _normalize_club_name(_tn)
+                                if _norm in _db_tv:
+                                    _tvm[_tn] = _db_tv[_norm]
+                    S.team_verein_map = _tvm
                     n_loaded = len(parsed['league_order'])
                     n_teams  = sum(len(v['teams']) for v in parsed['leagues'].values())
                     st.session_state['_pending_n_ligen'] = n_loaded
@@ -1303,7 +1380,8 @@ def _step0():
             _sd.pop(_removed, None)
 
     club_records = load_club_db()
-    club_adresse = {r['teamname']: r['adresse'] for r in club_records}
+    club_adresse  = {(r['verein'] or r['teamname']): r['adresse']  for r in club_records}
+    club_teamname = {(r['verein'] or r['teamname']): r['teamname'] for r in club_records}
     SEARCH_PH  = '– Verein suchen –'
     MANUAL_OPT = '(Manuell eingeben)'
 
@@ -1315,7 +1393,7 @@ def _step0():
         _liga_nm = ld.get('name', '').lower()
         _filtered = [r for r in club_records if r['liga'] and r['liga'].lower() == _liga_nm]
         club_opts = [SEARCH_PH, MANUAL_OPT] + sorted(set(
-            r['teamname'] for r in (_filtered if _filtered else club_records)
+            r['verein'] or r['teamname'] for r in (_filtered if _filtered else club_records)
         ))
         _exp_key = f'_exp_{lid}'
         if _exp_key not in st.session_state:
@@ -1326,7 +1404,9 @@ def _step0():
             # ── Liga-Metadaten ────────────────────────────────────────────────
             c1, c2, c3 = st.columns([2, 3, 2])
             with c1:
-                new_lid = st.text_input('Liga-ID', lid, key=f'lid_{i}',
+                if f'lid_{i}' not in st.session_state:
+                    st.session_state[f'lid_{i}'] = lid
+                new_lid = st.text_input('Liga-ID', key=f'lid_{i}',
                     help='Kurzkürzel ohne Leerzeichen, z. B. BL1').strip().upper()
             with c2:
                 ld['name'] = st.text_input('Ligabezeichnung', ld['name'], key=f'lnm_{i}')
@@ -1654,10 +1734,10 @@ def _step0():
 
             # on_change: Felder automatisch befüllen wenn Team aus DB gewählt
             def _on_club_select(k_sel=f'cs_{lid}', k_name=f'atn_{lid}',
-                                k_city=f'acy_{lid}', _adr=club_adresse):
+                                k_city=f'acy_{lid}', _adr=club_adresse, _tnm=club_teamname):
                 sel = st.session_state.get(k_sel, SEARCH_PH)
                 if sel not in (SEARCH_PH, MANUAL_OPT):
-                    st.session_state[k_name] = sel
+                    st.session_state[k_name] = _tnm.get(sel, sel)
                     st.session_state[k_city] = _adr.get(sel, '')
                 elif sel == MANUAL_OPT:
                     st.session_state[k_name] = ''
@@ -1710,6 +1790,10 @@ def _step0():
                 if t:
                     teams.append((t, c))
                     ld['teams'] = teams
+                    # Verein-Mapping speichern wenn Team aus DB gewählt wurde
+                    _sel_v = st.session_state.get(f'cs_{lid}', SEARCH_PH)
+                    if _sel_v not in (SEARCH_PH, MANUAL_OPT):
+                        S.team_verein_map[t] = _sel_v
                     st.session_state[f'_exp_{lid}'] = True
                     st.session_state[f'_reset_{lid}'] = True
                     st.rerun()
@@ -2335,15 +2419,15 @@ def _step4():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SCHRITT 5 – Sperrtage
+# SCHRITT 5 – Sperrtage & Pflichttage
 # ═══════════════════════════════════════════════════════════════════════════════
 def _step5():
-    st.header('6. Heimspiel-Sperrtage (optional)')
-    st.info('Spieltage, an denen ein Team kein Heimspiel austragen darf (z. B. Hallensperrung).')
+    st.header('6. Heim-Einschränkungen (optional)')
 
-    has_any = any(S.blocked.get(lid) for lid in S.league_order)
-    if not has_any:
-        if st.checkbox('Keine Sperrtage – Schritt überspringen', True, key='skip_blk'):
+    has_any_blk = any(S.blocked.get(lid) for lid in S.league_order)
+    has_any_frc = any(S.forced_home.get(lid) for lid in S.league_order)
+    if not has_any_blk and not has_any_frc:
+        if st.checkbox('Keine Heim-Einschränkungen – Schritt überspringen', True, key='skip_blk'):
             go_back, go_fwd = _nav()
             if go_back:
                 S.step = 4; st.rerun()
@@ -2351,6 +2435,9 @@ def _step5():
                 S.step = 6; st.rerun()
             return
 
+    # ── Sperrtage ────────────────────────────────────────────────────────────
+    st.subheader('Heimspiel-Sperrtage')
+    st.info('Spieltage, an denen ein Team kein Heimspiel austragen darf (z. B. Hallensperrung).')
     for lid in S.league_order:
         ld    = S.leagues[lid]
         teams = [t for t, _ in ld['teams']]
@@ -2394,6 +2481,55 @@ def _step5():
                     st.error('Bitte nur Zahlen eingeben, getrennt durch Kommas – zum Beispiel: 3, 7, 12')
         S.blocked[lid] = blocked
 
+    st.divider()
+
+    # ── Pflichtheim ──────────────────────────────────────────────────────────
+    st.subheader('Heimspiel-Pflichttage')
+    st.info('Spieltage, an denen ein Team zwingend Heimrecht haben muss '
+            '(z. B. weil die Halle nur an bestimmten Terminen verfügbar ist).')
+    for lid in S.league_order:
+        ld    = S.leagues[lid]
+        teams = [t for t, _ in ld['teams']]
+        if len(teams) < 4:
+            continue
+        n_rounds, _ = _get_n_rounds_gpd(ld)
+        n_md    = n_rounds * (len(teams) - 1)
+        forced  = S.forced_home.get(lid, {})
+
+        _ekey_f = f'_exp_frc_{lid}'
+        n_frc = sum(len(v) for v in forced.values())
+        if n_frc > 0:
+            st.session_state[_ekey_f] = True
+        elif _ekey_f not in st.session_state:
+            st.session_state[_ekey_f] = False
+        with st.expander(f'{ld["name"]}  ({n_frc} Pflichttage)', expanded=st.session_state[_ekey_f]):
+            for team, days_list in list(forced.items()):
+                c1, c2 = st.columns([5, 1])
+                c1.write(f'**{team}**: Spieltag(e) {days_list}')
+                if c2.button('✕', key=f'delf_{lid}_{team}'):
+                    del forced[team]
+                    S.forced_home[lid] = forced
+                    st.session_state[_ekey_f] = True
+                    st.rerun()
+
+            fa, fb, fc = st.columns([3, 4, 1])
+            ft_sel = fa.selectbox('Team', teams, key=f'ft_{lid}')
+            fd_raw = fb.text_input('Spieltage (kommagetrennt)', '', key=f'fd_{lid}',
+                placeholder='z. B.  1, 5, 9')
+            if fc.button('+ Pflichtheim', key=f'addf_{lid}'):
+                try:
+                    new_days = sorted({int(x.strip()) for x in fd_raw.split(',') if x.strip()})
+                    if not new_days or not all(1 <= d <= n_md for d in new_days):
+                        st.error(f'Bitte gültige Spieltagnummern zwischen 1 und {n_md} eingeben.')
+                    else:
+                        forced[ft_sel] = sorted(set(forced.get(ft_sel, [])) | set(new_days))
+                        S.forced_home[lid] = forced
+                        st.session_state[_ekey_f] = True
+                        st.rerun()
+                except Exception:
+                    st.error('Bitte nur Zahlen eingeben, getrennt durch Kommas – zum Beispiel: 1, 5, 9')
+        S.forced_home[lid] = forced
+
     go_back, go_fwd = _nav()
     if go_back:
         S.step = 4; st.rerun()
@@ -2416,25 +2552,33 @@ def _normalize_club_name(name: str) -> str:
 
 
 def _autodetect_cohome(league_order: list, leagues: dict,
-                       club_records: list) -> Dict[str, Dict[str, str]]:
+                       club_records: list,
+                       team_verein_map: dict | None = None) -> Dict[str, Dict[str, str]]:
     """Erkennt Vereine mit Teams in mehreren Ligen automatisch.
 
-    Methode 1: Vereinsdatenbank (verein-Feld verschieden von teamname)
-    Methode 2: Normalisierter Teamname (Suffixe I/II/2/Damen/... entfernen)
+    Methode 1: team_verein_map aus Session State (beim Hinzufügen aus DB befüllt)
+    Methode 2: Vereinsdatenbank (verein-Feld)
+    Methode 3: Normalisierter Teamname (Suffixe I/II/2/Damen/... entfernen)
 
     Gibt zurück: {vereinsname: {lid: teamname}} für Vereine in ≥2 Ligen.
     """
-    # Methode 1: explizites Verein-Feld aus der Vereinsdatenbank
+    # Basis: DB-Mapping teamname → verein
     team_to_verein: Dict[str, str] = {}
     for r in club_records:
         v, t = r.get('verein', ''), r.get('teamname', '')
-        if v and t and v != t:
+        if v and t:
             team_to_verein[t] = v
+    # Session-State-Mapping hat Vorrang (enthält auch manuell angepasste Teamnamen)
+    if team_verein_map:
+        team_to_verein.update(team_verein_map)
 
     groups: Dict[str, Dict[str, str]] = {}
     for lid in league_order:
         for team_name, _ in leagues.get(lid, {}).get('teams', []):
-            key = team_to_verein.get(team_name) or _normalize_club_name(team_name)
+            norm = _normalize_club_name(team_name)
+            key = (team_to_verein.get(team_name)
+                   or team_to_verein.get(norm)
+                   or norm)
             if not key:
                 continue
             if key not in groups:
@@ -2465,7 +2609,7 @@ def _step6():
     clubs: Dict[str, Dict[str, str]] = dict(S.clubs)
 
     # ── Automatische Erkennung ─────────────────────────────────────────────────
-    all_detected = _autodetect_cohome(S.league_order, S.leagues, club_records)
+    all_detected = _autodetect_cohome(S.league_order, S.leagues, club_records, S.team_verein_map)
     new_detected  = {v: lm for v, lm in all_detected.items() if v not in clubs}
 
     st.subheader('Automatisch erkannte Vereine')
@@ -2476,7 +2620,7 @@ def _step6():
         for verein_name, liga_map in new_detected.items():
             c1, c2 = st.columns([0.08, 0.92])
             with c1:
-                checked = st.checkbox('', value=True, key=f'auto_chk_{verein_name}',
+                checked = st.checkbox(verein_name, value=True, key=f'auto_chk_{verein_name}',
                                       label_visibility='collapsed')
             with c2:
                 lines = [f'**{verein_name}**']
@@ -2703,19 +2847,230 @@ def _step7():
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Sitzungs-Serialisierung (Ergebnisse speichern / laden)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _session_to_json() -> bytes:
+    """Serialisiert Konfiguration + Ergebnisse als JSON-Bytes (UTF-8)."""
+    dist_mat_data = {}
+    for lid, mat in (S.dist_matrices or {}).items():
+        if mat is not None and isinstance(mat, np.ndarray):
+            dist_mat_data[lid] = mat.tolist()
+
+    dst_data = {
+        lid: [list(b) for b in blocks]
+        for lid, blocks in (S.dst_per_liga or {}).items()
+    }
+
+    kw_compat_data = {
+        str(kw): kw_data for kw, kw_data in (S.kw_compat or {}).items()
+    }
+
+    routing_data = {
+        lid: [bool(v[0]), int(v[1])]
+        for lid, v in (S.routing or {}).items()
+    }
+
+    results_data: dict = {}
+    if S.results:
+        for lid, res in S.results.items():
+            if res is None:
+                continue
+            results_data[lid] = {
+                'schedule': {
+                    str(d): [[ht, at] for ht, at in games]
+                    for d, games in res.schedule.items()
+                },
+                'game_times': {
+                    str(d): times for d, times in (res.game_times or {}).items()
+                },
+                'groups': {
+                    str(d): [list(g) for g in grps]
+                    for d, grps in (res.groups or {}).items()
+                },
+                'hosts': {
+                    str(d): host for d, host in (res.hosts or {}).items()
+                },
+            }
+
+    data = {
+        'version': '1.0',
+        'config': {
+            'league_order': S.league_order,
+            'leagues':      S.leagues,
+            'dst_per_liga': dst_data,
+            'blocked':      S.blocked,
+            'forced_home':  getattr(S, 'forced_home', {}),
+            'pinned':       S.pinned,
+            'routing':      routing_data,
+            'clubs':        S.clubs,
+            'kw_compat':    kw_compat_data,
+            'w_cohome':     float(S.w_cohome),
+            'dist_matrices': dist_mat_data,
+        },
+        'results': results_data,
+    }
+    return json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+
+
+def _session_from_json(raw: bytes) -> str:
+    """Lädt Konfiguration + Ergebnisse aus JSON. Gibt '' bei Erfolg zurück, sonst Fehlertext."""
+    from ortools.sat.python import cp_model as _cp
+
+    try:
+        data = json.loads(raw.decode('utf-8'))
+    except Exception as exc:
+        return f'JSON-Lesefehler: {exc}'
+
+    cfg_data = data.get('config', {})
+    results_data = data.get('results', {})
+
+    # ── Konfiguration wiederherstellen ────────────────────────────────────────
+    if 'league_order' in cfg_data:
+        S.league_order = cfg_data['league_order']
+    if 'leagues' in cfg_data:
+        S.leagues = cfg_data['leagues']
+    if 'dst_per_liga' in cfg_data:
+        S.dst_per_liga = {
+            lid: [tuple(b) for b in blocks]
+            for lid, blocks in cfg_data['dst_per_liga'].items()
+        }
+    if 'blocked' in cfg_data:
+        S.blocked = cfg_data['blocked']
+    if 'forced_home' in cfg_data:
+        S.forced_home = cfg_data['forced_home']
+    if 'pinned' in cfg_data:
+        S.pinned = cfg_data['pinned']
+    if 'routing' in cfg_data:
+        S.routing = {
+            lid: (bool(v[0]), int(v[1]))
+            for lid, v in cfg_data['routing'].items()
+        }
+    if 'clubs' in cfg_data:
+        S.clubs = cfg_data['clubs']
+    if 'kw_compat' in cfg_data:
+        S.kw_compat = {int(kw): kw_data for kw, kw_data in cfg_data['kw_compat'].items()}
+    if 'w_cohome' in cfg_data:
+        S.w_cohome = float(cfg_data['w_cohome'])
+    if 'dist_matrices' in cfg_data:
+        S.dist_matrices = {
+            lid: np.array(mat) for lid, mat in cfg_data['dist_matrices'].items()
+        }
+
+    if not results_data:
+        return ''  # Nur Konfiguration geladen
+
+    # ── Spielpläne wiederherstellen ───────────────────────────────────────────
+    try:
+        cfgs = _build_league_configs()
+    except Exception as exc:
+        return f'Konfiguration unvollständig – Spielpläne konnten nicht geladen werden: {exc}'
+
+    from spielplan_multi.excel_output import (
+        build_league_excel, build_cohome_summary, build_hall_schedule,
+    )
+
+    S.results    = {}
+    S.excel_bytes = {}
+
+    for lid, res_data in results_data.items():
+        if lid not in cfgs:
+            continue
+        cfg = cfgs[lid]
+
+        schedule = {
+            int(d): [tuple(g) for g in games]
+            for d, games in res_data.get('schedule', {}).items()
+        }
+        game_times = {
+            int(d): times for d, times in res_data.get('game_times', {}).items()
+        }
+        groups = {
+            int(d): [list(g) for g in grps]
+            for d, grps in res_data.get('groups', {}).items()
+        }
+        hosts = {
+            int(d): host for d, host in res_data.get('hosts', {}).items()
+        }
+
+        result = LeagueResult(
+            league_id=lid,
+            status=_cp.FEASIBLE,
+            objective=0.0,
+            schedule=schedule,
+            sw_counts=[],
+            sw_rates=[],
+            travels=[],
+            mins=0,
+            secs=0,
+            home_vals={},
+            h_vals={},
+            x_vals={},
+            cfg=cfg,
+            groups=groups,
+            hosts=hosts,
+            game_times=game_times,
+        )
+        try:
+            travels, sw_counts, sw_rates = _recompute_result_stats_fn(result, cfg)
+            result.travels   = travels
+            result.sw_counts = sw_counts
+            result.sw_rates  = sw_rates
+        except Exception:
+            n_teams = cfg.n_teams
+            result.travels   = [0] * n_teams
+            result.sw_counts = [0] * n_teams
+            result.sw_rates  = [0.0] * n_teams
+        S.results[lid] = result
+
+        try:
+            wb  = build_league_excel(result)
+            buf = io.BytesIO()
+            wb.save(buf)
+            S.excel_bytes[lid] = buf.getvalue()
+        except Exception:
+            pass
+
+    if S.clubs and S.results:
+        try:
+            wb_ch  = build_cohome_summary(S.results, S.clubs, S.kw_compat)
+            buf_ch = io.BytesIO()
+            wb_ch.save(buf_ch)
+            S.cohome_bytes = buf_ch.getvalue()
+        except Exception:
+            pass
+
+    if S.results:
+        try:
+            wb_hall  = build_hall_schedule(S.results)
+            buf_hall = io.BytesIO()
+            wb_hall.save(buf_hall)
+            S.hall_bytes = buf_hall.getvalue()
+        except Exception:
+            pass
+
+    S.opt_done        = True
+    S._wizard_started = True
+    return ''
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # SCHRITT 8 – Optimierung & Ergebnisse
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _QueueWriter:
-    """Leitet sys.stdout im Hintergrund-Thread in eine Queue um."""
+    """Leitet sys.stdout aller Solver-Threads in eine Queue um."""
     def __init__(self, q: queue.Queue):
+        import threading as _threading
         self._q, self._buf = q, ''
+        self._lock = _threading.Lock()
 
     def write(self, text: str):
-        self._buf += text
-        while '\n' in self._buf:
-            line, self._buf = self._buf.split('\n', 1)
-            self._q.put(line)
+        with self._lock:
+            self._buf += text
+            while '\n' in self._buf:
+                line, self._buf = self._buf.split('\n', 1)
+                self._q.put(line)
 
     def flush(self):
         pass
@@ -2775,6 +3130,7 @@ def _build_league_configs() -> Dict[str, LeagueConfig]:
             pinned=S.pinned.get(lid, []),
             blocked=S.blocked.get(lid, {}),
             calendar=spieltage.get(lid, {}),
+            forced_home=S.forced_home.get(lid, {}),
             hier_weight=float(ld.get('hw', 1.0)),
             games_per_team_per_day=gpd,
             n_rounds=n_rounds,
@@ -2823,6 +3179,8 @@ def _validate_constraints() -> List[dict]:
         clubs         = S.clubs,
         calc_n_matchdays = _calc_n_matchdays,
         get_n_rounds_gpd = _get_n_rounds_gpd,
+        routing       = S.routing,
+        forced_home   = S.forced_home,
     )
 
 
@@ -2833,7 +3191,7 @@ def _step8():
     if S.opt_done and S.results is not None:
         _show_results()
         st.divider()
-        _rcol_a, _rcol_b = st.columns(2)
+        _rcol_a, _rcol_b, _rcol_c = st.columns(3)
         with _rcol_a:
             if st.button('🔄  Neu berechnen', key='reopt', width='stretch',
                          help='Konfiguration behalten und Optimierung erneut starten – '
@@ -2852,6 +3210,17 @@ def _step8():
                 for k, v in _DEFAULTS.items():
                     st.session_state[k] = v
                 st.rerun()
+        with _rcol_c:
+            st.download_button(
+                '💾  Sitzung speichern',
+                data=_session_to_json(),
+                file_name='spielplan_sitzung.json',
+                mime='application/json',
+                width='stretch',
+                key='dl_session',
+                help='Speichert Konfiguration und Spielpläne als JSON-Datei. '
+                     'Kann später über "Frühere Ergebnisse laden" wieder geöffnet werden.',
+            )
         return
 
     # Konfigurationsübersicht
@@ -3142,6 +3511,108 @@ def _regen_league_excel(lid: str, res) -> None:
     S.excel_bytes[lid] = _buf.getvalue()
 
 
+def _diagnose_infeasible_league(lid: str) -> None:
+    """Zeigt Diagnose-Hinweise wenn eine Liga keine Lösung hat."""
+    ld     = S.leagues.get(lid, {})
+    name   = ld.get('name', lid)
+    teams  = [t for t, _ in ld.get('teams', [])]
+    n      = len(teams)
+    n_rounds, gpd = _get_n_rounds_gpd(ld)
+    n_md   = n_rounds * max(1, (n - 1))
+    total_games = n * (n - 1) // 2 * n_rounds
+
+    # Status aus Log ableiten
+    log_text = '\n'.join(S.opt_log or [])
+    lid_log  = lid.replace(' ', ' ')  # normalize
+    is_infeasible = 'INFEASIBLE' in log_text and lid in log_text
+    is_unknown    = ('UNKNOWN'   in log_text and lid in log_text) or (
+                    'Keine Loesung' in log_text and lid in log_text)
+
+    hints: list = []
+
+    if is_infeasible:
+        hints.append(('error',
+            'Der Solver hat bewiesen, dass mit diesen Einstellungen kein gültiger '
+            'Spielplan existiert (INFEASIBLE). Es liegt ein echter Widerspruch in den '
+            'Constraints vor.'))
+    elif is_unknown:
+        hints.append(('warn',
+            'Der Solver hat das Zeitlimit erreicht, ohne eine Lösung zu finden (UNKNOWN). '
+            'Das bedeutet nicht zwingend, dass keine Lösung existiert.'))
+        hints.append(('suggestion', 'Zeitlimit für Phase 1 erhöhen (Schritt 8, empfohlen: 30–60 min pro Liga).'))
+        hints.append(('suggestion', 'Seeds erhöhen (3–5) um mehr Suchstrategien zu versuchen.'))
+
+    # Pflichtspiele-Dichte
+    pins = S.pinned.get(lid, [])
+    if total_games > 0 and len(pins) > total_games * 0.3:
+        pct = len(pins) * 100 // total_games
+        hints.append(('warn',
+            f'{len(pins)} von {total_games} Spielen ({pct}%) sind Pflichtspiele – '
+            f'das schränkt den Solver stark ein.'))
+        hints.append(('suggestion', 'Pflichtspiele auf die wirklich notwendigen reduzieren.'))
+
+    # Sperrtage-Dichte
+    blk = S.blocked.get(lid, {})
+    for team, bdays in blk.items():
+        cnt = sum(1 for d in bdays if 1 <= d <= n_md)
+        if cnt >= n_md // 2:
+            hints.append(('warn',
+                f'Team «{team}» hat {cnt} von {n_md} Spieltagen gesperrt '
+                f'({cnt * 100 // n_md}%). '
+                'Heimspiele sind für dieses Team kaum planbar.'))
+            hints.append(('suggestion',
+                f'Sperrtage für «{team}» reduzieren oder Zeitlimit erhöhen.'))
+
+    # Pflichtheim-Dichte
+    frc = S.forced_home.get(lid, {})
+    for team, fdays in frc.items():
+        cnt = sum(1 for d in fdays if 1 <= d <= n_md)
+        if cnt > n_md // 2:
+            hints.append(('warn',
+                f'Team «{team}» hat {cnt} Pflichtheim-Tage bei nur {n_md} Spieltagen – '
+                'dies kann mit anderen Constraints kollidieren.'))
+            hints.append(('suggestion',
+                f'Pflichtheim-Tage für «{team}» reduzieren.'))
+
+    # DST + Routing
+    rt_on, rt_pct = S.routing.get(lid, (False, 25))
+    dst = S.dst_per_liga.get(lid, [])
+    if rt_on and dst and rt_pct < 100:
+        hints.append(('warn',
+            f'DST-Routing aktiv mit {rt_pct}% Toleranz. '
+            'Bei niedrigen Werten kann die Routing-Einschränkung in Verbindung mit '
+            'Sperrtagen unlösbar werden.'))
+        hints.append(('suggestion',
+            f'Routing-Toleranz erhöhen (≥ 100%, aktuell {rt_pct}%) oder deaktivieren.'))
+
+    # DST + Sperrtage kombiniert
+    for d1, d2 in dst:
+        for team in teams:
+            bdays_set = set(blk.get(team, []))
+            if d1 in bdays_set and d2 in bdays_set:
+                hints.append(('error',
+                    f'Team «{team}» hat BEIDE DST-Tage (ST{d1}/ST{d2}) gesperrt. '
+                    'Der DST-Constraint erzwingt gleiches Heimrecht an beiden Tagen, '
+                    'Sperrtage erzwingen Auswärts → unlösbar.'))
+                hints.append(('suggestion',
+                    f'Mindestens einen der Sperrtage ST{d1}/ST{d2} für «{team}» entfernen.'))
+
+    if not hints:
+        hints.append(('warn',
+            'Keine offensichtliche Ursache ermittelt. Der Solver hat keine Lösung gefunden.'))
+        hints.append(('suggestion',
+            'Zeitlimit und Seeds erhöhen. Falls das nicht hilft, Constraints schrittweise lockern.'))
+
+    with st.expander(f'🔍  Diagnose: **{name}** – Keine Lösung', expanded=True):
+        for kind, msg in hints:
+            if kind == 'error':
+                st.error(msg)
+            elif kind == 'warn':
+                st.warning(msg)
+            elif kind == 'suggestion':
+                st.info(f'💡 {msg}')
+
+
 def _show_results():
     st.success('✅ Optimierung abgeschlossen!')
 
@@ -3152,6 +3623,11 @@ def _show_results():
         st.error('Keine Ergebnisse vorhanden.')
         return
 
+    # Diagnose für Ligen ohne Lösung
+    for _flid, _fres in S.results.items():
+        if _fres is None:
+            _diagnose_infeasible_league(_flid)
+
     # Kennzahlen
     cols = st.columns(max(1, len(S.results)))
     for i, (lid, res) in enumerate(S.results.items()):
@@ -3159,9 +3635,11 @@ def _show_results():
             continue
         with cols[i]:
             name = res.cfg.name if res.cfg else lid
+            _sw = res.sw_counts or []
+            _sw_label = f'Wechsel: {min(_sw)}–{max(_sw)}' if _sw else 'Wechsel: –'
             st.metric(name,
                       f'{sum(res.travels):,} km gesamt',
-                      f'Wechsel: {min(res.sw_counts)}–{max(res.sw_counts)}')
+                      _sw_label)
 
     # Warnungen zur Plan-Qualität
     _all_warnings: list = []
@@ -3781,7 +4259,8 @@ def _step_intro():
 - Doppelspieltage (DST) mit konsistentem Heimrecht
 - Vereine mit Teams in mehreren Ligen koordinieren (gleiche Heimspielwochen)
 - Pflichtspiele auf bestimmte Spieltage festlegen
-- Heimspiel-Sperrtage pro Team (z. B. Hallensperrung)
+- Heimspiel-Sperrtage pro Team (z. B. Hallensperrung, kein Heimspiel an Spieltag X)
+- Heimspiel-Pflichttage pro Team (z. B. Halle nur an bestimmten Spieltagen verfügbar)
 - Rahmenterminplan aus Excel einlesen (Kalenderwochen-Zuordnung)
 
 **Distanzberechnung**
@@ -3792,8 +4271,10 @@ def _step_intro():
 **Nach der Optimierung**
 - Einzelne Spiele manuell verschieben
 - Spiele als ausgefallen markieren und Nachholtermin einplanen
+- Spielzeiten (Anstoßzeiten) je Spieltag zuweisen
 - Spielplan-Qualität prüfen (automatische Warnungen)
 - Zwei Läufe direkt nebeneinander vergleichen
+- Sitzung speichern und jederzeit wieder laden – inkl. aller Bearbeitungsoptionen
 - Excel, iCal-Kalender und druckbare HTML-Ansicht herunterladen
         ''')
 
@@ -3847,28 +4328,31 @@ Außerdem je Liga verfügbar:
   der Spielplan weist Spieltage Kalenderwochen zu; genaue Ansetzungen
   macht der zuständige Staffelleiter
 - Schiedsrichter-Ansetzungen sind nicht Teil der Optimierung
-- Spielzeiten (Anstoßzeiten) können nach der Optimierung
-  manuell in der Excel-Datei eingetragen werden
 
-**Technische Voraussetzungen**
-- Distanzmatrix muss einmalig bereitgestellt werden:
-  entweder per Google Maps API-Schlüssel oder als manuelle Eingabe
-- Konfigurationen werden nicht dauerhaft gespeichert –
-  nach der Optimierung die Konfig-Excel herunterladen
+**Speichern & Wiederherstellen**
+- Konfiguration: als Excel-Datei jederzeit speichern und wieder laden
+- Ergebnisse & Spielpläne: als Sitzungs-Datei (.json) speichern –
+  über die Seitenleiste jederzeit wieder laden, um Spielzeiten zuzuweisen,
+  Spiele zu verschieben oder Absagen zu verwalten
+- Distanzmatrix muss einmalig bereitgestellt werden
+  (Google Maps API-Schlüssel oder manuelle Eingabe)
         ''')
     with lim_b:
         st.markdown('''
 **Laufzeit & Lösungsqualität**
 - Die Optimierung dauert je nach Ligagröße und Einstellungen
   **mehrere Stunden** – ein Nachtlauf wird für mehrere Ligen empfohlen
-- Der Optimierer liefert immer einen Spielplan, sofern mathematisch möglich.
-  Sind die Vorgaben jedoch widersprüchlich (zu viele Sperrtage, zu viele
-  Pflichtspiele auf denselben Spieltagen), kann es zu **„Keine Lösung
-  gefunden"** kommen. Dann hilft: Zeitlimit erhöhen, Constraints lockern
-  oder Pflichtspiele reduzieren.
 - Das Ergebnis ist ein sehr guter, aber nicht zwingend der mathematisch
   optimale Plan – das wäre bei dieser Problemgröße nicht in vertretbarer
   Zeit berechenbar
+- Vor dem Start prüft der Optimierer die Konfiguration automatisch auf
+  Widersprüche und gibt verständliche Fehlermeldungen
+
+**„Keine Lösung gefunden"**
+- Tritt auf, wenn Vorgaben widersprüchlich sind (z. B. zu viele Sperr-
+  oder Pflichttage, zu viele Pflichtspiele) oder das Zeitlimit erreicht wird
+- Der Optimierer zeigt dann eine **automatische Diagnose** mit den
+  wahrscheinlichen Ursachen und konkreten Verbesserungsvorschlägen
 
 **Turniertag**
 - Beim Turniertag-Format mit Gruppen (Stufe 2) werden die Gruppen je

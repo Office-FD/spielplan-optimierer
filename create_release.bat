@@ -5,7 +5,7 @@ title Release-Paket erstellen
 
 :: ── Version festlegen ────────────────────────────────────────────────────────
 :: Anpassen vor jedem Release
-set VERSION=1.0.0-beta1
+set VERSION=1.1.0-beta1
 set ZIPNAME=Spielplan-Optimierer-v%VERSION%.zip
 
 echo.

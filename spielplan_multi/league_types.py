@@ -25,6 +25,7 @@ class LeagueConfig:
     blocked:        Dict[str, List[int]]  # Heimspiel-Sperrtage
     # Kalender: spieltag_nr -> {kw, week_start, week_end}
     calendar:       Dict[int, dict] = field(default_factory=dict)
+    forced_home:    Dict[str, List[int]] = field(default_factory=dict)  # Heimspiel-Pflichttage
     hier_weight:    float = 1.0       # Hierarchiegewicht im kombinierten Modell
     games_per_team_per_day: int = 1   # 1 = Standard, 2+ = Turniertag (Stufe 1)
     n_rounds:       int = 2           # 1=Einfachrunde, 2=Hin-/Rueckrunde, 3=Dreifachrunde

@@ -23,6 +23,8 @@ def validate(
     clubs:         Dict[str, dict],
     calc_n_matchdays,        # callable: (ld: dict) -> int
     get_n_rounds_gpd,        # callable: (ld: dict) -> (int, int)
+    routing:       Optional[Dict[str, tuple]] = None,  # {lid: (apply:bool, pct:int)}
+    forced_home:   Optional[Dict[str, dict]] = None,   # {lid: {team:[days]}}
 ) -> List[dict]:
     """Prüft die Konfiguration und gibt eine Liste von Problemen zurück.
 
@@ -120,6 +122,67 @@ def validate(
         if kw_compat and cal_entries < n_md:
             warn(lid, f'**{name}**: Kalender enthält nur {cal_entries} von {n_md} Spieltagen. '
                        'Fehlende Spieltage erhalten kein Datum im Export.')
+
+        # Pflichtheim: Konflikte prüfen
+        if forced_home:
+            frc = forced_home.get(lid, {})
+            for team, fdays in frc.items():
+                blk_set = set(blk.get(team, []))
+                frc_set = set(fdays)
+                # Konflikt: selber Tag ist Sperrtag UND Pflichttag
+                conflict = blk_set & frc_set
+                if conflict:
+                    err(lid, f'**{name}** – Team «{team}»: '
+                             f'Spieltag(e) {sorted(conflict)} sind gleichzeitig Sperrtag '
+                             f'und Pflichtheim – das ist ein Widerspruch.')
+                # Konflikt: Pflichttag liegt außerhalb gültiger Spieltage
+                invalid = frc_set - days
+                if invalid:
+                    err(lid, f'**{name}** – Team «{team}»: '
+                             f'Pflichtheim-Spieltag(e) {sorted(invalid)} existieren nicht '
+                             f'(gültig: 1–{n_md}).')
+                # Konflikt: DST-Block – ein Tag Pflichttag, anderer Tag Sperrtag
+                for d1, d2 in dst:
+                    if (d1 in frc_set and d2 in blk_set) or (d2 in frc_set and d1 in blk_set):
+                        err(lid, f'**{name}** – Team «{team}»: '
+                                 f'DST-Block ST{d1}/ST{d2} – ein Tag ist Pflichtheim, '
+                                 f'der andere ist Sperrtag. DST erzwingt gleiche Heimrechte '
+                                 f'an beiden Tagen → unlösbar.')
+
+        # DST-Routing + Sperrtage: Infeasibility-Risiko prüfen
+        if routing:
+            apply_r, pct = routing.get(lid, (False, 0))
+            if apply_r and pct > 0 and dst and mat is not None and isinstance(mat, np.ndarray) and mat.shape[0] == n:
+                f_num = 100 + pct
+                f_den = 100
+                for d1, d2 in dst:
+                    for ti, ti_name in enumerate(teams):
+                        blk_set = set(blk.get(ti_name, []))
+                        if d1 not in blk_set and d2 not in blk_set:
+                            continue
+                        # DST-Constraint zwingt ti auf beiden Tagen zu Auswärts
+                        no_escape = []
+                        for i in range(n):
+                            if i == ti or mat[ti, i] <= 0:
+                                continue
+                            rhs = (f_num / f_den) * float(mat[ti, i])
+                            can_reach = any(
+                                j != ti and j != i
+                                and float(mat[i, j]) + float(mat[j, ti]) <= rhs
+                                for j in range(n)
+                            )
+                            if not can_reach:
+                                no_escape.append(teams[i])
+                        if no_escape:
+                            err(lid,
+                                f'**{name}**: DST-Routing-Konflikt (ST{d1}/ST{d2}) – '
+                                f'Team «{ti_name}» ist auf ST{d1} oder ST{d2} gesperrt '
+                                f'(DST-Constraint erzwingt Auswärts auf beiden Tagen). '
+                                f'Folgende Heimspielorte lassen auf dem Folgetag '
+                                f'keine erreichbaren Auswärtsgegner übrig '
+                                f'({pct} % Routing-Toleranz): '
+                                f'{", ".join(no_escape)}. '
+                                f'→ Routing auf mind. 100 % erhöhen oder deaktivieren.')
 
     # Co-Home: Liga ohne Kalender
     if clubs and kw_compat:

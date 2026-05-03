@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.0.0-beta1 · Stand April 2026 · Status: Beta-fähig, keine bekannten kritischen Bugs**
+> **Version 1.1.0-beta1 · Stand Mai 2026 · Status: Beta-fähig, keine bekannten kritischen Bugs**
 
 ---
 
