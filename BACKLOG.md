@@ -99,6 +99,83 @@ Zwei Style-Punkte aus PR #7-Review:
 
 ---
 
+### [intern] Ersten GitHub Release anlegen (v1.1.0-Tag setzen)
+
+**Typ:** Aufgabe
+**Bereich:** Distribution / GitHub
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein
+**Beschreibung:**
+Voraussetzung dafür, dass der Installer und der Auto-Updater funktionieren.
+Sobald Inno Setup installiert und der Bootstrap-Installer fertig ist:
+
+```bat
+git tag v1.1.0
+git push --tags
+```
+
+GitHub Actions läuft automatisch und erstellt den Release mit `app-files.zip`.
+Danach kann der Bootstrap-Installer die App-Dateien beim Installieren herunterladen
+und der Auto-Updater hat einen Referenzpunkt für zukünftige Updates.
+**Status:** Offen
+
+---
+
+### [intern] Bootstrap-Installer bauen (installer\build_bootstrap.bat)
+
+**Typ:** Aufgabe
+**Bereich:** Distribution
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein (einmaliger Aufwand ~30 Min inkl. Download)
+**Beschreibung:**
+Erstellt die verteilbare `Spielplan-Optimierer-Setup-v1.1.0.exe` (~200 MB).
+Muss nur neu gebaut werden wenn sich Python-Version oder Pakete ändern.
+
+Voraussetzungen:
+1. Inno Setup 6 installieren: https://jrsoftware.org/isinfo.php
+2. `iscc.exe` muss im PATH sein (Inno Setup Installer-Compiler)
+
+Dann:
+```bat
+installer\build_bootstrap.bat
+```
+
+Ergebnis liegt in `installer\Output\`.
+**Status:** Offen
+
+---
+
+### [intern] Installer-Flow auf frischem System testen
+
+**Typ:** Verbesserung / Test
+**Bereich:** Distribution
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein
+**Beschreibung:**
+Nach dem Bau des Bootstrap-Installers auf einem zweiten Windows-PC (ohne
+Python-Installation) testen:
+1. Setup.exe ausführen → installiert ohne Fehler?
+2. Desktop-Verknüpfung startet Browser ohne Terminal-Fenster?
+3. Auto-Updater: zweiten Tag v1.1.1 anlegen + app-files.zip hochladen,
+   dann prüfen ob der Launcher die Update-Meldung zeigt und das Update korrekt anwendet.
+4. Deinstallation über Windows-Einstellungen funktioniert sauber?
+**Status:** Offen
+
+---
+
+### [intern] clubs_db.csv committen
+
+**Typ:** Aufgabe
+**Bereich:** Vereinsdatenbank
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+`clubs_db.csv` hat lokale Änderungen die noch nicht committed sind (seit vor
+dieser Sitzung). Änderungen prüfen und bei Gelegenheit committen.
+**Status:** Offen
+
+---
+
 ### [intern] stdout-Interleaving bei parallelen Phase-1-Läufen
 
 **Typ:** Verbesserung
