@@ -154,6 +154,8 @@ def move_game(result, cfg, old_day: int, match_idx: int, new_day: int) -> str:
 
     Gibt '' bei Erfolg zurueck, sonst eine Fehlermeldung.
     """
+    if new_day not in cfg.days:
+        return f'Spieltag {new_day} existiert nicht im Spielplan.'
     t_idx     = {t: i for i, t in enumerate(cfg.teams)}
     games_old = list(result.schedule.get(old_day, []))
     if match_idx >= len(games_old):
@@ -219,6 +221,10 @@ def reschedule_game(result, cfg, day: int, home_team: str, away_team: str) -> st
 
     Gibt '' bei Erfolg zurueck, sonst eine Fehlermeldung.
     """
+    if home_team not in cfg.teams:
+        return f'Team "{home_team}" nicht in der Liga.'
+    if away_team not in cfg.teams:
+        return f'Team "{away_team}" nicht in der Liga.'
     t_idx        = {t: i for i, t in enumerate(cfg.teams)}
     teams_on_day = {t for pair in result.schedule.get(day, []) for t in pair}
     if home_team in teams_on_day:
@@ -270,12 +276,39 @@ def build_ics_bytes(result, season_year: int) -> bytes:
         except (ValueError, TypeError):
             return None
 
+    def _ical_escape(s: str) -> str:
+        s = s.replace('\\', '\\\\')
+        s = s.replace(';', '\\;')
+        s = s.replace(',', '\\,')
+        s = s.replace('\n', '\\n')
+        return s
+
+    def _ical_fold(line: str) -> str:
+        encoded = line.encode('utf-8')
+        if len(encoded) <= 75:
+            return line
+        chunks = []
+        start = 0
+        first = True
+        while start < len(encoded):
+            limit = 75 if first else 74
+            first = False
+            end = start + limit
+            if end >= len(encoded):
+                chunks.append(encoded[start:].decode('utf-8'))
+                break
+            while end > start and (encoded[end] & 0xC0) == 0x80:
+                end -= 1
+            chunks.append(encoded[start:end].decode('utf-8'))
+            start = end
+        return '\r\n '.join(chunks)
+
     lines = [
         'BEGIN:VCALENDAR',
         'VERSION:2.0',
         'PRODID:-//Spielplan-Optimierer//FD//DE',
         'CALSCALE:GREGORIAN',
-        f'X-WR-CALNAME:{cfg.name}',
+        f'X-WR-CALNAME:{_ical_escape(cfg.name)}',
     ]
 
     dtstamp = _dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
@@ -300,14 +333,14 @@ def build_ics_bytes(result, season_year: int) -> bytes:
                             f'DTEND;VALUE=DATE:{season_year}0102']
                 desc += f' (Spieltag {d} – kein Datum verfuegbar)'
             lines += ['BEGIN:VEVENT', f'UID:{uid}', f'DTSTAMP:{dtstamp}'] + dt_lines + [
-                f'SUMMARY:{ht} vs. {at}',
-                f'LOCATION:{loc}',
-                f'DESCRIPTION:{desc}',
+                f'SUMMARY:{_ical_escape(f"{ht} vs. {at}")}',
+                f'LOCATION:{_ical_escape(loc)}',
+                f'DESCRIPTION:{_ical_escape(desc)}',
                 'END:VEVENT',
             ]
 
     lines.append('END:VCALENDAR')
-    return '\r\n'.join(lines).encode('utf-8')
+    return '\r\n'.join(_ical_fold(ln) for ln in lines).encode('utf-8')
 
 
 # ── Druckbarer Spielplan (HTML) ───────────────────────────────────────────────

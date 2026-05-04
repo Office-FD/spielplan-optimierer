@@ -29,7 +29,6 @@ from .tt_scheduler import apply_tournament_ordering
 def _phase1_worker(args):
     """Loest eine einzelne Liga in einem separaten Prozess."""
     import traceback as _tb
-    from ortools.sat.python import cp_model as _cp
     lid, cfg, time_limit, seed, num_workers = args
     try:
         result = solve_league_phase1(cfg, time_limit=time_limit, seed=seed,

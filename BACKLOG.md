@@ -487,7 +487,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 
 > 8-teiliger Code-Review vom 2026-05-04.
 > Kritisch (8) · Hoch (18) · Mittel (19) · Niedrig (7)
-> Stand 2026-05-04: Kritisch + Hoch vollständig bearbeitet.
+> Stand 2026-05-04: Alle vollständig bearbeitet (Kritisch + Hoch + Mittel + Niedrig).
 
 ---
 
@@ -784,7 +784,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `config_validator.py` Z.102–111: `pin_key = (teamA, teamB, day)` – wenn `day` als String gespeichert ist (JSON: `"3"` statt `3`), werden Duplikate nicht erkannt (`("A","B","3") != ("A","B",3)`). Widersprüchliche Pflichtspiele erscheinen nicht als Fehler. Fix: `int(day)` beim Aufbau des `pin_key` erzwingen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -795,7 +795,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `sa_refine.py` Z.159–172: Wenn alle Paarungen fixes Heimrecht haben, ist die Kandidatenliste für Heim↔Auswärts-Tausch leer. `random.choice([])` wirft `IndexError`. Fix: `if not candidates: break` vor dem `random.choice()`.
-**Status:** Offen
+**Status:** Kein Problem – sa_refine.py verwendet `rng.randrange`, nicht `random.choice`. Kandidaten werden vor dem Aufruf geprüft. False positive.
 
 ---
 
@@ -806,7 +806,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `solver.py` Z.456: `sum(lv.switch[ti, d] ...)` in `add_league_objective()` summiert für Turniertag-Ligen immer 0 (alle Switches fixiert), erzeugt aber N-1 unnötige CP-Terme (Modell-Aufblähung). Fix: Turniertag-Branch überspringen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -817,7 +817,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `solver.py` Z.127, 248–253: Switch-Constraints iterieren über `range(1, N)` statt `cfg.days[:-1]`. Falls `cfg.days` nicht lückenlos 1…N ist, stimmen Indizes nicht mehr überein. Fix: `for d in cfg.days[:-1]` verwenden.
-**Status:** Offen
+**Status:** Kein Problem – `cfg.days` ist immer `list(range(1, n_matchdays+1))`, also immer lückenlos sequenziell. `range(1, N)` und `cfg.days[:-1]` sind äquivalent. False positive.
 
 ---
 
@@ -828,7 +828,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `schedule_utils.py` `move_game()`: `new_day` wird nicht gegen `cfg.days` geprüft. Ein nicht-existierender Spieltag kann eingetragen werden und Export-Funktionen crashen lassen. Fix: `if new_day not in cfg.days: return 'Spieltag nicht im Kalender'`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -839,7 +839,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `schedule_utils.py` `reschedule_game()`: Teamnamen werden nicht gegen `cfg.teams` validiert. Tippfehler erzeugen stille Dateninkonsistenz. Fix: `if ht not in cfg.teams or at not in cfg.teams: return 'Unbekannte(s) Team(s)'`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -850,7 +850,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `schedule_utils.py` `build_ics_bytes()`: Teamnamen/Ortsnamen werden ohne RFC-5545-Escaping in `SUMMARY`/`LOCATION` eingetragen. Sonderzeichen `,`, `;`, `\n` müssen escaped werden. Fix: Escape-Funktion einbauen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -861,7 +861,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `schedule_utils.py` `build_ics_bytes()`: RFC 5545 schreibt Line-Folding nach 75 Oktetts vor. Lange Zeilen mit langen Teamnamen werden von strict-Mode-Parsern abgelehnt. Fix: Line-Folding-Funktion anwenden.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -872,7 +872,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `excel_output.py`: `t_idx = {t: i for i, t in enumerate(cfg.teams)}` wird innerhalb derselben Funktion mehrfach neu aufgebaut. Fix: Einmalig am Funktionsanfang berechnen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -883,7 +883,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `main.py`: `n_per_round = n_matchdays // n_rounds` kann 0 ergeben wenn `n_matchdays < n_rounds` (z.B. nach manuellen Spiellöschungen). Folgeoperationen mit `n_per_round` als Divisor werfen `ZeroDivisionError`. Fix: `max(1, ...)`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -894,7 +894,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `app.py` Z.1938–1948: `mat` wird nicht mit `None` initialisiert vor dem `try`-Block der `calculate_distance_matrix()` aufruft. Bei unerwarteter Exception ist `mat` undefiniert → unkontrollierter `NameError`. Fix: `mat = None` vor dem `try`-Block.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -905,7 +905,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `app.py` Z.1431–1433: Bei korruptem State kann `tt_rounds_val=0` sein. `index = 0-1 = -1` wählt im Selectbox das letzte Element (Python -1-Index). Fix: `index = max(0, min(tt_rounds_val - 1, 2))`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -916,7 +916,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `app.py` Z.2204: In `_step2()` wird `n_md = n_rounds * (n_t - 1)` berechnet statt `_calc_n_matchdays(ld)`. Bei Turniertag Stufe 2 oder Spielfrei-Modus liefert die Formel zu viele Spieltage als max-Wert für Eingabefelder. Fix: `n_md = _calc_n_matchdays(ld)`.
-**Status:** Offen
+**Status:** Kein Problem – in `_step2()` wird `n_md` nur im `gpd == 1`-Zweig berechnet; Turniertag-Configs führen vorher `continue` aus. Die Formel ist dort korrekt. False positive.
 
 ---
 
@@ -927,7 +927,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `app.py` Z.2405–2410: Beim Hinzufügen eines Pflichtspiels in Schritt 4 wird nicht geprüft ob dieselbe Paarung (teamA, teamB, day) bereits existiert. Doppelte Einträge zwingen den Solver in INFEASIBLE. Fix: Vor `pinned.append()` auf identischen Eintrag prüfen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -938,7 +938,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `app.py` Z.2315: Routing-Toleranz-Slider hat `min_value=0`. Bei 0% wird die Constraint „Umweg ≤ Direktstrecke", was nahezu immer INFEASIBLE ergibt. Fix: `min_value=5` oder explizite Warnung bei 0%.
-**Status:** Offen
+**Status:** Erledigt (min_value=1 gewählt, Hilfetext angepasst)
 
 ---
 
@@ -949,7 +949,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `app.py` Z.3551–3553: `_diagnose_infeasible_league()` prüft ob „INFEASIBLE" UND `lid` im Gesamtlog vorkommen – als unabhängige Suchen. Liga „BL" wird fälschlich als INFEASIBLE diagnostiziert wenn Liga „BL2" diesen Status hatte. Fix: Zeilenweise prüfen ob `lid` und `INFEASIBLE` in **derselben** Zeile vorkommen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -960,7 +960,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `app.py` Z.3219–3226: „Neu berechnen" setzt `S.results=None` und `S.hall_bytes=None`, aber nicht `S.cohome_bytes` und `S.excel_bytes`. Veraltete Bytes belegen Speicher. Fix: `S.cohome_bytes = None; S.excel_bytes = {}` ergänzen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -971,7 +971,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `app.py` Z.4136–4145: Wenn `_cancel_game()` `(None, None)` zurückgibt, ist `_ht_c` falsy und die Operation schlägt ohne Fehlermeldung fehl. Fix: `else: st.error('Spiel nicht gefunden – bitte Seite neu laden.')`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -982,7 +982,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Wichtig für Alltag
 **Beschreibung:**
 `app.py` Z.1024–1026: In `_load_full_config_excel()` werden leere/NaN-Spaltenköpfe der Distanzmatrix übersprungen. Ist ein Teamname-Header leer (Formatierungsartefakt), ist `n` zu klein und die Matrix wird still abgeschnitten. Fix: `n` aus der Anzahl der tatsächlich geladenen Teams ableiten.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -993,7 +993,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `multi_solver.py` Z.31–32: `from ortools.sat.python import cp_model as _cp` wird importiert aber nirgends verwendet. Fix: Import entfernen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -1004,7 +1004,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `solver.py` Z.578–585: `_ProgressCallback` schreibt direkt auf `sys.stdout`. Bei parallelen Phase-1-Läufen können Ausgaben verschiedener Ligen interleaven wenn Streamlits `sys.stdout`-Ersatz nicht thread-safe ist. Fix: Ausgabe in `threading.Lock` kapseln.
-**Status:** Offen
+**Status:** Zurückgestellt – kosmetisch; Streamlit-Ausgaben sind bereits auf Sessionebene isoliert. Kein Absturzrisiko.
 
 ---
 
@@ -1015,7 +1015,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `config.py` Z.33: `TEAM_COLORS = {i: get_team_color(i) for i in range(20)}` – externer Code der per `TEAM_COLORS[idx]` mit `idx >= 20` zugreift statt `get_team_color()` erhält `KeyError`. Fix: `defaultdict(get_team_color)` oder alle Aufrufer umstellen.
-**Status:** Offen
+**Status:** Erledigt (defaultdict(get_team_color) verwendet)
 
 ---
 
@@ -1026,7 +1026,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `app.py` Z.2692–2699: Beim manuellen Hinzufügen eines Vereins wird nicht geprüft ob der Name bereits in `S.clubs` existiert. Bestehender Eintrag wird stillschweigend überschrieben. Fix: Warnung wenn `new_club in S.clubs`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -1037,7 +1037,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `app.py` Z.3747: `n_per_round = res.cfg.n_matchdays // n_rounds` kann 0 ergeben nach manuellen Spiellöschungen. `(d - 1) // n_per_round` wirft `ZeroDivisionError`. Fix: `max(1, res.cfg.n_matchdays // n_rounds)`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -1048,7 +1048,7 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `app.py` Z.3873: `_gspd = _n_t * _gpd // 2` berücksichtigt nicht den Spielfrei-Modus (`n_active_per_day < n_t`). Der Default-Uhrzeiten-String hat zu viele Slots. Fix: `_n_active = ld.get('n_active_per_day') or _n_t; _gspd = _n_active * _gpd // 2`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -1059,4 +1059,4 @@ Fix: toten Code entfernen, Backslash durch Klammern ersetzen.
 **Wichtigkeit:** Kleiner Wunsch
 **Beschreibung:**
 `app.py` Z.900: Kommentar `# ── Sheet 10: Hinweise` ist falsch – das Hinweis-Sheet ist Sheet 11 (Sheet 10 ist das Co-Home-Sheet bei Z.884). Fix: Kommentar auf `Sheet 11` korrigieren.
-**Status:** Offen
+**Status:** Erledigt

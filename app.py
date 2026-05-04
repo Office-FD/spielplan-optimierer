@@ -897,7 +897,7 @@ def _full_config_excel_bytes() -> bytes:
             _d(ws_c, cr, 1, club_name); _d(ws_c, cr, 2, lid); _d(ws_c, cr, 3, team)
             cr += 1
 
-    # ── Sheet 10: Hinweise ────────────────────────────────────────────────────
+    # ── Sheet 11: Hinweise ────────────────────────────────────────────────────
     ws_h = wb.create_sheet('Hinweise')
     ws_h.column_dimensions['A'].width = 64
     for r, (text, bold) in enumerate([
@@ -1021,9 +1021,13 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                     i += 1
                     if i >= len(rows_arr):
                         break
-                    col_hdrs = [str(c).strip() for c in rows_arr[i]
-                                if str(c).strip() and str(c).strip().lower() != 'nan']
-                    n = len(col_hdrs)
+                    _all_hdrs = [str(c).strip() for c in rows_arr[i]]
+                    _last_non_empty = max(
+                        (j for j, h in enumerate(_all_hdrs) if h and h.lower() != 'nan'),
+                        default=-1)
+                    col_hdrs = [h for h in _all_hdrs[:_last_non_empty + 1]
+                                if h and h.lower() != 'nan']
+                    n = _last_non_empty + 1 if _last_non_empty >= 0 else 0
                     i += 1
                     mat_rows = []
                     for _ in range(n):
@@ -1432,7 +1436,7 @@ def _step0():
                     tt_rounds_opts = ['Einfachrunde (1 Runde)', 'Hin-/Rückrunde (2 Runden)', 'Dreifachrunde (3 Runden)']
                     tt_rounds_val  = int(ld.get('tt_rounds', 2))
                     st.selectbox('Turniertag – Runden',
-                        tt_rounds_opts, index=min(tt_rounds_val - 1, 2),
+                        tt_rounds_opts, index=max(0, min(tt_rounds_val - 1, 2)),
                         key=f'ttr_{i}',
                         help='Wie viele Runden soll die Liga haben?',
                     )
@@ -1939,6 +1943,7 @@ def _step1():
                         _buf = _io.StringIO()
                         _old_stdout = _sys.stdout
                         _sys.stdout = _buf
+                        mat = None
                         try:
                             from spielplan_multi.distances import calculate_distance_matrix
                             with st.spinner('Google Maps API wird abgefragt…'):
@@ -2314,8 +2319,8 @@ def _step3():
             enabled = st.checkbox(f'Routing für {ld["name"]}', cur_apply, key=f'rt_{lid}')
             pct     = cur_pct
             if enabled:
-                pct = st.slider(f'Erlaubter Mehraufwand (%)', 0, 100, cur_pct, 5,
-                    key=f'rp_{lid}', help='Wie viel Prozent Mehrkilometer darf ein Team bei einem Doppelwochenende in Kauf nehmen? 0 % = kein Umweg erlaubt · 25 % = bis zu 25 % mehr als der direkte Weg')
+                pct = st.slider(f'Erlaubter Mehraufwand (%)', 1, 100, max(1, cur_pct), 5,
+                    key=f'rp_{lid}', help='Wie viel Prozent Mehrkilometer darf ein Team bei einem Doppelwochenende in Kauf nehmen? 1 % = fast kein Umweg erlaubt · 25 % = bis zu 25 % mehr als der direkte Weg')
             S.routing[lid] = (enabled, pct)
 
     st.subheader('Optimierungsziele gewichten')
@@ -2405,11 +2410,19 @@ def _step4():
             day = pc.number_input('Spieltag', 1, n_md, 1, key=f'pd_{lid}')
             home_sel = pd_.selectbox('Heim', [ta, tb, 'beliebig'], key=f'ph_{lid}')
             if st.button('Hinzufügen', key=f'addp_{lid}'):
-                pinned.append({'teamA': ta, 'teamB': tb, 'day': int(day),
-                               'home': None if home_sel == 'beliebig' else home_sel})
-                S.pinned[lid] = pinned
-                st.session_state[_ekey] = True
-                st.rerun()
+                _new_pin = {'teamA': ta, 'teamB': tb, 'day': int(day),
+                            'home': None if home_sel == 'beliebig' else home_sel}
+                _is_dup = any(
+                    p.get('teamA') == ta and p.get('teamB') == tb and int(p.get('day', 0)) == int(day)
+                    for p in pinned
+                )
+                if _is_dup:
+                    st.warning(f'Pflichtspiel {ta} – {tb} an Spieltag {int(day)} ist bereits eingetragen.')
+                else:
+                    pinned.append(_new_pin)
+                    S.pinned[lid] = pinned
+                    st.session_state[_ekey] = True
+                    st.rerun()
         S.pinned[lid] = pinned
 
     go_back, go_fwd = _nav()
@@ -2693,6 +2706,8 @@ def _step6():
                     liga_map2[lid] = sel
             if st.button('Speichern', key='save_club', type='primary'):
                 if len(liga_map2) >= 2:
+                    if new_club in clubs:
+                        st.warning(f'"{new_club}" existiert bereits – Einträge werden überschrieben.')
                     clubs[new_club] = liga_map2
                     S.clubs = clubs
                     st.success(f'"{new_club}" gespeichert.')
@@ -3218,14 +3233,16 @@ def _step8():
             if st.button('🔄  Neu berechnen', key='reopt', width='stretch',
                          help='Konfiguration behalten und Optimierung erneut starten – '
                               'z. B. nach Änderung einzelner Einstellungen.'):
-                S.opt_done     = False
-                S.opt_running  = False
-                S.results      = None
-                S.opt_queue    = None
-                S.opt_thread   = None
-                S.opt_warnings = []
-                S.opt_best     = {}
-                S.hall_bytes   = None
+                S.opt_done      = False
+                S.opt_running   = False
+                S.results       = None
+                S.opt_queue     = None
+                S.opt_thread    = None
+                S.opt_warnings  = []
+                S.opt_best      = {}
+                S.hall_bytes    = None
+                S.cohome_bytes  = None
+                S.excel_bytes   = {}
                 st.rerun()
         with _rcol_b:
             if st.button('↺  Neuen Spielplan erstellen', key='restart', width='stretch'):
@@ -3551,13 +3568,16 @@ def _diagnose_infeasible_league(lid: str) -> None:
     n_md   = _calc_n_matchdays(ld)
     total_games = n * (n - 1) // 2 * n_rounds
 
-    # Status aus Log ableiten
-    log_text  = '\n'.join(S.opt_log or [])
-    _lid_pat  = r'(?<!\w)' + re.escape(lid) + r'(?!\w)'
-    _lid_in   = lambda t: bool(re.search(_lid_pat, t))
-    is_infeasible = 'INFEASIBLE'    in log_text and _lid_in(log_text)
-    is_unknown    = ('UNKNOWN'      in log_text and _lid_in(log_text)) or (
-                    'Keine Loesung' in log_text and _lid_in(log_text))
+    # Status aus Log ableiten – zeilenweise prüfen um False Positives zu vermeiden
+    _log_lines = S.opt_log or []
+    _lid_pat   = r'(?<!\w)' + re.escape(lid) + r'(?!\w)'
+    _lid_in    = lambda t: bool(re.search(_lid_pat, t))
+    is_infeasible = any('INFEASIBLE'    in ln and _lid_in(ln) for ln in _log_lines)
+    is_unknown    = any(
+        ('UNKNOWN'      in ln and _lid_in(ln)) or
+        ('Keine Loesung' in ln and _lid_in(ln))
+        for ln in _log_lines
+    )
 
     hints: list = []
 
@@ -3751,7 +3771,7 @@ def _show_results():
             )
             continue
         n_rounds    = res.cfg.n_rounds    if res.cfg else 2
-        n_per_round = (res.cfg.n_matchdays // n_rounds) if res.cfg else 1
+        n_per_round = max(1, res.cfg.n_matchdays // n_rounds) if res.cfg else 1
         dst_days    = res.cfg.dst_days    if res.cfg else set()
         phase_lbl   = {1: 'Hin', 2: 'Rue'} if n_rounds == 2 else {}
         is_tt       = bool(res.cfg and res.cfg.games_per_team_per_day > 1)
@@ -3877,7 +3897,8 @@ def _show_results():
             _name_t = _res_t.cfg.name if _res_t.cfg else _tl
             _gpd    = _res_t.cfg.games_per_team_per_day if _res_t.cfg else 1
             _n_t    = _res_t.cfg.n_teams if _res_t.cfg else 2
-            _gspd   = _n_t * _gpd // 2          # Spiele pro Spieltag
+            _n_active = _res_t.cfg.n_active_per_day if _res_t.cfg and _res_t.cfg.n_active_per_day > 0 else _n_t
+            _gspd   = _n_active * _gpd // 2     # Spiele pro Spieltag
             _default_slots = ', '.join(
                 f'{(14 + i * 2):02d}:00' for i in range(_gspd)
             )
@@ -4150,6 +4171,8 @@ def _show_results():
                                 S.move_pending = None
                                 _regen_league_excel(_mv_lid, _res_mv)
                                 st.rerun()
+                            else:
+                                st.error('Spiel konnte nicht entfernt werden (Spieltag oder Index ungültig).')
 
     # ── Spielplan vergleichen ─────────────────────────────────────────────────
     with st.expander('Spielplan vergleichen', expanded=False):

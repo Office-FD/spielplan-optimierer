@@ -128,7 +128,7 @@ def calculate_distance_matrix(locations: List[str],
         for j, el in enumerate(elements):
             if el.get('status') == 'OK':
                 try:
-                    dist[i, j] = int(el['distance']['value'] / 1000)
+                    dist[i, j] = round(el['distance']['value'] / 1000)
                 except (KeyError, TypeError):
                     warn(f'Unvollstaendige API-Antwort fuer {locations[i]} -> {locations[j]}, '
                          f'setze {UNREACHABLE_KM} km')

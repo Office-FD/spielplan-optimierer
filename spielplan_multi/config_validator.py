@@ -103,7 +103,7 @@ def validate(
         for pm in pins:
             if not pm.get('home'):
                 continue
-            key = (frozenset([pm.get('teamA'), pm.get('teamB')]), pm.get('day'))
+            key = (frozenset([pm.get('teamA'), pm.get('teamB')]), int(pm.get('day', 0)))
             if key in pin_key and pin_key[key] != pm.get('home'):
                 err(lid, f'**{name}**: Pflichtspiel '
                           f'{pm.get("teamA", "?")} – {pm.get("teamB", "?")} '
@@ -279,7 +279,7 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
         for pm in cfg.pinned:
             if not pm.get('home'):
                 continue
-            key = (frozenset([pm.get('teamA'), pm.get('teamB')]), pm.get('day'))
+            key = (frozenset([pm.get('teamA'), pm.get('teamB')]), int(pm.get('day', 0)))
             if key in pin_key and pin_key[key] != pm.get('home'):
                 err(lid, f'{name}: Pflichtspiel {pm.get("teamA","?")} – {pm.get("teamB","?")} '
                           f'auf ST{pm.get("day")} hat widersprüchliches Heimrecht.')

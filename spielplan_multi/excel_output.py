@@ -246,7 +246,6 @@ def build_league_excel(result: LeagueResult) -> Workbook:
     # ── Sheet 3: Gruppen-Übersicht (nur Stufe 2) ────────────────────────────
     if has_groups:
         G = cfg.n_groups_per_day
-        t_idx = {t: i for i, t in enumerate(teams)}
         ws_gr = wb.create_sheet('Gruppen-Uebersicht')
         # Header: Spieltag + je eine Spalte pro Gruppe
         ws_gr.cell(1, 1, 'Spieltag').fill = HDR_FILL

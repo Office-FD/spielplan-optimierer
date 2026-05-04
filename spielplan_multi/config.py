@@ -1,5 +1,6 @@
 """Solver-Konstanten. Ligaspezifische Daten werden per Wizard eingegeben."""
 
+from collections import defaultdict
 from typing import Dict
 
 # ── Solver-Gewichte ───────────────────────────────────────────────────────────
@@ -30,4 +31,4 @@ def get_team_color(idx: int) -> str:
 
 
 # Backward-kompatibles Dict (wird in excel_output.py importiert)
-TEAM_COLORS: Dict[int, str] = {i: get_team_color(i) for i in range(20)}
+TEAM_COLORS: Dict[int, str] = defaultdict(get_team_color, {i: get_team_color(i) for i in range(20)})

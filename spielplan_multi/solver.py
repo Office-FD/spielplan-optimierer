@@ -453,9 +453,14 @@ def add_league_objective(model, lv: LeagueVars, cfg: LeagueConfig,
 
     W = {k: int(round(v * coef_scale * hier_weight)) for k, v in cfg.w_scaled.items()}
 
-    total_switch  = sum(lv.switch[ti, d] for ti in range(n) for d in range(1, N))
+    is_tt = cfg.games_per_team_per_day > 1 or cfg.n_teams_per_group > 0
+    if is_tt:
+        total_switch  = 0
+        switch_spread = 0
+    else:
+        total_switch  = sum(lv.switch[ti, d] for ti in range(n) for d in range(1, N))
+        switch_spread = lv.max_sw - lv.min_sw
     total_travel  = sum(lv.travel[ti]    for ti in range(n))
-    switch_spread = lv.max_sw     - lv.min_sw
     travel_spread = lv.max_travel - lv.min_travel
 
     return [

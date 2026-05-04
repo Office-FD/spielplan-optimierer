@@ -77,7 +77,7 @@ def main():
         section(f'SPIELPLAN: {result.cfg.name}')
         dst_days    = result.cfg.dst_days
         n_rounds    = result.cfg.n_rounds
-        n_per_round = result.cfg.n_matchdays // n_rounds
+        n_per_round = max(1, result.cfg.n_matchdays // n_rounds)
         _phase_lbl  = {1: 'Hin', 2: 'Rue'} if n_rounds == 2 else {}
         for d in result.cfg.days:
             typ      = 'DST' if d in dst_days else 'EST'
