@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.1.0-beta1 · Stand Mai 2026 · Status: Beta-fähig, zwei vollständige Code-Reviews abgeschlossen, keine bekannten Bugs**
+> **Version 1.1.0 · Stand Mai 2026 · Status: Produktionsbereit, zwei vollständige Code-Reviews abgeschlossen, keine bekannten Bugs**
 
 ---
 
@@ -9,10 +9,12 @@
 Automatisierte Spielplanerstellung für Floorball-Ligen (FLOORBALL VERBAND DEUTSCHLAND e.V.).
 Streamlit-Web-App + Python-Backend. Drei-Phasen-Pipeline: CP-SAT (OR-Tools) + Simulated Annealing.
 
-**Start:** `start.bat` → Browser öffnet `localhost:8501`
+**Start (Entwicklung):** `start.bat` → Browser öffnet `localhost:8501`
+**Start (Endnutzer):** `Spielplan-Optimierer.exe` (Desktop-Verknüpfung) → Browser öffnet automatisch
 **Ausgabe:** `Spielplaene/` (Excel pro Liga + Co-Home-Zusammenfassung)
 **Cache:** `.cache/` (Distanzmatrizen von Google Maps, JSON-Dateien)
-**Distribution:** `create_release.bat` → ZIP ohne `.venv/.cache/Spielplaene/__pycache__/.git/memory`
+**Distribution:** Bootstrap-Installer via `installer\build_bootstrap.bat` → `Spielplan-Optimierer-Setup-vX.X.X.exe`
+**Updates:** Automatisch beim Start via GitHub Releases API; neue Version → `git tag vX.X.X && git push --tags`
 
 ---
 
@@ -22,15 +24,31 @@ Streamlit-Web-App + Python-Backend. Drei-Phasen-Pipeline: CP-SAT (OR-Tools) + Si
 app.py                    ← Streamlit-UI (9 Wizard-Schritte + Ergebnisansicht), ~3800 Zeilen
 requirements.txt          ← ortools>=9.14,<10  numpy pandas openpyxl requests streamlit>=1.32
 install.bat               ← Erstinstallation: Python-Check, .venv erstellen, pip install
-start.bat                 ← .venv/Scripts/streamlit run app.py
-create_release.bat        ← ZIP für Distribution erstellen (Version in Datei anpassen)
+start.bat                 ← .venv/Scripts/streamlit run app.py (Entwicklung)
+launcher.py               ← Endnutzer-Starter: Update-Check via GitHub API, startet Streamlit ohne Fenster, öffnet Browser
+build_release.py          ← Erstellt app-files.zip für GitHub Releases (nur App-Code, ~2-5 MB)
+VERSION                   ← Aktuelle Versionsnummer (z. B. 1.1.0); Referenz für Launcher + GitHub Actions
+create_release.bat        ← Altlast: ZIP für manuelle Distribution (durch Installer-System ersetzt)
 BACKLOG.md                ← Feature-Wünsche und Bugs (App schreibt direkt rein)
+README.md                 ← GitHub-Projektseite: Überblick, Links zu Doku, Developer-Infos
+INSTALLATION.md           ← Installationsanleitung für Endnutzer (Laien)
+BENUTZERHANDBUCH.md       ← Schritt-für-Schritt Bedienungsanleitung aller Wizard-Schritte
 clubs_db.csv              ← Vereinsdatenbank mit Adressen (für Team-Suche in Schritt 0)
 test_all.py               ← Umfassende Tests (Solver, Constraints, Export)
 test_smoke.py             ← Schnelle Smoke-Tests
 test_distances.py         ← Distanzmatrix-Tests
 test_features.py          ← Feature-Tests (HTML-Druckansicht, iCal, Hallenbelegung, Co-Home)
 create_overview_doc.py    ← Standalone-Skript: generiert DOCX-Projektübersicht (python-docx nötig, nicht in requirements.txt; kein Teil der App-Pipeline)
+
+installer/
+  spielplan.iss           ← Inno Setup Script: Bootstrap-Installer (lädt App-Dateien von GitHub)
+  build_bootstrap.bat     ← Developer-Build: Embedded Python + Pakete + PyInstaller + Inno Setup
+  build/                  ← Gitignored: Embedded Python-Umgebung + kompilierter launcher.exe
+  Output/                 ← Gitignored: fertige Setup-EXE
+
+.github/
+  workflows/
+    release.yml           ← GitHub Actions: bei git push --tags → Release + app-files.zip automatisch
 
 spielplan_multi/
   __init__.py
@@ -229,6 +247,12 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `schedule_utils.py` | DTSTAMP fehlt in iCal-VEVENTs (RFC 5545) | DTSTAMP in jeden VEVENT |
 | `app.py` | `S.sol` vs `S.solver` Key-Mismatch → Sitzung speichern crasht | `S.sol` → `S.solver` |
 
+**Sitzung Mai 2026 – Streamlit-Kompatibilität:**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `app.py:379` | `st.image(width=None)` → `StreamlitInvalidWidthError` ab Streamlit 1.4x | `width='content'` |
+
 **Runde 2 (Kritisch/Hoch/Mittel/Niedrig – alle erledigt):**
 
 | Datei | Problem | Fix |
@@ -254,7 +278,18 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 
 ## 10. Offene Features (BACKLOG.md)
 
-Alle bisher geplanten Features sind implementiert. Verbleibende Wünsche (Details im BACKLOG.md):
+Details im BACKLOG.md. Offene Punkte nach Priorität:
+
+**Distribution (nächste Sitzung):**
+
+| Aufgabe | Aufwand |
+|---|---|
+| Ersten GitHub Release anlegen (`git tag v1.1.0 && git push --tags`) | Klein |
+| Bootstrap-Installer bauen (`installer\build_bootstrap.bat`) | Klein (einmalig ~30 Min) |
+| Installer-Flow auf frischem Windows-System testen | Klein |
+| `clubs_db.csv` uncommittete Änderungen committen | Klein |
+
+**Feature-Wünsche:**
 
 | Feature | Aufwand |
 |---|---|
@@ -321,3 +356,60 @@ Co-Home-Excel: Übersicht aller Ligen nebeneinander, KW-Heimspiel-Synchronisatio
 - **Upload:** Konfigurationsdatei → überschreibt aktuelle Wizard-Einstellungen
 - Kein serverseitiger Speicher – Nutzer verwaltet Konfigurationsdateien selbst
 - Gleichzeitige Nutzung durch mehrere Nutzer: jeder Browser hat eigene Session
+
+---
+
+## 16. Distribution & Release-Prozess
+
+### Komponenten
+
+| Datei | Rolle |
+|---|---|
+| `launcher.py` | Endnutzer-EXE (via PyInstaller kompiliert): Update-Check, Server-Start, Browser-Öffnung |
+| `VERSION` | Versionsnummer (z. B. `1.1.0`); lokal + in app-files.zip |
+| `build_release.py` | Erstellt `app-files.zip` (App-Code ohne Python/venv/cache) |
+| `installer/spielplan.iss` | Inno Setup Script: Bootstrap-Installer |
+| `installer/build_bootstrap.bat` | Einmaliger Build-Prozess (Embedded Python + alle Pakete + launcher.exe + Setup-EXE) |
+| `.github/workflows/release.yml` | GitHub Actions: bei Tag-Push automatisch Release + app-files.zip |
+
+### Zwei Installer-Typen
+
+**Bootstrap-Installer** (`Spielplan-Optimierer-Setup-vX.X.X.exe`, ~200 MB):
+- Enthält: Python 3.13 Embeddable + alle pip-Pakete + kompilierter launcher.exe
+- Lädt bei Installation: `app-files.zip` von GitHub (neueste App-Version)
+- Muss nur neu gebaut werden wenn sich Python-Version oder Pakete ändern
+- Erstellen: `installer\build_bootstrap.bat` (erfordert Inno Setup 6)
+
+**app-files.zip** (~2-5 MB):
+- Enthält nur App-Code (kein Python, keine Pakete)
+- Wird automatisch durch GitHub Actions bei jedem Tag-Push erstellt
+- Wird beim Bootstrap-Installer als Download-Quelle genutzt
+- Wird vom Auto-Updater im Launcher heruntergeladen
+
+### Normaler Update-Zyklus (bei App-Änderungen)
+
+```
+1. Änderungen in app.py / spielplan_multi/ etc. vornehmen
+2. VERSION-Datei erhöhen (z. B. 1.1.0 → 1.2.0)
+3. git add -A && git commit -m "feat: ..."
+4. git tag v1.2.0
+5. git push && git push --tags
+   → GitHub Actions: erstellt Release + app-files.zip automatisch
+   → Alle Nutzer sehen beim nächsten Start den Update-Dialog
+```
+
+### Bootstrap-Installer neu bauen (selten, nur bei Python/Paket-Änderungen)
+
+```
+installer\build_bootstrap.bat
+```
+Voraussetzung: Inno Setup 6 installiert (https://jrsoftware.org/isinfo.php)
+
+### Auto-Updater (launcher.py)
+
+- Prüft beim Start: `GET https://api.github.com/repos/Office-FD/spielplan-optimierer/releases/latest`
+- Vergleicht `tag_name` mit lokalem `VERSION`-File
+- Bei neuer Version: Windows-Dialog „Jetzt aktualisieren?"
+- Update: lädt `app-files.zip` → entpackt nach `BASE_DIR` (überschreibt App-Code, nicht `python/`)
+- Timeout 5 Sek. – Fehler werden ignoriert (Programm startet trotzdem)
+- Installationsverzeichnis: `%LOCALAPPDATA%\Programs\Spielplan-Optimierer\` (kein Admin-Recht nötig)
