@@ -376,7 +376,7 @@ _LOGO_PATH = str(_HERE / 'assets' / 'floorball_logo.png')
 
 def _sidebar():
     with st.sidebar:
-        st.image(_LOGO_PATH, width='stretch')
+        st.image(_LOGO_PATH, width=None)
         st.markdown('### Spielplan-Optimierer')
         st.caption('Automatische Spielplanerstellung')
 
@@ -474,7 +474,7 @@ def _sidebar():
                     ])
                 for col in ws.columns:
                     ws.column_dimensions[col[0].column_letter].width = max(
-                        len(str(c.value or '')) for c in col) + 4
+                        (len(str(c.value or '')) for c in col), default=10) + 4
                 import io as _io
                 buf = _io.BytesIO()
                 wb.save(buf)
@@ -586,7 +586,6 @@ def _teams_excel_bytes(leagues: dict, league_order: list) -> bytes:
             row_num += 1
 
     # Dropdown-Validierung für Spielformat (Spalte C, ab Zeile 2)
-    fmt_list = ','.join(f'"{f}"' for f in FMT_OPTIONS)
     dv = DataValidation(
         type='list',
         formula1=f'"{",".join(FMT_OPTIONS)}"',
@@ -1376,8 +1375,10 @@ def _step0():
         _removed = S.league_order.pop()
         S.leagues.pop(_removed, None)
         for _sd in (S.dist_matrices, S.dst_per_liga, S.routing,
-                    S.weights, S.pinned, S.blocked):
+                    S.weights, S.pinned, S.blocked, S.forced_home):
             _sd.pop(_removed, None)
+        for _club_dict in S.clubs.values():
+            _club_dict.pop(_removed, None)
 
     club_records = load_club_db()
     club_adresse  = {(r['verein'] or r['teamname']): r['adresse']  for r in club_records}
@@ -1801,12 +1802,12 @@ def _step0():
             ld['teams'] = teams
 
             # ── Liga-ID umbenennen ────────────────────────────────────────────
-            if new_lid != lid and new_lid not in S.league_order:
+            if new_lid and new_lid != lid and new_lid not in S.league_order:
                 idx = S.league_order.index(lid)
                 S.league_order[idx] = new_lid
                 S.leagues[new_lid]  = S.leagues.pop(lid)
                 for _state_dict in (S.dist_matrices, S.dst_per_liga, S.routing,
-                                    S.weights, S.pinned, S.blocked):
+                                    S.weights, S.pinned, S.blocked, S.forced_home):
                     if lid in _state_dict:
                         _state_dict[new_lid] = _state_dict.pop(lid)
                 for _club in S.clubs.values():
@@ -2375,7 +2376,7 @@ def _step4():
         if len(teams) < 4:
             continue
         n_rounds, _ = _get_n_rounds_gpd(ld)
-        n_md  = n_rounds * (len(teams) - 1)
+        n_md  = _calc_n_matchdays(ld)
         pinned: List[dict] = S.pinned.get(lid, [])
 
         _ekey = f'_exp_pin_{lid}'
@@ -2444,7 +2445,7 @@ def _step5():
         if len(teams) < 4:
             continue
         n_rounds, _ = _get_n_rounds_gpd(ld)
-        n_md    = n_rounds * (len(teams) - 1)
+        n_md    = _calc_n_matchdays(ld)
         blocked = S.blocked.get(lid, {})
 
         _ekey = f'_exp_blk_{lid}'
@@ -2493,7 +2494,7 @@ def _step5():
         if len(teams) < 4:
             continue
         n_rounds, _ = _get_n_rounds_gpd(ld)
-        n_md    = n_rounds * (len(teams) - 1)
+        n_md    = _calc_n_matchdays(ld)
         forced  = S.forced_home.get(lid, {})
 
         _ekey_f = f'_exp_frc_{lid}'
@@ -2529,6 +2530,21 @@ def _step5():
                 except Exception:
                     st.error('Bitte nur Zahlen eingeben, getrennt durch Kommas – zum Beispiel: 1, 5, 9')
         S.forced_home[lid] = forced
+
+    # Widerspruchs-Check: gleicher Spieltag in blocked UND forced_home
+    for lid in S.league_order:
+        blk = S.blocked.get(lid, {})
+        frc = S.forced_home.get(lid, {})
+        for team in set(blk) & set(frc):
+            conflict = set(blk[team]) & set(frc[team])
+            if conflict:
+                _lname = S.leagues[lid].get('name', lid)
+                st.warning(
+                    f'**{_lname} – {team}**: '
+                    f'Spieltag(e) {sorted(conflict)} sind gleichzeitig als '
+                    f'Sperrtag und Pflichtheim eingetragen – das ist ein Widerspruch '
+                    f'und führt zu einer unlösbaren Konfiguration.'
+                )
 
     go_back, go_fwd = _nav()
     if go_back:
@@ -2900,13 +2916,15 @@ def _session_to_json() -> bytes:
             'leagues':      S.leagues,
             'dst_per_liga': dst_data,
             'blocked':      S.blocked,
-            'forced_home':  getattr(S, 'forced_home', {}),
+            'forced_home':  S.forced_home,
             'pinned':       S.pinned,
             'routing':      routing_data,
             'clubs':        S.clubs,
             'kw_compat':    kw_compat_data,
             'w_cohome':     float(S.w_cohome),
             'dist_matrices': dist_mat_data,
+            'weights':      S.weights,
+            'solver':       S.solver,
         },
         'results': results_data,
     }
@@ -2952,6 +2970,10 @@ def _session_from_json(raw: bytes) -> str:
         S.kw_compat = {int(kw): kw_data for kw, kw_data in cfg_data['kw_compat'].items()}
     if 'w_cohome' in cfg_data:
         S.w_cohome = float(cfg_data['w_cohome'])
+    if 'weights' in cfg_data:
+        S.weights = cfg_data['weights']
+    if 'solver' in cfg_data:
+        S.solver = cfg_data['solver']
     if 'dist_matrices' in cfg_data:
         S.dist_matrices = {
             lid: np.array(mat) for lid, mat in cfg_data['dist_matrices'].items()
@@ -3395,6 +3417,9 @@ def _step8():
 
         # Queue leeren
         q: queue.Queue = S.opt_queue
+        if q is None:
+            S.opt_running = False
+            st.rerun()
         done = False
         try:
             while True:
@@ -3446,25 +3471,30 @@ def _step8():
                 for l in S.opt_log if '[!!]' in l
             ]
             # Excel-Bytes bauen
-            from spielplan_multi.excel_output import (
-                build_league_excel, build_cohome_summary, build_hall_schedule,
-            )
-            for lid, res in (S.results or {}).items():
-                if res is not None:
-                    wb  = build_league_excel(res)
-                    buf = io.BytesIO()
-                    wb.save(buf)
-                    S.excel_bytes[lid] = buf.getvalue()
-            if S.clubs and S.results:
-                wb_ch  = build_cohome_summary(S.results, S.clubs, S.kw_compat)
-                buf_ch = io.BytesIO()
-                wb_ch.save(buf_ch)
-                S.cohome_bytes = buf_ch.getvalue()
-            if S.results:
-                wb_hall  = build_hall_schedule(S.results)
-                buf_hall = io.BytesIO()
-                wb_hall.save(buf_hall)
-                S.hall_bytes = buf_hall.getvalue()
+            try:
+                from spielplan_multi.excel_output import (
+                    build_league_excel, build_cohome_summary, build_hall_schedule,
+                )
+                for lid, res in (S.results or {}).items():
+                    if res is not None:
+                        wb  = build_league_excel(res)
+                        buf = io.BytesIO()
+                        wb.save(buf)
+                        S.excel_bytes[lid] = buf.getvalue()
+                if S.clubs and S.results:
+                    wb_ch  = build_cohome_summary(S.results, S.clubs, S.kw_compat)
+                    buf_ch = io.BytesIO()
+                    wb_ch.save(buf_ch)
+                    S.cohome_bytes = buf_ch.getvalue()
+                if S.results:
+                    wb_hall  = build_hall_schedule(S.results)
+                    buf_hall = io.BytesIO()
+                    wb_hall.save(buf_hall)
+                    S.hall_bytes = buf_hall.getvalue()
+            except Exception as _exc_excel:
+                import traceback as _tb_excel
+                S.opt_warnings.append(f'Excel-Erzeugung fehlgeschlagen: {_exc_excel}')
+                S.opt_log.append(f'[!!] Excel-Fehler: {_tb_excel.format_exc()}')
             st.rerun()
         else:
             time.sleep(2)
@@ -3518,15 +3548,16 @@ def _diagnose_infeasible_league(lid: str) -> None:
     teams  = [t for t, _ in ld.get('teams', [])]
     n      = len(teams)
     n_rounds, gpd = _get_n_rounds_gpd(ld)
-    n_md   = n_rounds * max(1, (n - 1))
+    n_md   = _calc_n_matchdays(ld)
     total_games = n * (n - 1) // 2 * n_rounds
 
     # Status aus Log ableiten
-    log_text = '\n'.join(S.opt_log or [])
-    lid_log  = lid.replace(' ', ' ')  # normalize
-    is_infeasible = 'INFEASIBLE' in log_text and lid in log_text
-    is_unknown    = ('UNKNOWN'   in log_text and lid in log_text) or (
-                    'Keine Loesung' in log_text and lid in log_text)
+    log_text  = '\n'.join(S.opt_log or [])
+    _lid_pat  = r'(?<!\w)' + re.escape(lid) + r'(?!\w)'
+    _lid_in   = lambda t: bool(re.search(_lid_pat, t))
+    is_infeasible = 'INFEASIBLE'    in log_text and _lid_in(log_text)
+    is_unknown    = ('UNKNOWN'      in log_text and _lid_in(log_text)) or (
+                    'Keine Loesung' in log_text and _lid_in(log_text))
 
     hints: list = []
 

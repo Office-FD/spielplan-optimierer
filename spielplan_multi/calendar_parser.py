@@ -156,7 +156,14 @@ def parse_rahmenterminplan(path: str | Path,
         else:
             # Versuche aus KW-Text zu extrahieren: "KW 37 07.09. - 13.09.2026"
             dm = re.search(r'(\d{2}\.\d{2}\.)\s*-\s*(\d{2}\.\d{2}\.\d{4})', str(kw_raw))
-            week_start = dm.group(1) if dm else ''
+            if dm:
+                end_year  = int(dm.group(2)[-4:])
+                start_mon = int(dm.group(1).split('.')[1])
+                end_mon   = int(dm.group(2).split('.')[1])
+                start_year = end_year - 1 if start_mon > end_mon else end_year
+                week_start = dm.group(1) + str(start_year)
+            else:
+                week_start = ''
 
         if date_to_col < len(row) and date_to_col != kw_col:
             week_end = _to_date_str(row.iloc[date_to_col])

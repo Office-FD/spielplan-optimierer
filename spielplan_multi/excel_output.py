@@ -161,11 +161,13 @@ def build_league_excel(result: LeagueResult) -> Workbook:
 
     sec(r, 'STATISTIKEN'); r += 1
     kv(r, 'Gesamt-km:', f'{total_km} km'); r += 1
-    kv(r, 'O km/Team:', f'{np.mean(result.travels):.1f} km'); r += 1
-    kv(r, 'Std. km:', f'{np.std(result.travels):.1f} km'); r += 1
-    kv(r, 'Min. km:', f'{min(result.travels)} km'); r += 1
-    kv(r, 'Max. km:', f'{max(result.travels)} km'); r += 1
-    kv(r, 'O Wechselquote:', f'{np.mean(result.sw_rates):.1f}%'); r += 1
+    _tr = result.travels or []
+    _sr = result.sw_rates or []
+    kv(r, 'O km/Team:', f'{np.mean(_tr):.1f} km' if _tr else '–'); r += 1
+    kv(r, 'Std. km:', f'{np.std(_tr):.1f} km' if _tr else '–'); r += 1
+    kv(r, 'Min. km:', f'{min(_tr)} km' if _tr else '–'); r += 1
+    kv(r, 'Max. km:', f'{max(_tr)} km' if _tr else '–'); r += 1
+    kv(r, 'O Wechselquote:', f'{np.mean(_sr):.1f}%' if _sr else '–'); r += 1
     kv(r, 'km-Pauschale:', f'{KM_PAUSCHALE:.2f} EUR/km'); r += 1
 
     # ── Sheet 2: Spielplan ───────────────────────────────────────────────────
@@ -264,7 +266,8 @@ def build_league_excel(result: LeagueResult) -> Workbook:
                 # Spielort: das Heimteam der Gruppe (home_vals == 1)
                 host = next(
                     (t for t in grp
-                     if result.home_vals.get((t_idx[t], d), 0) >= 1),
+                     if result.home_vals.get((t_idx.get(t, -1), d), 0) >= 1
+                     and t_idx.get(t, -1) >= 0),
                     grp[0],
                 )
                 _hi = t_idx.get(host, -1)
@@ -282,17 +285,20 @@ def build_league_excel(result: LeagueResult) -> Workbook:
     ws_hm.cell(1, 1, 'Team').fill = HDR_FILL
     ws_hm.cell(1, 1).font = Font(bold=True, color='FFFFFF')
 
+    day_to_col = {d: i + 2 for i, d in enumerate(days)}
     for d in days:
-        c = ws_hm.cell(1, d + 1, d)
+        col = day_to_col[d]
+        c = ws_hm.cell(1, col, d)
         c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
         c.alignment = Alignment(horizontal='center')
-        ws_hm.column_dimensions[get_column_letter(d + 1)].width = 4
+        ws_hm.column_dimensions[get_column_letter(col)].width = 4
 
     for ti, t in enumerate(teams):
         ws_hm.cell(ti + 2, 1, t).font = Font(bold=True)
         for d in days:
+            col = day_to_col[d]
             is_home = result.home_vals.get((ti, d), 0) >= 1
-            c = ws_hm.cell(ti + 2, d + 1, 'H' if is_home else 'A')
+            c = ws_hm.cell(ti + 2, col, 'H' if is_home else 'A')
             c.fill = GREEN_FILL if is_home else RED_FILL
             c.font = Font(bold=True)
             c.alignment = Alignment(horizontal='center', vertical='center')
@@ -484,7 +490,7 @@ def build_league_excel(result: LeagueResult) -> Workbook:
     for rnd in range(1, cfg.n_rounds + 1):
         phase_cols += [f'{_ph_lbl.get(rnd, f"R{rnd}")}\nHeim',
                        f'{_ph_lbl.get(rnd, f"R{rnd}")}\nAusw.']
-    n_bcols = 3 + 2 * cfg.n_rounds
+    n_bcols = 4 + 2 * cfg.n_rounds
     _section_hdr(ws_fa, r, 'B  HEIMRECHT PRO PHASE', n_bcols); r += 1
     for col, txt in enumerate(['Team', 'Heim ges.', 'Ausw. ges.'] + phase_cols + ['Bewertung'], 1):
         c = ws_fa.cell(r, col, txt)
@@ -577,7 +583,8 @@ def build_league_excel(result: LeagueResult) -> Workbook:
         c.alignment = Alignment(horizontal='center')
 
     # Spaltenbreiten
-    for col, w in zip(range(1, 10), [26, 12, 12, 14] + [10, 10] * cfg.n_rounds + [14]):
+    _fa_widths = [26, 12, 12, 14] + [10, 10] * cfg.n_rounds + [14]
+    for col, w in zip(range(1, len(_fa_widths) + 1), _fa_widths):
         ws_fa.column_dimensions[get_column_letter(col)].width = w
 
     # ── Sheet: Team-Ansichten ────────────────────────────────────────────────
@@ -740,7 +747,7 @@ def build_cohome_summary(results: Dict[str, Optional[LeagueResult]],
 
             # Datum aus erstem Eintrag holen
             first_lid = entries[0][0]
-            first_st  = kw_compat[kw].get(first_lid, [None])[0]
+            first_st  = (kw_compat[kw].get(first_lid) or [None])[0]
             cal_entry = results[first_lid].cfg.calendar.get(first_st, {}) if results.get(first_lid) else {}
 
             ws.cell(r, 1, club_name)

@@ -80,8 +80,10 @@ def refine_schedule(result: LeagueResult,
     loc: List[List[int]] = [[0] * (N + 2) for _ in range(n)]
     for d, games in result.schedule.items():
         for ht, at in games:
-            hi   = t_idx[ht]
-            ai_t = t_idx[at]
+            hi   = t_idx.get(ht, -1)
+            ai_t = t_idx.get(at, -1)
+            if hi < 0 or ai_t < 0:
+                continue
             loc[hi][d]   = hi   # Heimteam an eigenem Standort
             loc[ai_t][d] = hi   # Gastteam am Standort des Heimteams
 
@@ -94,7 +96,9 @@ def refine_schedule(result: LeagueResult,
 
     for d in range(1, N + 1):
         for ht, at in result.schedule.get(d, []):
-            hi, ai_t = t_idx[ht], t_idx[at]
+            hi, ai_t = t_idx.get(ht, -1), t_idx.get(at, -1)
+            if hi < 0 or ai_t < 0:
+                continue
             low, high = min(hi, ai_t), max(hi, ai_t)
             phase = 'hin' if d <= hinrunde_end else 'rueck'
             if (low, high) not in key_to_pid:
@@ -112,6 +116,9 @@ def refine_schedule(result: LeagueResult,
 
     n_pairs = len(pair_info)
 
+    if n_pairs == 0:
+        return result
+
     # ── Verbotene Swaps ───────────────────────────────────────────────────────
     dst_days = cfg.dst_days
 
@@ -122,7 +129,7 @@ def refine_schedule(result: LeagueResult,
 
     forced_by: Dict[int, set] = {
         t_idx[t]: set(fdays)
-        for t, fdays in getattr(cfg, 'forced_home', {}).items() if t in t_idx
+        for t, fdays in cfg.forced_home.items() if t in t_idx
     }
 
     pinned_set: set = set()
@@ -164,6 +171,10 @@ def refine_schedule(result: LeagueResult,
         new_rv = ai if a_home_hin[pid] else bi
         old_hv = ai if a_home_hin[pid] else bi
         old_rv = bi if a_home_hin[pid] else ai
+        if hd in blocked_by.get(new_hv, set()) or rd in blocked_by.get(new_rv, set()):
+            continue
+        if hd in forced_by.get(old_hv, set()) or rd in forced_by.get(old_rv, set()):
+            continue
         # Probe-Swap
         loc[ai][hd] = loc[bi][hd] = new_hv
         loc[ai][rd] = loc[bi][rd] = new_rv

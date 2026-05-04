@@ -60,7 +60,9 @@ def validate(
 
         # Distanzmatrix fehlt oder ist leer
         mat = dist_matrices.get(lid)
-        if mat is None or (isinstance(mat, np.ndarray) and float(mat.sum()) == 0.0):
+        _mat_bad = (mat is None or (isinstance(mat, np.ndarray)
+                    and (float(mat.sum()) == 0.0 or bool(np.isnan(mat).any()))))
+        if _mat_bad:
             warn(lid, f'**{name}**: Distanzmatrix ist leer – Reiseminimierung nicht möglich. '
                        'Entfernungen im Schritt "Distanzen" eingeben.')
 
@@ -85,10 +87,16 @@ def validate(
         # Pflichtspiele außerhalb gültiger Spieltage
         for pm in pins:
             pd = pm.get('day')
-            if pd is not None and int(pd) not in days:
-                err(lid, f'**{name}**: Pflichtspiel '
-                          f'{pm.get("teamA", "?")} – {pm.get("teamB", "?")} '
-                          f'auf ST{pd}, der nicht existiert (gültig: 1–{n_md}).')
+            if pd is not None:
+                try:
+                    if int(pd) not in days:
+                        err(lid, f'**{name}**: Pflichtspiel '
+                                  f'{pm.get("teamA", "?")} – {pm.get("teamB", "?")} '
+                                  f'auf ST{pd}, der nicht existiert (gültig: 1–{n_md}).')
+                except (TypeError, ValueError):
+                    err(lid, f'**{name}**: Pflichtspiel '
+                              f'{pm.get("teamA", "?")} – {pm.get("teamB", "?")}: '
+                              f'Spieltag «{pd}» ist kein gültiger Wert.')
 
         # Pflichtspiele: widersprüchliches Heimrecht für dieselbe Paarung + Tag
         pin_key: dict = {}
@@ -112,13 +120,13 @@ def validate(
                        '(> 40 %). Der Solver hat wenig Spielraum – Optimierungsqualität '
                        'kann eingeschränkt sein.')
 
-        # Kalender: zu wenige Einträge für diese Liga
-        cal_entries = sum(
-            len(sts)
-            for kw_data in kw_compat.values()
-            for l, sts in kw_data.items()
-            if l == lid
-        )
+        # Kalender: zu wenige Einträge für diese Liga (set vermeidet Doppelzählung)
+        cal_days: set = set()
+        for kw_data in kw_compat.values():
+            for l, sts in kw_data.items():
+                if l == lid:
+                    cal_days.update(sts)
+        cal_entries = len(cal_days)
         if kw_compat and cal_entries < n_md:
             warn(lid, f'**{name}**: Kalender enthält nur {cal_entries} von {n_md} Spieltagen. '
                        'Fehlende Spieltage erhalten kein Datum im Export.')
@@ -148,6 +156,21 @@ def validate(
                                  f'DST-Block ST{d1}/ST{d2} – ein Tag ist Pflichtheim, '
                                  f'der andere ist Sperrtag. DST erzwingt gleiche Heimrechte '
                                  f'an beiden Tagen → unlösbar.')
+                # Konflikt: Pflichtspiel erzwingt Auswärtsspiel an Pflichtheim-Tag
+                for pm in pins:
+                    if not pm.get('home') or not pm.get('day'):
+                        continue
+                    try:
+                        pd_int = int(pm['day'])
+                    except (TypeError, ValueError):
+                        continue
+                    if pd_int not in frc_set:
+                        continue
+                    if pm['home'] != team and team in (pm.get('teamA'), pm.get('teamB')):
+                        err(lid, f'**{name}** – Team «{team}»: '
+                                  f'Spieltag ST{pd_int} ist Pflichtheim, aber Pflichtspiel '
+                                  f'{pm.get("teamA","?")} – {pm.get("teamB","?")} '
+                                  f'erzwingt Auswärtsspiel → unlösbar.')
 
         # DST-Routing + Sperrtage: Infeasibility-Risiko prüfen
         if routing:
@@ -160,11 +183,15 @@ def validate(
                         blk_set = set(blk.get(ti_name, []))
                         if d1 not in blk_set and d2 not in blk_set:
                             continue
-                        # DST-Constraint zwingt ti auf beiden Tagen zu Auswärts
+                        # DST-Constraint zwingt ti auf beiden Tagen zu Auswärts.
+                        # Fehler nur wenn ALLE möglichen d1-Gegner keine erreichbaren
+                        # d2-Gegner haben (partielle Fälle kann der Solver umgehen).
                         no_escape = []
+                        n_candidates = 0
                         for i in range(n):
                             if i == ti or mat[ti, i] <= 0:
                                 continue
+                            n_candidates += 1
                             rhs = (f_num / f_den) * float(mat[ti, i])
                             can_reach = any(
                                 j != ti and j != i
@@ -173,15 +200,13 @@ def validate(
                             )
                             if not can_reach:
                                 no_escape.append(teams[i])
-                        if no_escape:
+                        if no_escape and len(no_escape) >= n_candidates:
                             err(lid,
                                 f'**{name}**: DST-Routing-Konflikt (ST{d1}/ST{d2}) – '
                                 f'Team «{ti_name}» ist auf ST{d1} oder ST{d2} gesperrt '
                                 f'(DST-Constraint erzwingt Auswärts auf beiden Tagen). '
-                                f'Folgende Heimspielorte lassen auf dem Folgetag '
-                                f'keine erreichbaren Auswärtsgegner übrig '
-                                f'({pct} % Routing-Toleranz): '
-                                f'{", ".join(no_escape)}. '
+                                f'Für keinen möglichen Gegner ist eine Folgetag-Route '
+                                f'innerhalb der Toleranz ({pct} %) erreichbar. '
                                 f'→ Routing auf mind. 100 % erhöhen oder deaktivieren.')
 
     # Co-Home: Liga ohne Kalender
@@ -241,9 +266,14 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
 
         for pm in cfg.pinned:
             pd = pm.get('day')
-            if pd is not None and int(pd) not in days:
-                err(lid, f'{name}: Pflichtspiel {pm.get("teamA","?")} – {pm.get("teamB","?")} '
-                          f'auf ST{pd}, der nicht existiert (gültig: 1–{n_md}).')
+            if pd is not None:
+                try:
+                    if int(pd) not in days:
+                        err(lid, f'{name}: Pflichtspiel {pm.get("teamA","?")} – {pm.get("teamB","?")} '
+                                  f'auf ST{pd}, der nicht existiert (gültig: 1–{n_md}).')
+                except (TypeError, ValueError):
+                    err(lid, f'{name}: Pflichtspiel {pm.get("teamA","?")} – {pm.get("teamB","?")}: '
+                              f'Spieltag «{pd}» ist kein gültiger Wert.')
 
         pin_key: dict = {}
         for pm in cfg.pinned:
@@ -254,6 +284,40 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
                 err(lid, f'{name}: Pflichtspiel {pm.get("teamA","?")} – {pm.get("teamB","?")} '
                           f'auf ST{pm.get("day")} hat widersprüchliches Heimrecht.')
             pin_key[key] = pm.get('home')
+
+        # Pflichtheim-Validierung
+        for team, fdays in cfg.forced_home.items():
+            frc_set = set(fdays)
+            blk_set = set(cfg.blocked.get(team, []))
+            conflict = blk_set & frc_set
+            if conflict:
+                err(lid, f'{name} – Team «{team}»: '
+                         f'Spieltag(e) {sorted(conflict)} sind gleichzeitig Sperrtag '
+                         f'und Pflichtheim – das ist ein Widerspruch.')
+            invalid = frc_set - days
+            if invalid:
+                err(lid, f'{name} – Team «{team}»: '
+                         f'Pflichtheim-Spieltag(e) {sorted(invalid)} existieren nicht '
+                         f'(gültig: 1–{n_md}).')
+            for d1, d2 in cfg.dst_blocks:
+                if (d1 in frc_set and d2 in blk_set) or (d2 in frc_set and d1 in blk_set):
+                    err(lid, f'{name} – Team «{team}»: '
+                             f'DST-Block ST{d1}/ST{d2} – ein Tag ist Pflichtheim, '
+                             f'der andere ist Sperrtag → unlösbar.')
+            for pm in cfg.pinned:
+                if not pm.get('home') or not pm.get('day'):
+                    continue
+                try:
+                    pd_int = int(pm['day'])
+                except (TypeError, ValueError):
+                    continue
+                if pd_int not in frc_set:
+                    continue
+                if pm['home'] != team and team in (pm.get('teamA'), pm.get('teamB')):
+                    err(lid, f'{name} – Team «{team}»: '
+                              f'Spieltag ST{pd_int} ist Pflichtheim, aber Pflichtspiel '
+                              f'{pm.get("teamA","?")} – {pm.get("teamB","?")} '
+                              f'erzwingt Auswärtsspiel → unlösbar.')
 
         total_games = n * (n - 1) // 2 * cfg.n_rounds
         if total_games > 0 and len(cfg.pinned) > total_games * 0.4:

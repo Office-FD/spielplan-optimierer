@@ -137,8 +137,9 @@ def _add_cohome_constraints(model: cp_model.CpModel,
                 if cfgs[lid].games_per_team_per_day > 1 or cfgs[lid].n_teams_per_group > 0:
                     continue
                 ti = all_lv[lid].team_idx[tname]
-                st = sts[0]
-                if st in all_lv[lid].days:
+                # Ersten gültigen Spieltag dieser Liga in der KW verwenden
+                st = next((s for s in sts if s in all_lv[lid].days), None)
+                if st is not None:
                     entries.append((lid, ti, st))
 
             if len(entries) < 2:
@@ -171,6 +172,9 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
                seed: int = 42,
                rel_gap: float = 0.02) -> Dict[str, Optional[LeagueResult]]:
     """Phase 2: Ein gemeinsames CP-SAT-Modell fuer alle Ligen."""
+    if not cfgs:
+        warn('run_phase2: keine Ligen übergeben – übersprungen.')
+        return {}
     banner('PHASE 2 - KOMBINIERTES MULTI-LIGA-MODELL')
     info(f'Zeitlimit: {time_limit}s | Gap-Limit: {rel_gap*100:.1f}% | Co-Home-Gewicht: {w_cohome}')
 
@@ -215,11 +219,9 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
         solver.parameters.relative_gap_limit = rel_gap
 
     from .solver import _ProgressCallback
-    _p2_cb = _ProgressCallback('P2', 'Phase-2-Gesamt', time.time())
-
     banner('SOLVER GESTARTET (PHASE 2)')
     t0     = time.time()
-    _p2_cb._t0 = t0
+    _p2_cb = _ProgressCallback('P2', 'Phase-2-Gesamt', t0)
     status = solver.Solve(model, _p2_cb)
     elapsed = time.time() - t0
     mins_total, secs_total = int(elapsed // 60), int(elapsed % 60)
@@ -245,6 +247,7 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
         home_vals, h_vals, x_vals   = extract_hints(solver, lv)
         groups                = extract_groups(schedule, cfg)
 
+        _p1 = phase1_results.get(lid)
         results[lid] = LeagueResult(
             league_id=lid,
             status=status,
@@ -260,9 +263,12 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
             x_vals=x_vals,
             cfg=cfg,
             groups=groups,
+            hosts=_p1.hosts if _p1 else {},
+            game_times=_p1.game_times if _p1 else {},
         )
+        _sw = sw_counts or [0]
         ok(f'  {lid}: {sum(travels)} km gesamt, '
-           f'Switches {min(sw_counts)}-{max(sw_counts)}')
+           f'Switches {min(_sw)}-{max(_sw)}')
 
     return results
 

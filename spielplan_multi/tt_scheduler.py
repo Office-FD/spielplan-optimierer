@@ -82,6 +82,8 @@ def _assign_hosts(days: List[int],
     unassigned = [d for d in sorted(days) if d not in assignment]
     if unassigned:
         cycle = teams[:]
+        if not cycle:
+            return assignment
         rng.shuffle(cycle)
         for i, day in enumerate(unassigned):
             assignment[day] = cycle[i % len(cycle)]
@@ -222,25 +224,38 @@ def _order_day_games(games: List[Tuple[str, str]],
     valid_host_slots = [s for s in host_slots_0
                         if host_team and 0 <= s < N]
 
+    MAX_TRIES = 20  # Gesamtlimit über alle Fallback-Aufrufe
+
+    tries = 0
+
     if valid_host_slots:
         # Schritt 1: Ausrichter + max_gap
+        tries += 1
         ordered, ok_flag = _try_solve(valid_host_slots, max_gap)
         if ok_flag:
             return ordered, True, max_gap
 
         # Schritt 2: Ausrichter + relaxierter max_gap
         for mg in range(max_gap + 1, N + 1):
+            tries += 1
+            if tries > MAX_TRIES:
+                break
             ordered, ok_flag = _try_solve(valid_host_slots, mg)
             if ok_flag:
                 return ordered, True, mg
 
     # Schritt 3: kein Ausrichter + max_gap
-    ordered, ok_flag = _try_solve([], max_gap)
-    if ok_flag:
-        return ordered, False, max_gap
+    if tries <= MAX_TRIES:
+        tries += 1
+        ordered, ok_flag = _try_solve([], max_gap)
+        if ok_flag:
+            return ordered, False, max_gap
 
     # Schritt 4: kein Ausrichter + relaxierter max_gap
     for mg in range(max_gap + 1, N + 1):
+        tries += 1
+        if tries > MAX_TRIES:
+            break
         ordered, ok_flag = _try_solve([], mg)
         if ok_flag:
             return ordered, False, mg
@@ -386,4 +401,5 @@ def apply_tournament_ordering(result: LeagueResult,
         cfg=result.cfg,
         groups=result.groups,
         hosts=used_hosts,
+        game_times=result.game_times,
     )

@@ -15,6 +15,7 @@ Schritte:
 
 from __future__ import annotations
 
+import math
 import re
 import sys
 from collections import Counter
@@ -28,6 +29,26 @@ from .calendar_parser import parse_rahmenterminplan, preview_columns, build_week
 from .league_types import LeagueConfig
 from .distances import (get_api_key, calculate_distance_matrix,
                          load_distances_from_file, enter_distances_manually)
+
+
+# ── Hilfsfunktion: Spieltaganzahl berechnen ───────────────────────────────────
+
+def _calc_n_matchdays(ld: tuple) -> int:
+    """Berechnet die Anzahl der Spieltage analog zu LeagueConfig.n_matchdays."""
+    teams    = ld[0]
+    gpd      = ld[4] if len(ld) > 4 else 1
+    n_rounds = ld[5] if len(ld) > 5 else 2
+    k_group  = ld[6] if len(ld) > 6 else 0
+    n_active = ld[7] if len(ld) > 7 else 0
+    n = len(teams)
+    K = k_group if 0 < k_group < n else 0
+    if K > 0:
+        na = n_active if n_active > 0 else n
+        G = max(1, na // K)
+        total_matches = n_rounds * n * (n - 1) // 2
+        games_per_day = G * K * max(1, gpd) // 2
+        return total_matches // games_per_day if games_per_day > 0 else n_rounds * (n - 1) // max(1, gpd)
+    return n_rounds * (n - 1) // max(1, gpd)
 
 
 # ── Schritt 0: Ligen definieren ───────────────────────────────────────────────
@@ -179,7 +200,6 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
                     except ValueError:
                         err('Bitte eine Zahl eingeben.')
 
-            import math as _math
             k_group  = 0  # Stufe 1 default
             n_active = 0  # 0 = alle Teams
 
@@ -189,7 +209,7 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
             valid_active = [a for a in range(gpd + 1, n_t + 1)
                             if a * gpd % 2 == 0
                             and (total_matches * 2) % (a * gpd) == 0]
-            if len(valid_active) > 1:
+            if len(valid_active) >= 1:
                 print('  Wie viele Teams sollen pro Spieltag spielen?')
                 for a in valid_active:
                     bye = n_t - a
@@ -225,8 +245,8 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
                     print(f'    {n_t} = Alle Teams an einem Ort (Stufe 1)  [Standard]')
                     for K in valid_k:
                         if K < n_t:
-                            G = _math.ceil(n_t / K)
-                            n_days = _math.ceil(n_t * (n_t - 1) * n_rounds / max(1, G * K * gpd))
+                            G = math.ceil(n_t / K)
+                            n_days = math.ceil(n_t * (n_t - 1) * n_rounds / max(1, G * K * gpd))
                             print(f'    {K} = {K} Teams/Gruppe ({G} Gruppen, {n_days} Spieltage)')
                     while True:
                         k_str = input(f'  Teams pro Gruppe [{n_t}]: ').strip() or str(n_t)
@@ -241,10 +261,17 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
                             err(f'Muss {n_t} oder einer von {[K for K in valid_k if K < n_t]} sein.')
                         except ValueError:
                             err('Bitte eine Zahl eingeben.')
+                elif valid_k:
+                    K = valid_k[0]
+                    if K < n_t:
+                        G = math.ceil(n_t / K)
+                        n_days = math.ceil(n_t * (n_t - 1) * n_rounds / max(1, G * K * gpd))
+                        info(f'  Einzige gültige Gruppen-Konfiguration: {K} Teams/Gruppe '
+                             f'({G} Gruppen, {n_days} Spieltage) – automatisch gewählt.')
 
                 if k_group > 0:
-                    G = _math.ceil(n_t / k_group)
-                    n_events = _math.ceil(n_t * (n_t - 1) * n_rounds / max(1, G * k_group * gpd))
+                    G = math.ceil(n_t / k_group)
+                    n_events = math.ceil(n_t * (n_t - 1) * n_rounds / max(1, G * k_group * gpd))
                     mode_label = f'Turniertag ({gpd} Spiele/Tag, {n_rounds} Runden, {k_group} Teams/Gruppe)'
                 else:
                     n_events = n_rounds * (n_t - 1) // max(1, gpd)
@@ -256,9 +283,11 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
             _mg = 0
             _xg = max(1, _n_games_tt)
             if _n_games_tt >= 2:
-                _mg = ask_int(
-                    '  Min. Pause zw. Spielen eines Teams (0 = kein Mindestabstand)',
-                    0, _n_games_tt - 2, default=0)
+                _max_mg = _n_games_tt - 2
+                if _max_mg > 0:
+                    _mg = ask_int(
+                        '  Min. Pause zw. Spielen eines Teams (0 = kein Mindestabstand)',
+                        0, _max_mg, default=0)
                 _xg = ask_int(
                     f'  Max. Pause zw. Spielen eines Teams '
                     f'(mind. {_mg + 1}, {_n_games_tt} = kein Limit)',
@@ -474,7 +503,7 @@ def step2_calendar_and_dst(
 def _input_dst_manual(lid: str, name: str, n_teams: int,
                        n_md: int) -> List[Tuple[int, int]]:
     """Fragt DST-Bloecke manuell ab."""
-    num = ask_int(f'  Anzahl DST-Bloecke fuer {name} (0 = keine)', 0, n_teams - 1, default=0)
+    num = ask_int(f'  Anzahl DST-Bloecke fuer {name} (0 = keine)', 0, n_md // 2, default=0)
     if num == 0:
         return []
 
@@ -577,8 +606,9 @@ def step5_pinned(league_defs: Dict) -> Dict[str, List[dict]]:
     if not ask_yes_no('Pflichtspiele definieren?'):
         return result
 
-    for lid, (teams, _, name, _, gpd, n_rounds, _, *_r) in league_defs.items():
-        n_md = n_rounds * (len(teams) - 1) // max(1, gpd)
+    for lid, ld in league_defs.items():
+        teams = ld[0]; name = ld[2]
+        n_md = _calc_n_matchdays(ld)
         print(f'\n  {name}:')
         if not ask_yes_no(f'  Pflichtspiele fuer {lid} definieren?'):
             continue
@@ -617,8 +647,9 @@ def step6_blocked(league_defs: Dict) -> Dict[str, Dict[str, List[int]]]:
     if not ask_yes_no('Heimspiel-Sperrtage definieren?'):
         return result
 
-    for lid, (teams, _, name, _, gpd, n_rounds, _, *_r) in league_defs.items():
-        n_md = n_rounds * (len(teams) - 1) // max(1, gpd)
+    for lid, ld in league_defs.items():
+        teams = ld[0]; name = ld[2]
+        n_md = _calc_n_matchdays(ld)
         print(f'\n  {name}:')
         if not ask_yes_no(f'  Sperrtage fuer {lid} definieren?'):
             continue
@@ -640,6 +671,45 @@ def step6_blocked(league_defs: Dict) -> Dict[str, Dict[str, List[int]]]:
                 result[lid][t] = sorted(set(result[lid][t]).union(days))
                 break
             ok(f'    {t}: gesperrt an {result[lid][t]}')
+            if not ask_yes_no('    Weiteres Team?'):
+                break
+
+    return result
+
+
+# ── Schritt 6b: Heimspiel-Pflichttage ────────────────────────────────────────
+
+def step6b_forced_home(league_defs: Dict) -> Dict[str, Dict[str, List[int]]]:
+    section('SCHRITT 6b: HEIMSPIEL-PFLICHTTAGE')
+    result = {lid: {} for lid in league_defs}
+
+    if not ask_yes_no('Heimspiel-Pflichttage definieren? (Team muss an bestimmten Spieltagen Heimrecht haben)'):
+        return result
+
+    for lid, ld in league_defs.items():
+        teams = ld[0]; name = ld[2]
+        n_md = _calc_n_matchdays(ld)
+        print(f'\n  {name}:')
+        if not ask_yes_no(f'  Pflichttage fuer {lid} definieren?'):
+            continue
+
+        while True:
+            while True:
+                t = input('    Team: ').strip()
+                if t in teams: break
+                err(f"'{t}' nicht gefunden.")
+            while True:
+                raw = input(f"    Pflicht-Heimspieltage fuer '{t}' (kommagetrennt): ").strip()
+                try:
+                    days = sorted(set(int(x.strip()) for x in raw.split(',') if x.strip()))
+                except Exception:
+                    err('Format: 3,7,12'); continue
+                if not days or not all(1 <= d <= n_md for d in days):
+                    err(f'Spieltage 1-{n_md}'); continue
+                result[lid].setdefault(t, [])
+                result[lid][t] = sorted(set(result[lid][t]).union(days))
+                break
+            ok(f'    {t}: Pflichtheim an {result[lid][t]}')
             if not ask_yes_no('    Weiteres Team?'):
                 break
 
@@ -672,7 +742,7 @@ def step7_cohome(league_defs: Dict) -> Dict[str, Dict[str, str]]:
             break
 
         liga_map: Dict[str, str] = {}
-        for lid, (teams, _, name, _, _, _, _) in league_defs.items():
+        for lid, (teams, _, name, *_r) in league_defs.items():
             team_list = ', '.join(teams)
             raw = input(f'  Teamname in {name} ({lid}) '
                         f'[leer = kein Team]: ').strip()
@@ -769,7 +839,8 @@ def build_configs(league_defs: Dict,
                   raw_per_liga: Dict,
                   pinned_per_liga: Dict,
                   blocked_per_liga: Dict,
-                  kw_compat: Dict) -> Dict[str, LeagueConfig]:
+                  kw_compat: Dict,
+                  forced_home_per_liga: Optional[Dict] = None) -> Dict[str, LeagueConfig]:
     """Erstellt LeagueConfig-Objekte fuer alle Ligen."""
     from .calendar_parser import build_weekends
 
@@ -781,7 +852,6 @@ def build_configs(league_defs: Dict,
             for st in sts:
                 spieltage_per_liga[lid][st] = {'kw': kw}
 
-    import math as _math
     cfgs = {}
     for lid, league_def in league_defs.items():
         # Tuple kann 7 (legacy), 8 oder 9 Elemente haben
@@ -828,6 +898,7 @@ def build_configs(league_defs: Dict,
             raw_weights=raw,
             pinned=pinned_per_liga.get(lid, []),
             blocked=blocked_per_liga.get(lid, {}),
+            forced_home=(forced_home_per_liga or {}).get(lid, {}),
             calendar=cal,
             hier_weight=hw,
             games_per_team_per_day=gpd,
@@ -871,6 +942,9 @@ def run_wizard(cache_dir: Path) -> Optional[dict]:
     # Schritt 6: Sperrtage
     blocked_per_liga = step6_blocked(league_defs)
 
+    # Schritt 6b: Heimspiel-Pflichttage
+    forced_home_per_liga = step6b_forced_home(league_defs)
+
     # Schritt 7: Co-Home
     active_clubs = step7_cohome(league_defs)
 
@@ -880,7 +954,8 @@ def run_wizard(cache_dir: Path) -> Optional[dict]:
     # Konfigurationsobjekte bauen (werden für Schritt 9 benötigt)
     cfgs = build_configs(league_defs, dist_per_liga, dst_per_liga,
                          routing_per_liga, w_scaled_per_liga, raw_per_liga,
-                         pinned_per_liga, blocked_per_liga, kw_compat)
+                         pinned_per_liga, blocked_per_liga, kw_compat,
+                         forced_home_per_liga)
 
     # Schritt 9: Validierung
     valid = step9_validate(cfgs)

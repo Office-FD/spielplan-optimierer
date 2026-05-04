@@ -44,6 +44,8 @@ def recompute_result_stats(result, cfg) -> tuple:
     for ti in range(n):
         prev = None
         for wknd in weekends:
+            if not wknd:
+                continue
             cur = result.home_vals.get((ti, wknd[0]))
             if cur is not None:
                 if prev is not None and cur != prev:
@@ -136,11 +138,12 @@ def find_schedule_warnings(result, cfg) -> list:
         avg_km = sum(result.travels) / n
         if avg_km > 0:
             for ti, team in enumerate(cfg.teams):
-                pct = (result.travels[ti] - avg_km) / avg_km * 100
+                km_ti = result.travels[ti] if ti < len(result.travels) else 0
+                pct = (km_ti - avg_km) / avg_km * 100
                 if pct > 35:
                     warnings.append({'team': team,
                                      'text': (f'+{pct:.0f}% über Ø-Reisekilometer '
-                                              f'({result.travels[ti]:,} km)'),
+                                              f'({km_ti:,} km)'),
                                      'severity': 'warn'})
 
     return warnings
@@ -275,6 +278,7 @@ def build_ics_bytes(result, season_year: int) -> bytes:
         f'X-WR-CALNAME:{cfg.name}',
     ]
 
+    dtstamp = _dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
     uid_n = 0
     for d in cfg.days:
         date  = _date_for(d)
@@ -295,7 +299,7 @@ def build_ics_bytes(result, season_year: int) -> bytes:
                 dt_lines = [f'DTSTART;VALUE=DATE:{season_year}0101',
                             f'DTEND;VALUE=DATE:{season_year}0102']
                 desc += f' (Spieltag {d} – kein Datum verfuegbar)'
-            lines += ['BEGIN:VEVENT', f'UID:{uid}'] + dt_lines + [
+            lines += ['BEGIN:VEVENT', f'UID:{uid}', f'DTSTAMP:{dtstamp}'] + dt_lines + [
                 f'SUMMARY:{ht} vs. {at}',
                 f'LOCATION:{loc}',
                 f'DESCRIPTION:{desc}',
@@ -500,7 +504,8 @@ def build_print_html(result, season_year: int = 0) -> str:
                     occ     = _tc(oi) if oi >= 0 else '#eee'
                     t_cell  = (f'<td style="text-align:center;font-weight:bold;color:#1F3864">'
                                f'{_esc(day_times[g_idx])}</td>'
-                               if has_times and g_idx < len(day_times) else '')
+                               if has_times and g_idx < len(day_times)
+                               else ('<td></td>' if has_times else ''))
                     parts.append(
                         f'<tr{row_cls}>'
                         f'<td style="text-align:center">{d}</td>'

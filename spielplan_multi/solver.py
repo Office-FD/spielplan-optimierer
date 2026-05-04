@@ -67,6 +67,8 @@ def build_league_vars(model: cp_model.CpModel,
     Gibt LeagueVars zurueck (kein Solver-Lauf, nur Modellaufbau).
     """
     n = cfg.n_teams
+    if n < 2:
+        raise ValueError(f'Liga {cfg.name!r}: mindestens 2 Teams erforderlich (hat {n}).')
     days = cfg.days
     dist_int = cfg.dist.astype(int)  # einmal konvertieren, spart int() in inner loops
     N = cfg.n_matchdays
@@ -222,6 +224,11 @@ def build_league_vars(model: cp_model.CpModel,
             if _wdays[0] in blocked_per_team[_ti]:
                 blocked_weekends_per_team[_ti].add(_w)
 
+    dst_weekends: set = {
+        _w for _w, _wdays in enumerate(cfg.weekends)
+        if any(d in cfg.dst_days for d in _wdays)
+    }
+
     # Sliding-Window + Switch: nur fuer Standard-Format (gpd=1)
 
     if gpd == 1:
@@ -233,7 +240,8 @@ def build_league_vars(model: cp_model.CpModel,
                 for w in range(num_weekends - 3):
                     seg = [homeW[ti, w + k] for k in range(4)]
                     model.Add(sum(seg) <= 3)
-                    if not any((w + k) in blocked_weekends_per_team[ti] for k in range(4)):
+                    if (not any((w + k) in blocked_weekends_per_team[ti] for k in range(4))
+                            and not any((w + k) in dst_weekends for k in range(4))):
                         model.Add(sum(seg) >= 1)
 
         for ti in range(n):
@@ -312,7 +320,7 @@ def build_league_vars(model: cp_model.CpModel,
         # DST-Routing
         if cfg.apply_routing and cfg.dst_blocks:
             for ti in range(n):
-                for d1, _ in cfg.dst_blocks:
+                for d1, d2 in cfg.dst_blocks:
                     for i in range(n):
                         if dist_int[ti, i] == 0:
                             continue
@@ -320,7 +328,7 @@ def build_league_vars(model: cp_model.CpModel,
                             lhs = (dist_int[i, j] + dist_int[j, ti]) * cfg.f_den
                             rhs = cfg.f_num * dist_int[ti, i]
                             if lhs > rhs:
-                                model.Add(loc[ti, d1 + 1, j] == 0).OnlyEnforceIf(
+                                model.Add(loc[ti, d2, j] == 0).OnlyEnforceIf(
                                     [loc[ti, d1, i], home[ti, d1].Not()])
     else:
         # Turniertag: kein Standort-Modell, Reise auf 0 setzen
@@ -393,7 +401,7 @@ def build_league_vars(model: cp_model.CpModel,
             warn(f'[{prefix}] Pflichtspiel: Team {a!r} oder {b!r} nicht in Liga – ignoriert.')
             continue
         can_a, can_b = (a, b) if ia <= ib else (b, a)
-        round_num = min(n_rounds, (day - 1) // max(1, n - 1) + 1)
+        round_num = min(n_rounds, (day - 1) // max(1, round_len) + 1)
         m = pair_round_to_match.get((can_a, can_b, round_num))
         if m is None:
             warn(f'[{prefix}] Pflichtspiel nicht zuordenbar: {a} vs. {b} ST{day}')
@@ -402,17 +410,18 @@ def build_league_vars(model: cp_model.CpModel,
         if home_team:
             model.Add(h[m] == (0 if home_team == can_a else 1))
 
-    # Heimspiel-Sperrtage
+    # Heimspiel-Sperrtage (überspringt Tage, die auch Pflichtheim-Tage sind)
     for team, block_days in cfg.blocked.items():
         ti = t_idx.get(team)
         if ti is None:
             continue
+        forced_set = set(cfg.forced_home.get(team, []))
         for d in block_days:
-            if d in days:
+            if d in days and d not in forced_set:
                 model.Add(home[ti, d] == 0)
 
     # Heimspiel-Pflichttage
-    for team, force_days in getattr(cfg, 'forced_home', {}).items():
+    for team, force_days in cfg.forced_home.items():
         ti = t_idx.get(team)
         if ti is None:
             continue

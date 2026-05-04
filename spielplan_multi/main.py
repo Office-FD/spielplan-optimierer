@@ -88,9 +88,11 @@ def main():
                 print(f'    {i}. {ht:22s} vs. {at}')
 
         import numpy as np
-        print(f'\n  Reise: min={min(result.travels)} max={max(result.travels)} '
-              f'O={np.mean(result.travels):.0f} km')
-        print(f'  Switches: min={min(result.sw_counts)} max={max(result.sw_counts)}')
+        _tr = result.travels or [0]
+        _sw = result.sw_counts or [0]
+        print(f'\n  Reise: min={min(_tr)} max={max(_tr)} '
+              f'O={np.mean(_tr):.0f} km')
+        print(f'  Switches: min={min(_sw)} max={max(_sw)}')
 
         # Excel speichern
         wb       = build_league_excel(result)
