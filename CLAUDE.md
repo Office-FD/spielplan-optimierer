@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.1.0-beta1 · Stand Mai 2026 · Status: Beta-fähig, keine bekannten kritischen Bugs**
+> **Version 1.1.0-beta1 · Stand Mai 2026 · Status: Beta-fähig, zwei vollständige Code-Reviews abgeschlossen, keine bekannten Bugs**
 
 ---
 
@@ -134,7 +134,7 @@ S.results           # Dict[lid, LeagueResult|None]
 S.w_cohome          # float – Co-Home-Gewicht
 S.clubs             # Dict[club_name, Dict[lid, team]] – Co-Home-Konfiguration
 S.kw_compat         # {kw: {lid: [days]}} – aus calendar_parser, für DST-Vorschlag
-S.sol               # dict: {seeds, p1, p2, sa}
+S.solver            # dict: {seeds, p1, p2, sa}
 S.move_pending      # None|{lid,day,idx,ht,at} – laufende Verschiebe-Aktion
 S.cancel_pending    # None|{lid,ht,at} – Spiel ausgefallen, Nachholtermin pending
 ```
@@ -210,36 +210,60 @@ Zielfunktion: `sum(switch·scale·sw) - sum(sw_fair·scale·(max_sw-min_sw)) - s
 
 ---
 
-## 9. Bekannte Bugfixes (April 2026)
+## 9. Code-Reviews Mai 2026
+
+Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundenen Bugs sind behoben. Übersicht der wichtigsten Fixes:
+
+**Runde 1 (Kritisch/Hoch/Mittel/Niedrig – alle erledigt):**
 
 | Datei | Problem | Fix |
 |---|---|---|
-| `sa_refine.py` | LeagueResult fehlte `groups`, `hosts`, `game_times` → stille Datenverlust für Turniertag Stufe 2 | Felder in return-Statement ergänzt |
-| `excel_output.py:261` | `t_idx[host]` KeyError wenn host nicht in t_idx | `t_idx.get(host,-1)` + Bounds-Check |
-| `distances.py:122` | `data['rows'][0]` IndexError wenn API `rows:[]` zurückgibt | Leere-Liste-Guard |
-| `app.py:3144` | Division durch 0 bei `avg_km=0` (Turniertag travel=0) | `if avg_km else 0` Guard |
-| `app.py:3769` | `S.step` außerhalb [0,8] → IndexError | `max(0,min(S.step,8))` Clamp |
-| `calendar_parser.py` | DST-Blöcke mit Spieltagen außerhalb der Range → KeyError im Solver | `build_weekends()` filtert beide Tage |
+| `sa_refine.py` | LeagueResult fehlte `groups`, `hosts`, `game_times` | Felder in return-Statement ergänzt |
+| `excel_output.py` | Heatmap-Spaltenindex bei nicht-sequenziellen Tagen falsch | Mapping-Dict `{day: col_idx}` |
+| `calendar_parser.py` | DST-Blöcke außerhalb der Range → KeyError | `build_weekends()` filtert beide Tage |
+| `calendar_parser.py` | Jahreswechsel-Bug im Datums-Parsing (week_start/week_end) | Jahr aus Monat ableiten |
 | `solver.py` | 4er-Fenster bei back-to-back-DST → INFEASIBLE | Fenster überspringt DST-Tage |
-| `solver.py` + `multi_solver.py` | OR-Tools 9.15 entfernte `SolveWithSolutionCallback()` → AttributeError in Phase 1+2 (kein Ergebnis, kein sichtbarer Fehler) | Auf `solver.Solve(model, callback)` umgestellt |
+| `solver.py` + `multi_solver.py` | OR-Tools 9.15: `SolveWithSolutionCallback()` entfernt | Auf `solver.Solve(model, callback)` umgestellt |
+| `config_validator.py` | NaN in Distanzmatrix nicht erkannt | `np.isnan(dist).any()` zusätzlich prüfen |
+| `solver.py` | DST-Routing: `d1+1` statt `d2` → KeyError bei nicht-konsekutiven DST-Blöcken | `for d1, d2 in cfg.dst_blocks` |
+| `schedule_utils.py` | DTSTAMP fehlt in iCal-VEVENTs (RFC 5545) | DTSTAMP in jeden VEVENT |
+| `app.py` | `S.sol` vs `S.solver` Key-Mismatch → Sitzung speichern crasht | `S.sol` → `S.solver` |
+
+**Runde 2 (Kritisch/Hoch/Mittel/Niedrig – alle erledigt):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `sa_refine.py` | `t_idx[ht]` KeyError nach manuellen Spielplanänderungen | `t_idx.get()` mit Guard |
+| `schedule_utils.py` | `travels[ti]` IndexError in `find_schedule_warnings()` | Längen-Guard |
+| `schedule_utils.py` | `move_game` validiert `new_day` nicht gegen `cfg.days` | Validierung ergänzt |
+| `schedule_utils.py` | `reschedule_game` validiert Teamnamen nicht | Validierung gegen `cfg.teams` |
+| `schedule_utils.py` | iCal: kein RFC 5545-Escaping + kein Line-Folding | `_ical_escape()` + `_ical_fold()` |
+| `config_validator.py` | `pin_key` str/int-Mismatch bei JSON-Import | `int(pm.get('day', 0))` |
+| `solver.py` | Turniertag: Switch-Summation erzeugt unnötige CP-Terme | Turniertag-Branch überspringen |
+| `config.py` | `TEAM_COLORS` KeyError ab 20 Teams | `defaultdict(get_team_color)` |
+| `multi_solver.py` | Fehlender Guard für leeres `cfgs` in `run_phase2` | Early-return mit Warnung |
+| `tt_scheduler.py` | Fallback-Schleifen ohne globales Abbruchkriterium | `MAX_TRIES = 20` |
+| `excel_output.py` | Spaltenbreiten falsch für `n_rounds > 2`; n_bcols off-by-one | Beide korrigiert |
+| `app.py` | Liga-ID leer → korrumpiert `S.leagues`; Liga löschen bereinigt `S.clubs` nicht | Guards ergänzt |
+| `app.py` | INFEASIBLE-Diagnose: False Positives bei ähnlichen Liga-IDs | Zeilenweise Log-Prüfung |
+| `app.py` | Routing-Slider: `min_value=0` führt nahezu immer zu INFEASIBLE | `min_value=1` |
+| `wizard.py` | `n_md` für Stufe-2-Turniertag in Schritten 5/6/6b falsch | `_calc_n_matchdays(ld)` |
+| `distances.py` | Meter→km per Truncation statt Rounding | `round(meters / 1000)` |
 
 ---
 
-## 10. Feature-Status (BACKLOG.md)
+## 10. Offene Features (BACKLOG.md)
 
-| Feature | Status |
+Alle bisher geplanten Features sind implementiert. Verbleibende Wünsche (Details im BACKLOG.md):
+
+| Feature | Aufwand |
 |---|---|
-| iCal-Export pro Team (ZIP) | Erledigt – `build_ics_bytes()` in schedule_utils.py |
-| Druckansicht HTML | Erledigt – `build_print_html()` in schedule_utils.py |
-| Warnungen bei unausgewogenen Plänen | Erledigt – `find_schedule_warnings()` in schedule_utils.py |
-| DST-Blöcke automatisch vorschlagen | Erledigt – Schritt 2 "Paare automatisch vorschlagen" |
-| Manuelle Nachbearbeitung (verschieben) | Erledigt – move_game/cancel_game/reschedule_game |
-| Spielplan-Vergleich zweier Konfigurationen | Erledigt – "Spielplan vergleichen" Expander, parsed Kilometerstatistik-Sheet |
-| Spielabsagen & Nachholspiele | Erledigt – cancel_game + reschedule_game mit find_free_days |
-| Interaktive Kalenderansicht | Offen (Aufwand Groß) |
-| Karten-Visualisierung Reiserouten | Offen (Aufwand Groß) |
-| Multi-Saison-Planung | Offen (Aufwand Groß) |
-| REST-API | Offen (Aufwand Groß) |
+| Interaktive Kalenderansicht im Browser | Groß |
+| Karten-Visualisierung Reiserouten | Groß |
+| Multi-Saison-Planung | Groß |
+| REST-API für externe Integration | Groß |
+| `.gitattributes` für CRLF-Konsistenz | Klein |
+| Style-Cleanup: `_clubs_excel_bytes` auf Modulebene | Klein |
 
 ---
 
