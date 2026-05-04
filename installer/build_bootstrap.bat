@@ -1,0 +1,135 @@
+@echo off
+setlocal EnableDelayedExpansion
+chcp 65001 >nul 2>&1
+title Spielplan-Optimierer – Bootstrap-Installer erstellen
+
+echo ============================================================
+echo  Spielplan-Optimierer – Bootstrap-Installer Build
+echo ============================================================
+echo.
+
+:: ── Pfade ─────────────────────────────────────────────────────
+set "ROOT=%~dp0.."
+set "BUILD=%~dp0build"
+set "PYEMBED=%BUILD%\python"
+set "PYVER=3.13.3"
+set "PYZIP=python-%PYVER%-embed-amd64.zip"
+set "PYURL=https://www.python.org/ftp/python/%PYVER%/%PYZIP%"
+
+:: ── Voraussetzungen pruefen ────────────────────────────────────
+echo [1/6] Voraussetzungen pruefen...
+
+where python >nul 2>&1
+if errorlevel 1 (
+    echo FEHLER: Python nicht gefunden. Bitte Python 3.13 installieren.
+    pause & exit /b 1
+)
+
+where pyinstaller >nul 2>&1
+if errorlevel 1 (
+    echo  PyInstaller nicht gefunden. Wird installiert...
+    python -m pip install pyinstaller --quiet
+    if errorlevel 1 ( echo FEHLER: PyInstaller-Installation fehlgeschlagen. & pause & exit /b 1 )
+)
+
+where iscc >nul 2>&1
+if errorlevel 1 (
+    echo FEHLER: Inno Setup nicht gefunden.
+    echo Bitte von https://jrsoftware.org/isinfo.php installieren.
+    echo Standard-Installationspfad: C:\Program Files ^(x86^)\Inno Setup 6\
+    echo Danach PATH aktualisieren oder iscc.exe direkt angeben.
+    pause & exit /b 1
+)
+
+if not exist "%BUILD%" mkdir "%BUILD%"
+
+:: ── Embedded Python herunterladen ──────────────────────────────
+echo [2/6] Python %PYVER% Embedded Package...
+
+if exist "%PYEMBED%\python.exe" (
+    echo  Bereits vorhanden, wird uebersprungen.
+    echo  (Loeschen Sie %PYEMBED% um neu zu erstellen.)
+) else (
+    if not exist "%BUILD%\%PYZIP%" (
+        echo  Herunterladen von python.org...
+        powershell -NoProfile -Command "Invoke-WebRequest -Uri '%PYURL%' -OutFile '%BUILD%\%PYZIP%'"
+        if errorlevel 1 ( echo FEHLER: Download fehlgeschlagen. & pause & exit /b 1 )
+    )
+    echo  Entpacken...
+    powershell -NoProfile -Command "Expand-Archive -Path '%BUILD%\%PYZIP%' -DestinationPath '%PYEMBED%' -Force"
+
+    :: site-packages aktivieren (pth-Datei anpassen)
+    powershell -NoProfile -Command ^
+        "Get-ChildItem '%PYEMBED%\*._pth' | ForEach-Object { (Get-Content $_) -replace '#import site','import site' | Set-Content $_ }"
+
+    :: pip installieren
+    echo  pip einrichten...
+    powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.py' -OutFile '%BUILD%\get-pip.py'"
+    "%PYEMBED%\python.exe" "%BUILD%\get-pip.py" --no-warn-script-location --quiet
+    if errorlevel 1 ( echo FEHLER: pip-Installation fehlgeschlagen. & pause & exit /b 1 )
+
+    :: Abhaengigkeiten installieren
+    echo  Pakete installieren (das dauert einige Minuten)...
+    "%PYEMBED%\python.exe" -m pip install --no-warn-script-location --quiet -r "%ROOT%\requirements.txt"
+    if errorlevel 1 ( echo FEHLER: Paket-Installation fehlgeschlagen. & pause & exit /b 1 )
+    echo  Python-Umgebung fertig.
+)
+
+:: ── Icon erstellen ─────────────────────────────────────────────
+echo [3/6] Icon erstellen...
+set "ICON_SRC=%ROOT%\assets\floorball_icon.png"
+set "ICON_ICO=%BUILD%\icon.ico"
+
+if exist "%ICON_ICO%" (
+    echo  Bereits vorhanden.
+) else if exist "%ICON_SRC%" (
+    python -m pip install pillow --quiet 2>nul
+    python -c "from PIL import Image; img=Image.open(r'%ICON_SRC%').convert('RGBA'); img.save(r'%ICON_ICO%')" 2>nul
+    if exist "%ICON_ICO%" (
+        echo  icon.ico erstellt.
+    ) else (
+        echo  Konnte Icon nicht erstellen, Standard-Icon wird verwendet.
+        set "ICON_ICO="
+    )
+) else (
+    echo  Kein Icon-Bild gefunden, Standard-Icon wird verwendet.
+    set "ICON_ICO="
+)
+
+:: ── Launcher kompilieren ───────────────────────────────────────
+echo [4/6] Launcher kompilieren (PyInstaller)...
+
+set "PYINSTALLER_OPTS=--onefile --noconsole --name Spielplan-Optimierer"
+if defined ICON_ICO (
+    set "PYINSTALLER_OPTS=%PYINSTALLER_OPTS% --icon %ICON_ICO%"
+)
+
+cd /d "%ROOT%"
+pyinstaller %PYINSTALLER_OPTS% --distpath "%BUILD%" --workpath "%BUILD%\pyi_work" --specpath "%BUILD%" launcher.py
+if errorlevel 1 ( echo FEHLER: PyInstaller fehlgeschlagen. & pause & exit /b 1 )
+echo  Spielplan-Optimierer.exe erstellt.
+
+:: ── Version auslesen ──────────────────────────────────────────
+set /p VERSION=<"%ROOT%\VERSION"
+set "VERSION=%VERSION: =%"
+echo  Version: %VERSION%
+
+:: ── Inno Setup ausfuehren ─────────────────────────────────────
+echo [5/6] Installer erstellen (Inno Setup)...
+cd /d "%~dp0"
+iscc spielplan.iss /DMyAppVersion="%VERSION%"
+if errorlevel 1 ( echo FEHLER: Inno Setup fehlgeschlagen. & pause & exit /b 1 )
+
+:: ── Ergebnis ──────────────────────────────────────────────────
+echo.
+echo [6/6] Fertig!
+echo.
+echo  Installer: installer\Output\Spielplan-Optimierer-Setup-v%VERSION%.exe
+echo.
+echo  Naechste Schritte:
+echo  1. VERSION-Datei erhoehen (z.B. 1.2.0)
+echo  2. python build_release.py  (erstellt app-files.zip)
+echo  3. git tag v%VERSION% ^& git push --tags
+echo     (GitHub Actions erstellt den Release automatisch)
+echo.
+pause

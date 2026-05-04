@@ -1,0 +1,42 @@
+name: Release erstellen
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: app-files.zip erstellen
+        run: python build_release.py
+
+      - name: GitHub Release erstellen
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app-files.zip
+          generate_release_notes: true
+          name: "Spielplan-Optimierer ${{ github.ref_name }}"
+          body: |
+            ## Installation
+
+            **Erstinstallation:** Setup-Datei herunterladen und ausführen.
+            Der Installer lädt automatisch diese App-Version von GitHub.
+
+            **Update:** Einfach die neue `app-files.zip` – der Launcher meldet
+            beim nächsten Start, dass ein Update verfügbar ist.
+
+            ---
+            *Vollständige Änderungen siehe Commits seit dem letzten Tag.*

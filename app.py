@@ -376,7 +376,7 @@ _LOGO_PATH = str(_HERE / 'assets' / 'floorball_logo.png')
 
 def _sidebar():
     with st.sidebar:
-        st.image(_LOGO_PATH, width=None)
+        st.image(_LOGO_PATH, width='content')
         st.markdown('### Spielplan-Optimierer')
         st.caption('Automatische Spielplanerstellung')
 

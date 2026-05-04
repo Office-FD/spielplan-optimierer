@@ -21,3 +21,10 @@ desktop.ini
 # Editor
 .vscode/
 .idea/
+
+# Installer Build-Artefakte (nur installer/spielplan.iss und build_bootstrap.bat sind in Git)
+installer/build/
+installer/Output/
+
+# Release-Zip (wird von build_release.py erzeugt, nicht einchecken)
+app-files.zip
