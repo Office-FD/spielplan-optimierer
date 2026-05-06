@@ -27,7 +27,7 @@ from .tt_scheduler import apply_tournament_ordering
 # ── Phase-1-Worker fuer parallele Ausfuehrung ────────────────────────────────
 
 def _phase1_worker(args):
-    """Loest eine einzelne Liga in einem separaten Prozess."""
+    """Loest eine einzelne Liga in einem separaten Thread."""
     import traceback as _tb
     lid, cfg, time_limit, seed, num_workers = args
     try:

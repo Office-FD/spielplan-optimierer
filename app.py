@@ -3331,8 +3331,9 @@ def _step8():
         with _rcol_b:
             if st.button('↺  Neuen Spielplan erstellen', key='restart', width='stretch'):
                 (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
+                import copy as _copy
                 for k, v in _DEFAULTS.items():
-                    st.session_state[k] = v
+                    st.session_state[k] = _copy.deepcopy(v)
                 st.rerun()
         with _rcol_c:
             st.download_button(

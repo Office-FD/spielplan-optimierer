@@ -545,7 +545,7 @@ def step3_routing(league_defs: Dict,
             continue
         pct = 25
         if ask_yes_no('  Standard 25% Mehrkilometer aendern?'):
-            pct = ask_int('  Erlaubte Mehrkilometer (%)', 0, 200, default=25)
+            pct = ask_int('  Erlaubte Mehrkilometer (%)', 1, 200, default=25)
         result[lid] = (True, 100 + pct, 100)
         ok(f'  {lid}: Routing aktiv ({100 + pct}%)')
     return result

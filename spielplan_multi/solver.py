@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 import time
 from collections import Counter
 from typing import Dict, List, Optional, Tuple
@@ -575,7 +576,6 @@ class _ProgressCallback(cp_model.CpSolverSolutionCallback):
         self._count = 0
 
     def on_solution_callback(self):
-        import sys
         self._count += 1
         obj     = self.ObjectiveValue()
         elapsed = time.time() - self._t0
@@ -611,7 +611,8 @@ def solve_league_phase1(cfg: LeagueConfig,
     solver.parameters.num_search_workers   = num_workers if num_workers > 0 else min(8, os.cpu_count() or 1)
     solver.parameters.log_search_progress  = False
     solver.parameters.random_seed          = seed
-    solver.parameters.symmetry_level       = 2
+    solver.parameters.symmetry_level       = 1
+    solver.parameters.max_memory_in_mb     = 4096
     if rel_gap > 0:
         solver.parameters.relative_gap_limit = rel_gap
 

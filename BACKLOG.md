@@ -272,3 +272,22 @@ Die vier Gewichtungs-Slider in Schritt 3 sind für Nicht-Techniker zu abstrakt b
 **Beschreibung:**
 `solver.py`: `_ProgressCallback` schreibt direkt auf `sys.stdout`. Bei parallelen Phase-1-Läufen können Ausgaben verschiedener Ligen interleaven wenn Streamlits `sys.stdout`-Ersatz nicht thread-safe ist. Fix: Ausgabe in `threading.Lock` kapseln.
 **Status:** Zurückgestellt – kosmetisch; Streamlit-Ausgaben sind bereits auf Sessionebene isoliert. Kein Absturzrisiko.
+
+---
+
+### [intern] Code-Review Runde 3 – Fixes aus vollständigem Review
+
+**Typ:** Verbesserung
+**Bereich:** Spielplan-Optimierung / Streamlit-UI
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+Vollständiges Code-Review aller Module (app.py, solver.py, multi_solver.py, sa_refine.py, tt_scheduler.py, schedule_utils.py, excel_output.py, calendar_parser.py, distances.py, config_validator.py). Folgende Fixes umgesetzt:
+
+- **R1-1**: `solver.py` Phase 1: `symmetry_level=1` (war 2) – konsistent mit Phase 2, reduziert bool_core-Klauselkaskaden.
+- **R1-2**: `solver.py` Phase 1: `max_memory_in_mb=4096` ergänzt – parallele Seeds können sonst RAM erschöpfen.
+- **R1-3**: `multi_solver.py:_phase1_worker`: Docstring "Prozess" → "Thread" korrigiert (ThreadPoolExecutor, kein ProcessPoolExecutor).
+- **R1-4**: `solver.py:_ProgressCallback.on_solution_callback`: `import sys` aus Hot-Path in Modul-Ebene verschoben (wird tausende Male aufgerufen).
+- **R2-1**: `app.py:Neuen Spielplan erstellen`: `_DEFAULTS`-Reset nutzte gemeinsam genutzte mutable Objekte; nach erstem Reset + Bearbeitung würde `_DEFAULTS['league_order']` etc. bereits befüllt sein. Fix: `copy.deepcopy(v)` beim Reset.
+- **R3-1**: `wizard.py:step3_routing`: Routing-Mindestprozent war 0 – führt bei 0% zu Faktor 100/100 = 1.0 (exakte Distanz gefordert), identisch zu R2-N7 in app.py. Fix: `min=1` statt `min=0`.
+**Status:** Erledigt
