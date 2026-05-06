@@ -213,7 +213,8 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
     solver.parameters.num_search_workers   = min(8, os.cpu_count() or 1)
     solver.parameters.log_search_progress  = True
     solver.parameters.random_seed          = seed
-    solver.parameters.symmetry_level       = 2
+    solver.parameters.symmetry_level       = 1
+    solver.parameters.max_memory_in_mb     = 4096
     if rel_gap > 0:
         solver.parameters.relative_gap_limit = rel_gap
 
@@ -308,8 +309,8 @@ def solve_all(cfgs: Dict[str, LeagueConfig],
     """Fuehrt Phase 1 + 2 + 3 durch und gibt die finalen Ergebnisse zurueck."""
     if night_mode:
         phase2_time = 28800  # 8 Stunden
-        rel_gap     = 0.0
-        info('Nachtlauf-Modus: Phase-2-Zeitlimit = 8h, kein Gap-Limit.')
+        rel_gap     = 0.005  # 0,5% Gap – Abbruch bei nahezu-optimalem Ergebnis
+        info('Nachtlauf-Modus: Phase-2-Zeitlimit = 8h, Gap-Limit = 0,5%.')
 
     phase1 = run_phase1(cfgs, time_limit=phase1_time, seed=seed, n_seeds=n_seeds)
 

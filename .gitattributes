@@ -10,13 +10,24 @@
 *.yaml  text eol=lf
 *.yml   text eol=lf
 
+# Inno Setup / sonstige Textdateien: LF
+*.iss   text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+VERSION text eol=lf
+
 # Windows-Skripte: CRLF
 *.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
 
 # Binärdateien: keine Konvertierung
 *.xlsx  binary
 *.xls   binary
 *.png   binary
 *.ico   binary
+*.jpg   binary
 *.docx  binary
 *.zip   binary
+*.exe   binary
+*.pkl   binary

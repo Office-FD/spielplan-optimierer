@@ -226,10 +226,10 @@ def _calc_n_matchdays(ld: dict) -> int:
     return n_rounds * (n - 1) // max(1, gpd)
 
 WEIGHT_LABELS = {
-    'switch':    ('Heimrechtswechsel',   'Belohnt häufigen Wechsel zwischen Heim- und Auswärtsspielen.'),
-    'sw_fair':   ('Wechsel-Fairness',    'Alle Teams sollen ähnlich viele Wechsel haben.'),
-    'travel':    ('Reisedistanz',        'Minimiert die Gesamtkilometer aller Teams.'),
-    'trav_fair': ('Reise-Fairness',      'Kein Team soll wesentlich mehr reisen als andere.'),
+    'switch':    ('Heimrechtswechsel',   'Wie oft wechselt ein Team zwischen Heim- und Auswärtsspielen. Höherer Wert = abwechslungsreichere Spielfolge (z.B. Heim–Auswärts–Heim statt drei Heimspiele hintereinander).'),
+    'sw_fair':   ('Wechsel-Fairness',    'Wie gleichmäßig die Wechselhäufigkeit über alle Teams verteilt ist. Höherer Wert = kein Team hat deutlich mehr oder weniger Wechsel als die anderen.'),
+    'travel':    ('Reisedistanz',        'Gesamte Fahrtstrecke aller Teams über die Saison. Höherer Wert = kürzere Gesamtkilometer werden stärker bevorzugt.'),
+    'trav_fair': ('Reise-Fairness',      'Wie gleichmäßig die Reisebelastung auf alle Teams verteilt ist. Höherer Wert = kein Team muss deutlich mehr fahren als die anderen.'),
 }
 
 # ── Session-State initialisieren ──────────────────────────────────────────────
@@ -374,6 +374,34 @@ def _show_backlog_dialog():
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 _LOGO_PATH = str(_HERE / 'assets' / 'floorball_logo.png')
 
+def _clubs_excel_bytes(clubs: list) -> bytes:
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Vereinsdatenbank'
+    headers = ['Liga', 'Verein', 'Teamname', 'Adresse']
+    hdr_fill = PatternFill('solid', fgColor='1F4E79')
+    hdr_font = Font(bold=True, color='FFFFFF')
+    for ci, h in enumerate(headers, 1):
+        cell = ws.cell(1, ci, h)
+        cell.fill = hdr_fill
+        cell.font = hdr_font
+    for r in clubs:
+        ws.append([
+            r.get('liga', ''),
+            r.get('verein', r.get('teamname', '')),
+            r.get('teamname', ''),
+            r.get('adresse', ''),
+        ])
+    for col in ws.columns:
+        ws.column_dimensions[col[0].column_letter].width = max(
+            (len(str(c.value or '')) for c in col), default=10) + 4
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def _sidebar():
     with st.sidebar:
         st.image(_LOGO_PATH, width='content')
@@ -452,34 +480,6 @@ def _sidebar():
                         st.rerun()
 
             # ── Aktuelle Liste als Excel herunterladen ───────────────────────
-            def _clubs_excel_bytes(clubs: list) -> bytes:
-                from openpyxl import Workbook
-                from openpyxl.styles import Font, PatternFill
-                wb = Workbook()
-                ws = wb.active
-                ws.title = 'Vereinsdatenbank'
-                headers = ['Liga', 'Verein', 'Teamname', 'Adresse']
-                hdr_fill = PatternFill('solid', fgColor='1F4E79')
-                hdr_font = Font(bold=True, color='FFFFFF')
-                for ci, h in enumerate(headers, 1):
-                    cell = ws.cell(1, ci, h)
-                    cell.fill = hdr_fill
-                    cell.font = hdr_font
-                for r in clubs:
-                    ws.append([
-                        r.get('liga', ''),
-                        r.get('verein', r.get('teamname', '')),
-                        r.get('teamname', ''),
-                        r.get('adresse', ''),
-                    ])
-                for col in ws.columns:
-                    ws.column_dimensions[col[0].column_letter].width = max(
-                        (len(str(c.value or '')) for c in col), default=10) + 4
-                import io as _io
-                buf = _io.BytesIO()
-                wb.save(buf)
-                return buf.getvalue()
-
             st.download_button(
                 'Aktuelle Liste als Excel herunterladen',
                 data=_clubs_excel_bytes(_all_clubs),
@@ -1263,6 +1263,8 @@ def _step0():
                     S.leagues       = parsed['leagues']
                     if 'dist_matrices' in parsed:
                         S.dist_matrices = parsed['dist_matrices']
+                        for _lid in parsed['dist_matrices']:
+                            st.session_state.pop(f'de_{_lid}', None)
                     if 'settings' in parsed:
                         s = parsed['settings']
                         if 'dist_method' in s:
@@ -1939,8 +1941,7 @@ def _step1():
                         for t, loc in zip(teams, locs):
                             st.caption(f'**{t}** → {loc}')
                     if st.button(f'Distanzen berechnen (Google Maps)', key=f'calc_{lid}', type='primary'):
-                        import io as _io, sys as _sys
-                        _buf = _io.StringIO()
+                        _buf = io.StringIO()
                         _old_stdout = _sys.stdout
                         _sys.stdout = _buf
                         mat = None

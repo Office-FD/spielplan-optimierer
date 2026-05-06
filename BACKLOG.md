@@ -81,7 +81,7 @@ Konfiguration per JSON-Request übergeben, optimierten Spielplan per JSON zurüc
 **Aufwand:** Klein
 **Beschreibung:**
 Bei jedem Commit auf Windows erscheinen CRLF-Warnungen. `.gitattributes` mit `*.py text eol=lf`, `*.bat text eol=crlf`, `*.xlsx binary` etc. beseitigt das dauerhaft.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -95,7 +95,7 @@ Bei jedem Commit auf Windows erscheinen CRLF-Warnungen. `.gitattributes` mit `*.
 Zwei Style-Punkte aus PR #7-Review:
 1. `_clubs_excel_bytes()` ist aktuell innerhalb von `_sidebar()` definiert (wird bei jedem Render neu erstellt). Sollte wie `_parse_club_upload` und `_load_excel_safe` auf Modulebene liegen.
 2. `import io as _io` steht innerhalb der Funktion – `io` ist stdlib und immer verfügbar, Import auf Modulebene verschieben, `_io`-Alias entfernen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -173,6 +173,92 @@ Python-Installation) testen:
 `clubs_db.csv` hat lokale Änderungen die noch nicht committed sind (seit vor
 dieser Sitzung). Änderungen prüfen und bei Gelegenheit committen.
 **Status:** Offen
+
+---
+
+### [intern] Phase-2-Solver OOM-Kill durch bool_core-Klausel-Explosion
+
+**Typ:** Fehler/Bug
+**Bereich:** Spielplan-Optimierung
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein
+**Beschreibung:**
+Bei langen Phase-2-Läufen (8h-Preset) kann der CP-SAT-Solver in eine exponentielle Klausel-Generierungsphase geraten: Der `bool_core`-Subsolver produziert fortlaufend neue Clauses, ohne noch bessere Lösungen zu finden, bis Windows den Prozess wegen Speichermangels (OOM) ohne Ergebnis beendet. Beobachtet Mai 2026: Clauses stiegen von 65.000 auf 1.200.000, bool_core-Cores von 57 auf 882, bis der Prozess nach ~4h gecrasht ist.
+
+**Fix (bereits umgesetzt in multi_solver.py):**
+- `solver.parameters.max_memory_in_mb = 4096` – CP-SAT bricht sauber ab und gibt die bisher beste Lösung zurück, statt vom OS gekillt zu werden.
+- `solver.parameters.symmetry_level = 1` (war 2) – reduziert die Aggressivität des bool_core-Algorithmus; Level 2 generiert zusätzliche Symmetrie-Constraints, die bool_core als Ausgangsbasis für weitere Ableitungen nutzt und so die Klausel-Kaskade verstärkt.
+**Status:** Erledigt
+
+---
+
+### [intern] Nachtlauf-Modus: rel_gap nicht auf 0 setzen
+
+**Typ:** Verbesserung
+**Bereich:** Spielplan-Optimierung
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein
+**Beschreibung:**
+Im Nachtlauf-Modus (`night_mode=True`) setzt `multi_solver.py` das `rel_gap`-Limit auf 0.0, was einen vorzeitigen Abbruch verhindert. Der Solver läuft dann stur 8h durch – auch wenn er seit Stunden keine bessere Lösung mehr findet. Aus dem Absturz-Log Mai 2026 erkennbar: letzte Verbesserung nach ~2,8h, danach 4,4h Stagnation bis zum OOM-Kill.
+
+**Fix:** In `multi_solver.py` `rel_gap` im Nachtlauf auf 0.005 (0,5%) statt 0.0 setzen:
+```python
+if night_mode:
+    phase2_time = 28800
+    rel_gap     = 0.005  # war 0.0 – Solver kann jetzt bei nahezu-optimalem Ergebnis abbrechen
+```
+0,5% Gap ist in der Praxis nicht wahrnehmbar, spart aber potenziell mehrere Stunden Laufzeit.
+**Status:** Erledigt
+
+---
+
+### [intern] Solver-Ergebnisse bei Session-Verlust nicht wiederherstellbar
+
+**Typ:** Fehler/Bug
+**Bereich:** Spielplan-Optimierung
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Mittel
+**Beschreibung:**
+Der Solver-Thread speichert Ergebnisse ausschließlich in `st.session_state`. Wenn Streamlit während eines langen Laufs die Session neustartet (z.B. Browser-Verbindung verloren, OOM-Kill, Neustart), ist das Ergebnis verloren – auch wenn der Solver selbst erfolgreich abgeschlossen hat. Beobachtet Mai 2026: Phase 2 lief 8h durch und fand eine FEASIBLE-Lösung, aber kein Excel wurde geschrieben weil die Session beim Fertigstellen schon tot war.
+
+**Fix:** Nach Abschluss jeder Phase das `LeagueResult`-Dict als Pickle auf Disk schreiben, unabhängig vom Session-State:
+```python
+# in multi_solver.py oder app.py nach run_phase2() / run_phase3()
+import pickle, pathlib
+_cache = pathlib.Path('.cache') / 'last_result.pkl'
+_cache.write_bytes(pickle.dumps(results))
+```
+Beim App-Start prüfen ob `last_result.pkl` existiert und neuer als die aktuelle Session ist → Nutzer anbieten das letzte Ergebnis wiederherzustellen. Nach erfolgreichem Download/Export die Datei löschen.
+**Status:** Offen
+
+---
+
+### [intern] Distanzmatrizen werden beim Konfigurations-Import nicht geladen
+
+**Typ:** Fehler/Bug
+**Bereich:** Streamlit-UI / Schritt 1
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Mittel
+**Beschreibung:**
+Beim Export einer Konfiguration werden die Distanzmatrizen korrekt in die Excel-Datei geschrieben. Beim Re-Import dieser Konfigurationsdatei bleiben die Distanzmatrizen in der App jedoch leer. Der Import-Code lud die Daten korrekt in `S.dist_matrices`, aber das `st.data_editor`-Widget (key `de_{lid}`) zeigte weiterhin den gecachten leeren Zustand. Fix: nach dem Import `st.session_state.pop(f'de_{_lid}', None)` für alle geladenen Ligen, damit der Editor beim nächsten Render neu aus `S.dist_matrices` initialisiert.
+**Status:** Erledigt
+
+---
+
+### [intern] Bessere Beschreibungen der Optimierungsgewichte in der UI (Schritt 3)
+
+**Typ:** Verbesserung
+**Bereich:** Streamlit-UI / Schritt 3
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+Die vier Gewichtungs-Slider in Schritt 3 sind für Nicht-Techniker zu abstrakt beschriftet. Jeder Slider sollte einen erklärenden Hilfstext (z.B. als `st.caption` oder `help=`-Tooltip) erhalten:
+
+- **Heimrechtswechsel** – „Wie oft wechselt ein Team zwischen Heim- und Auswärtsspielen. Höherer Wert = abwechslungsreichere Spielfolge (z.B. Heim–Auswärts–Heim statt drei Heimspiele hintereinander)."
+- **Wechsel-Fairness** – „Wie gleichmäßig die Wechselhäufigkeit über alle Teams verteilt ist. Höherer Wert = kein Team hat deutlich mehr oder weniger Wechsel als die anderen."
+- **Reisedistanz** – „Gesamte Fahrtstrecke aller Teams über die Saison. Höherer Wert = kürzere Gesamtkilometer werden stärker bevorzugt."
+- **Reise-Fairness** – „Wie gleichmäßig die Reisebelastung auf alle Teams verteilt ist. Höherer Wert = kein Team muss deutlich mehr fahren als die anderen."
+**Status:** Erledigt
 
 ---
 
