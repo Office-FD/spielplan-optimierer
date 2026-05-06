@@ -25,7 +25,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=Output
 OutputBaseFilename=Spielplan-Optimierer-Setup-v{#MyAppVersion}
-SetupIconFile=..\assets\floorball_icon.png
+SetupIconFile=build\icon.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -37,11 +37,11 @@ MinVersion=10.0
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Desktop-Verkn&uepfung erstellen"; GroupDescription: "Weitere Optionen:"; Flags: checked
+Name: "desktopicon"; Description: "Desktop-Verkn&uepfung erstellen"; GroupDescription: "Weitere Optionen:"
 
 [Files]
 ; Embedded Python mit allen installierten Paketen
-Source: "build\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "build\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: ".agents,__pycache__,*.pyc,tests,test_*"
 ; Kompilierter Launcher (erstellt durch build_bootstrap.bat)
 Source: "build\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 

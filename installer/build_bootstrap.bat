@@ -1,14 +1,14 @@
 @echo off
 setlocal EnableDelayedExpansion
 chcp 65001 >nul 2>&1
-title Spielplan-Optimierer – Bootstrap-Installer erstellen
+title Spielplan-Optimierer - Bootstrap-Installer erstellen
 
 echo ============================================================
-echo  Spielplan-Optimierer – Bootstrap-Installer Build
+echo  Spielplan-Optimierer - Bootstrap-Installer Build
 echo ============================================================
 echo.
 
-:: ── Pfade ─────────────────────────────────────────────────────
+:: --- Pfade ---
 set "ROOT=%~dp0.."
 set "BUILD=%~dp0build"
 set "PYEMBED=%BUILD%\python"
@@ -16,7 +16,7 @@ set "PYVER=3.13.3"
 set "PYZIP=python-%PYVER%-embed-amd64.zip"
 set "PYURL=https://www.python.org/ftp/python/%PYVER%/%PYZIP%"
 
-:: ── Voraussetzungen pruefen ────────────────────────────────────
+:: --- Voraussetzungen pruefen ---
 echo [1/6] Voraussetzungen pruefen...
 
 where python >nul 2>&1
@@ -32,18 +32,23 @@ if errorlevel 1 (
     if errorlevel 1 ( echo FEHLER: PyInstaller-Installation fehlgeschlagen. & pause & exit /b 1 )
 )
 
+:: Inno Setup suchen: erst im PATH, dann an Standardpfaden
+set "ISCC="
+set "PF86=%ProgramFiles(x86)%"
 where iscc >nul 2>&1
-if errorlevel 1 (
+if not errorlevel 1 set "ISCC=iscc"
+if not defined ISCC if exist "%PF86%\Inno Setup 6\iscc.exe" set "ISCC=%PF86%\Inno Setup 6\iscc.exe"
+if not defined ISCC if exist "%ProgramFiles%\Inno Setup 6\iscc.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\iscc.exe"
+if not defined ISCC (
     echo FEHLER: Inno Setup nicht gefunden.
     echo Bitte von https://jrsoftware.org/isinfo.php installieren.
-    echo Standard-Installationspfad: C:\Program Files ^(x86^)\Inno Setup 6\
-    echo Danach PATH aktualisieren oder iscc.exe direkt angeben.
     pause & exit /b 1
 )
+echo  Inno Setup gefunden: %ISCC%
 
 if not exist "%BUILD%" mkdir "%BUILD%"
 
-:: ── Embedded Python herunterladen ──────────────────────────────
+:: --- Embedded Python herunterladen ---
 echo [2/6] Python %PYVER% Embedded Package...
 
 if exist "%PYEMBED%\python.exe" (
@@ -59,8 +64,7 @@ if exist "%PYEMBED%\python.exe" (
     powershell -NoProfile -Command "Expand-Archive -Path '%BUILD%\%PYZIP%' -DestinationPath '%PYEMBED%' -Force"
 
     :: site-packages aktivieren (pth-Datei anpassen)
-    powershell -NoProfile -Command ^
-        "Get-ChildItem '%PYEMBED%\*._pth' | ForEach-Object { (Get-Content $_) -replace '#import site','import site' | Set-Content $_ }"
+    powershell -NoProfile -Command "Get-ChildItem '%PYEMBED%\*._pth' | ForEach-Object { (Get-Content $_) -replace '#import site','import site' | Set-Content $_ }"
 
     :: pip installieren
     echo  pip einrichten...
@@ -75,7 +79,7 @@ if exist "%PYEMBED%\python.exe" (
     echo  Python-Umgebung fertig.
 )
 
-:: ── Icon erstellen ─────────────────────────────────────────────
+:: --- Icon erstellen ---
 echo [3/6] Icon erstellen...
 set "ICON_SRC=%ROOT%\assets\floorball_icon.png"
 set "ICON_ICO=%BUILD%\icon.ico"
@@ -96,31 +100,30 @@ if exist "%ICON_ICO%" (
     set "ICON_ICO="
 )
 
-:: ── Launcher kompilieren ───────────────────────────────────────
+:: --- Launcher kompilieren ---
 echo [4/6] Launcher kompilieren (PyInstaller)...
 
-set "PYINSTALLER_OPTS=--onefile --noconsole --name Spielplan-Optimierer"
-if defined ICON_ICO (
-    set "PYINSTALLER_OPTS=%PYINSTALLER_OPTS% --icon %ICON_ICO%"
-)
-
 cd /d "%ROOT%"
-pyinstaller %PYINSTALLER_OPTS% --distpath "%BUILD%" --workpath "%BUILD%\pyi_work" --specpath "%BUILD%" launcher.py
+if defined ICON_ICO (
+    pyinstaller --onefile --noconsole --name "Spielplan-Optimierer" --icon "%ICON_ICO%" --distpath "%BUILD%" --workpath "%BUILD%\pyi_work" --specpath "%BUILD%" launcher.py
+) else (
+    pyinstaller --onefile --noconsole --name "Spielplan-Optimierer" --distpath "%BUILD%" --workpath "%BUILD%\pyi_work" --specpath "%BUILD%" launcher.py
+)
 if errorlevel 1 ( echo FEHLER: PyInstaller fehlgeschlagen. & pause & exit /b 1 )
 echo  Spielplan-Optimierer.exe erstellt.
 
-:: ── Version auslesen ──────────────────────────────────────────
+:: --- Version auslesen ---
 set /p VERSION=<"%ROOT%\VERSION"
 set "VERSION=%VERSION: =%"
 echo  Version: %VERSION%
 
-:: ── Inno Setup ausfuehren ─────────────────────────────────────
+:: --- Inno Setup ausfuehren ---
 echo [5/6] Installer erstellen (Inno Setup)...
 cd /d "%~dp0"
-iscc spielplan.iss /DMyAppVersion="%VERSION%"
+"%ISCC%" spielplan.iss /DMyAppVersion="%VERSION%"
 if errorlevel 1 ( echo FEHLER: Inno Setup fehlgeschlagen. & pause & exit /b 1 )
 
-:: ── Ergebnis ──────────────────────────────────────────────────
+:: --- Ergebnis ---
 echo.
 echo [6/6] Fertig!
 echo.

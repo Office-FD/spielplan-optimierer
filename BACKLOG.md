@@ -117,7 +117,7 @@ git push --tags
 GitHub Actions läuft automatisch und erstellt den Release mit `app-files.zip`.
 Danach kann der Bootstrap-Installer die App-Dateien beim Installieren herunterladen
 und der Auto-Updater hat einen Referenzpunkt für zukünftige Updates.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -141,7 +141,7 @@ installer\build_bootstrap.bat
 ```
 
 Ergebnis liegt in `installer\Output\`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -172,7 +172,7 @@ Python-Installation) testen:
 **Beschreibung:**
 `clubs_db.csv` hat lokale Änderungen die noch nicht committed sind (seit vor
 dieser Sitzung). Änderungen prüfen und bei Gelegenheit committen.
-**Status:** Offen
+**Status:** Erledigt (keine Änderungen vorhanden)
 
 ---
 
