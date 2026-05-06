@@ -229,7 +229,9 @@ _cache = pathlib.Path('.cache') / 'last_result.pkl'
 _cache.write_bytes(pickle.dumps(results))
 ```
 Beim App-Start prüfen ob `last_result.pkl` existiert und neuer als die aktuelle Session ist → Nutzer anbieten das letzte Ergebnis wiederherzustellen. Nach erfolgreichem Download/Export die Datei löschen.
-**Status:** Offen
+
+**Umgesetzt:** `_solver_thread` speichert nach `solve_all()` sofort `{results, clubs, kw_compat}` als Pickle in `.cache/last_result.pkl`. `_step8()` zeigt beim nächsten App-Start ein Recovery-Banner mit Alter und Liga-Namen. „Wiederherstellen" lädt Pickle, baut Excel-Dateien neu, setzt `S.opt_done = True`. „Verwerfen" löscht die Datei. „Neu berechnen" und „Neuen Spielplan erstellen" löschen die Datei ebenfalls.
+**Status:** Erledigt
 
 ---
 

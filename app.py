@@ -3195,6 +3195,18 @@ def _solver_thread(cfgs, clubs, kw_compat, w_cohome, solver_cfg,
             n_seeds=solver_cfg['seeds'],
             sa_time=solver_cfg['sa'],
         )
+        # Ergebnis sofort auf Disk sichern – überlebt einen Streamlit-Session-Verlust
+        _pkl = _HERE / '.cache' / 'last_result.pkl'
+        try:
+            import pickle as _pickle
+            _pkl.parent.mkdir(exist_ok=True)
+            _pkl.write_bytes(_pickle.dumps({
+                'results':   result_holder['results'],
+                'clubs':     clubs,
+                'kw_compat': kw_compat,
+            }))
+        except Exception:
+            pass
     except Exception as exc:
         import traceback
         log_q.put(f'[FEHLER] {exc}')
@@ -3225,6 +3237,76 @@ def _validate_constraints() -> List[dict]:
 def _step8():
     st.header('9. Optimierung & Ergebnisse')
 
+    # ── Wiederherstellung nach Session-Verlust ────────────────────────────────
+    _pkl = _HERE / '.cache' / 'last_result.pkl'
+    if _pkl.exists() and not S.opt_done and S.results is None and not S.opt_running:
+        import pickle as _pickle
+        import datetime as _dt
+        _mtime   = _dt.datetime.fromtimestamp(_pkl.stat().st_mtime)
+        _age     = _dt.datetime.now() - _mtime
+        _h, _m   = int(_age.total_seconds() // 3600), int((_age.total_seconds() % 3600) // 60)
+        _age_str = f'{_h}h {_m}min' if _h else f'{_m}min'
+        try:
+            _preview = _pickle.loads(_pkl.read_bytes())
+            _ligen   = [r.cfg.name for r in _preview.get('results', {}).values()
+                        if r is not None and r.cfg]
+        except Exception:
+            _ligen = []
+        _ligen_str = ', '.join(_ligen) if _ligen else '(unbekannt)'
+        st.warning(
+            f'**Nicht gespeicherte Ergebnisse gefunden** – die letzte Optimierung wurde '
+            f'vor {_age_str} abgeschlossen, aber die Streamlit-Session war zu diesem '
+            f'Zeitpunkt nicht mehr aktiv. Betroffene Ligen: {_ligen_str}'
+        )
+        _r1, _r2 = st.columns(2)
+        with _r1:
+            if st.button('Ergebnisse wiederherstellen', key='recover_pkl', type='primary'):
+                try:
+                    _data    = _pickle.loads(_pkl.read_bytes())
+                    S.results   = _data.get('results', {})
+                    S.clubs     = _data.get('clubs',   S.clubs)
+                    S.kw_compat = _data.get('kw_compat', S.kw_compat)
+                    S.excel_bytes  = {}
+                    S.cohome_bytes = None
+                    S.hall_bytes   = None
+                    from spielplan_multi.excel_output import (
+                        build_league_excel, build_cohome_summary, build_hall_schedule)
+                    for _lid, _res in S.results.items():
+                        if _res is None:
+                            continue
+                        try:
+                            _wb  = build_league_excel(_res)
+                            _buf = io.BytesIO()
+                            _wb.save(_buf)
+                            S.excel_bytes[_lid] = _buf.getvalue()
+                        except Exception:
+                            pass
+                    if S.clubs and S.results:
+                        try:
+                            _wb_ch  = build_cohome_summary(S.results, S.clubs, S.kw_compat)
+                            _buf_ch = io.BytesIO()
+                            _wb_ch.save(_buf_ch)
+                            S.cohome_bytes = _buf_ch.getvalue()
+                        except Exception:
+                            pass
+                    try:
+                        _wb_h  = build_hall_schedule(S.results)
+                        _buf_h = io.BytesIO()
+                        _wb_h.save(_buf_h)
+                        S.hall_bytes = _buf_h.getvalue()
+                    except Exception:
+                        pass
+                    S.opt_done = True
+                    _pkl.unlink(missing_ok=True)
+                    st.rerun()
+                except Exception as _e:
+                    st.error(f'Wiederherstellung fehlgeschlagen: {_e}')
+        with _r2:
+            if st.button('Verwerfen', key='discard_pkl'):
+                _pkl.unlink(missing_ok=True)
+                st.rerun()
+        st.divider()
+
     # Ergebnisse anzeigen wenn fertig
     if S.opt_done and S.results is not None:
         _show_results()
@@ -3234,6 +3316,7 @@ def _step8():
             if st.button('🔄  Neu berechnen', key='reopt', width='stretch',
                          help='Konfiguration behalten und Optimierung erneut starten – '
                               'z. B. nach Änderung einzelner Einstellungen.'):
+                (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
                 S.opt_done      = False
                 S.opt_running   = False
                 S.results       = None
@@ -3247,6 +3330,7 @@ def _step8():
                 st.rerun()
         with _rcol_b:
             if st.button('↺  Neuen Spielplan erstellen', key='restart', width='stretch'):
+                (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
                 for k, v in _DEFAULTS.items():
                     st.session_state[k] = v
                 st.rerun()
