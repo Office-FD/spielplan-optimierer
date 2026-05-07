@@ -26,6 +26,7 @@ DisableProgramGroupPage=yes
 OutputDir=Output
 OutputBaseFilename=Spielplan-Optimierer-Setup-v{#MyAppVersion}
 SetupIconFile=build\icon.ico
+InfoAfterFile=hinweise.txt
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -46,9 +47,9 @@ Source: "build\python\*"; DestDir: "{app}\python"; Flags: ignoreversion recurses
 Source: "build\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
-Name: "{group}\{#MyAppName} deinstallieren"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{userprograms}\{#MyAppName} deinstallieren"; Filename: "{uninstallexe}"
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{#MyAppName} jetzt starten"; Flags: nowait postinstall skipifsilent

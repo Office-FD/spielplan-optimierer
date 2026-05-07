@@ -1,0 +1,62 @@
+HINWEISE ZUM SPIELPLAN-OPTIMIERER
+===================================
+
+
+WAS JETZT PASSIERT – KURZE ERKLAERUNG
+---------------------------------------
+
+Das Programm ist jetzt installiert. Wenn Sie es das erste Mal starten,
+passieren drei Dinge nacheinander:
+
+  1. Windows fragt nach einer Netzwerkberechtigung
+  2. Das Programm startet im Hintergrund (dauert kurz)
+  3. Ihr Browser oeffnet sich mit der Bedienoberflaeche
+
+
+WINDOWS SICHERHEITSABFRAGE – BITTE ERLAUBEN
+---------------------------------------------
+
+Beim ersten Start erscheint eine Windows-Abfrage:
+
+  "Moechten Sie zulassen, dass Python Netzwerkverbindungen herstellt?"
+
+Bitte klicken Sie auf "Zugriff erlauben".
+
+Diese Abfrage ist normal und unbedenklich. Das Programm startet einen
+kleinen lokalen Server auf Ihrem eigenen Computer, damit die
+Bedienoberflaeche im Browser angezeigt werden kann.
+Es wird dabei KEINE Verbindung zum Internet hergestellt.
+
+
+DAS PROGRAMM OEFFNET SICH IM BROWSER
+--------------------------------------
+
+Der Spielplan-Optimierer laeuft in Ihrem Webbrowser (z.B. Chrome, Firefox
+oder Edge). Das ist kein Fehler – das Programm wurde bewusst so entwickelt,
+damit es einfach zu bedienen ist.
+
+Sie sehen kein separates Programmfenster, sondern eine Website-aehnliche
+Oberflaeche in Ihrem Browser.
+
+
+ERSTER START DAUERT ETWAS LAENGER
+-----------------------------------
+
+Beim ersten Oeffnen kann es 15 bis 30 Sekunden dauern, bis sich der
+Browser oeffnet. Das Programm startet im Hintergrund – bitte einfach
+kurz warten und nicht mehrfach klicken.
+
+Nach dem ersten Start geht es kuenftig deutlich schneller.
+
+
+PROGRAMM BEENDEN
+-----------------
+
+Schliessen Sie einfach den Browser-Tab oder das Browser-Fenster.
+Das Programm beendet sich automatisch im Hintergrund.
+
+
+BEI PROBLEMEN
+--------------
+
+Wenden Sie sich an: it@floorball.de
