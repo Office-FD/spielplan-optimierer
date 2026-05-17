@@ -331,7 +331,7 @@ def _show_backlog_dialog():
     if st.session_state.get('_backlog_mailto'):
         st.success('E-Mail vorbereitet – klicke auf den Button, um sie in deinem E-Mail-Programm zu öffnen.')
         st.link_button('📧 E-Mail jetzt senden', st.session_state['_backlog_mailto'],
-                       type='primary', use_container_width=True)
+                       type='primary', width='stretch')
         st.caption('Die Nachricht ist vorausgefüllt und geht direkt an das FD-Team.')
         if st.button('Neue Meldung eingeben'):
             del st.session_state['_backlog_mailto']
@@ -847,18 +847,27 @@ def _full_config_excel_bytes() -> bytes:
                 _d(ws_w, wr, col, w.get(k, 5.0))
             wr += 1
 
-    # ── Sheet 5: DST-Blöcke ───────────────────────────────────────────────────
-    ws_dst = wb.create_sheet('DST-Blöcke')
-    _set_col_w(ws_dst, [16, 14, 14])
-    for col, h in enumerate(['Liga-ID', 'Spieltag 1', 'Spieltag 2'], 1):
-        _h(ws_dst, 1, col, h)
-    dr = 2
-    for lid in S.league_order:
-        for d1, d2 in S.dst_per_liga.get(lid, []):
-            _d(ws_dst, dr, 1, lid); _d(ws_dst, dr, 2, d1); _d(ws_dst, dr, 3, d2)
-            dr += 1
+    # ── Sheet 5: Kalender ─────────────────────────────────────────────────────
+    ws_cal = wb.create_sheet('Kalender')
+    _set_col_w(ws_cal, [16, 12, 8, 20])
+    for col, h in enumerate(['Liga-ID', 'Spieltag', 'KW', 'Datum'], 1):
+        _h(ws_cal, 1, col, h)
+    cal_r = 2
+    for li, lid in enumerate(S.league_order):
+        rows_cal = S.cal_table.get(lid, [])
+        for row_cal in rows_cal:
+            kw_val   = row_cal.get('kw')
+            date_val = row_cal.get('date', '')
+            if kw_val is None and not date_val:
+                continue
+            fill = ALT if li % 2 == 0 else WHT
+            _d(ws_cal, cal_r, 1, lid,                    fill)
+            _d(ws_cal, cal_r, 2, row_cal['spieltag'],    fill)
+            _d(ws_cal, cal_r, 3, kw_val if kw_val is not None else '', fill)
+            _d(ws_cal, cal_r, 4, date_val,               fill)
+            cal_r += 1
 
-    # ── Sheet 6: Routing ──────────────────────────────────────────────────────
+    # ── Sheet 7: Routing ──────────────────────────────────────────────────────
     ws_rt = wb.create_sheet('Routing')
     _set_col_w(ws_rt, [16, 22, 20])
     for col, h in enumerate(['Liga-ID', 'Routing aktiv (J/N)', 'Mehrkilometer (%)'], 1):
@@ -950,8 +959,9 @@ def _full_config_excel_bytes() -> bytes:
         ('  Werte 0 (ignorieren) – 10 (höchste Priorität)', False),
         ('  Bei same_weights=J: Liga-ID = __common__', False),
         ('', False),
-        ('DST-Blöcke', True),
-        ('  Direkt aufeinanderfolgende Spieltage mit identischem Heimrecht.', False),
+        ('Kalender', True),
+        ('  Kalenderwoche (KW) und optionales Datum je Spieltag und Liga.', False),
+        ('  Zwei aufeinanderfolgende Spieltage in gleicher KW → DST-Block.', False),
         ('', False),
         ('Routing', True),
         ('  J = Umwegbegrenzung aktiv; Mehrkilometer = erlaubter Aufschlag in %.', False),
@@ -1104,6 +1114,42 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                 except Exception:
                     pass
             result['weights'] = weights
+
+        # Kalender
+        if 'Kalender' in sn:
+            df_kal = xl.parse('Kalender', dtype=str).fillna('')
+            cal_raw: dict = {}
+            for _, row in df_kal.iterrows():
+                _lid = str(row.get('Liga-ID', '')).strip()
+                if not _lid or _lid.lower() == 'nan':
+                    continue
+                try:
+                    _st = int(float(str(row.get('Spieltag', ''))))
+                except (ValueError, TypeError):
+                    continue
+                _kw_s = str(row.get('KW', '')).strip()
+                _kw = None
+                if _kw_s and _kw_s.lower() not in ('nan', ''):
+                    try:
+                        _kw = int(float(_kw_s))
+                    except (ValueError, TypeError):
+                        pass
+                _date = str(row.get('Datum', '')).strip()
+                if _date.lower() == 'nan':
+                    _date = ''
+                cal_raw.setdefault(_lid, {})[_st] = {'kw': _kw, 'date': _date}
+            _cal_table: dict = {}
+            for _lid in result.get('league_order', []):
+                _ld  = result.get('leagues', {}).get(_lid, {})
+                _n   = _calc_n_matchdays(_ld)
+                _raw = cal_raw.get(_lid, {})
+                _cal_table[_lid] = [
+                    {'spieltag': i + 1,
+                     'kw':   _raw.get(i + 1, {}).get('kw'),
+                     'date': _raw.get(i + 1, {}).get('date', '')}
+                    for i in range(_n)
+                ]
+            result['cal_table'] = _cal_table
 
         # DST-Blöcke
         if 'DST-Blöcke' in sn:
@@ -1336,6 +1382,11 @@ def _step0():
                             S.same_weights = True
                     if 'dst_per_liga' in parsed:
                         S.dst_per_liga = parsed['dst_per_liga']
+                    if 'cal_table' in parsed:
+                        S.cal_table = parsed['cal_table']
+                        for _lid in S.league_order:
+                            st.session_state.pop(f'cal_editor_{_lid}', None)
+                        _cal_table_to_kw_compat()
                     if 'routing' in parsed:
                         S.routing = parsed['routing']
                     if 'pinned' in parsed:
@@ -1460,7 +1511,9 @@ def _step0():
                 new_lid = st.text_input('Liga-ID', key=f'lid_{i}',
                     help='Kurzkürzel ohne Leerzeichen, z. B. BL1').strip().upper()
             with c2:
-                ld['name'] = st.text_input('Ligabezeichnung', ld['name'], key=f'lnm_{i}')
+                if f'lnm_{i}' not in st.session_state:
+                    st.session_state[f'lnm_{i}'] = ld.get('name', lid)
+                ld['name'] = st.text_input('Ligabezeichnung', key=f'lnm_{i}')
             with c3:
                 # Rückwärtskompatibilität: alten Formatnamen migrieren
                 cur_fmt = _FMT_ALIAS.get(ld.get('fmt', FMT_OPTIONS[0]), ld.get('fmt', FMT_OPTIONS[0]))
@@ -1928,7 +1981,7 @@ def _step1():
             mat = S.dist_matrices.get(lid)
             if mat is None or mat.shape[0] != n:
                 mat = np.zeros((n, n), dtype=float)
-            df = pd.DataFrame(mat, index=teams, columns=teams)
+            df = pd.DataFrame(mat.astype(float), index=teams, columns=teams)
             edited = st.data_editor(df, key=f'de_{lid}', width='stretch',
                 column_config={t: st.column_config.NumberColumn(t, min_value=0,
                     format='%.0f') for t in teams})
@@ -2438,7 +2491,7 @@ def _step2():
                         'DST', disabled=True, width='small'),
                 },
                 hide_index=True,
-                use_container_width=True,
+                width='stretch',
                 key=f'cal_editor_{lid}',
                 num_rows='fixed',
             )
