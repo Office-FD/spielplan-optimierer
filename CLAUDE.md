@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.1.0 · Stand Mai 2026 · Status: Produktionsbereit, zwei vollständige Code-Reviews abgeschlossen, keine bekannten Bugs**
+> **Version 1.1.2 · Stand Mai 2026 · Status: Produktionsbereit, drei vollständige Code-Reviews abgeschlossen, keine bekannten Bugs**
 
 ---
 
@@ -274,22 +274,79 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `wizard.py` | `n_md` für Stufe-2-Turniertag in Schritten 5/6/6b falsch | `_calc_n_matchdays(ld)` |
 | `distances.py` | Meter→km per Truncation statt Rounding | `round(meters / 1000)` |
 
+**Runde 3 (Kritisch/Hoch/Mittel/Niedrig – alle erledigt):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `app.py` | `_sys.stdout` NameError bei Google-Maps-Berechnung | `_sys` → `sys` |
+| `app.py` | `_QueueWriter` ersetzt `sys.stdout` global für alle Threads | Thread-ID-Guard in `_QueueWriter` |
+| `app.py` | Liga-ID-Rename ohne `st.rerun()` → UI zeigt alten Namen | `st.session_state[f'lid_{i}'] = new_lid; st.rerun()` |
+| `app.py` | Solver-Exception erscheint nicht in `opt_warnings` | `[FEHLER]`-Zeilen zusätzlich erfassen |
+| `app.py` | Upload-Fehler blockiert Navigation trotz vorhandener gültiger Matrix | Guard: nur `errors.append` wenn keine Matrix vorhanden |
+| `app.py` | JSON-Restore: `teams` als `list` statt `tuple` | `[tuple(e) for e in ld['teams']]` in `_session_from_json` |
+| `app.py` | Toter Code `_prev_tot` in Vergleichsansicht | Zeilen entfernt |
+| `launcher.py` | Lexikografischer Versionsvergleich: `1.10.0 < 1.9.0` | `tuple(int(x) for x in v.split('.'))` |
+| `launcher.py` | `tempfile.mktemp()` TOCTOU-Race | `tempfile.mkstemp()` |
+| `launcher.py` | Partial-Download hinterlässt inkonsistente App-Dateien | Atomar: erst temp-Dir, dann verschieben |
+| `launcher.py` | ZIP-Path-Traversal (Security) | `os.path.realpath()`-Guard vor jedem `extract()` |
+| `launcher.py` | Browser öffnet alten Prozess nach Update | `updated`-Flag: `_server_ready()` nach Update überspringen |
+| `solver.py` | `blocked_weekends` prüft nur `wdays[0]` statt alle DST-Tage | `any(d in blocked for d in wdays)` |
+| `multi_solver.py` | `phase3 = phase2` mutiert Phase-2-Dict wenn `sa_time=0` | `dict(phase2)` (shallow copy) |
+| `tt_scheduler.py` | `_try_solve` probiert nur ersten Host-Kandidaten | Alle Permutationen via `itertools.permutations` |
+| `tt_scheduler.py` | Ausrichter nicht im Spielplan → stilles Ignorieren | `warn(...)` vor `host = None` |
+| `schedule_utils.py` | `prev` nicht zurückgesetzt bei fehlendem `home_val` | `prev = None; continue` |
+| `schedule_utils.py` | `swap_home_away` korrumpiert `home_vals` bei Turniertag | Guard: `if gpd > 1: return` |
+| `schedule_utils.py` | `move_game` kein Guard für Turniertag | Guard: `if gpd > 1: return Fehlermeldung` |
+| `schedule_utils.py` | iCal: Fallbackdatum 1. Januar für Spiele ohne Kalender | Spiele ohne Datum überspringen |
+| `schedule_utils.py` | `build_print_html` ohne Längenprüfung auf `travels[ti]` | `ti < len(travels)` Guard |
+| `config.py` | `defaultdict(get_team_color)` TypeError (Factory ohne Argument) | `_TeamColorDict.__missing__` |
+| `config_validator.py` | `validate_cfgs()` erkennt NaN in Distanzmatrix nicht | `np.isnan(dist).any()` ergänzt |
+| `calendar_parser.py` | `_to_date_str()` gibt `'nan'` für leere Excel-Zellen zurück | `isinstance(cell, float) and np.isnan(cell)` Guard |
+| `distances.py` | Case-sensitiver Spaltenname bei Distanzmatrix-CSV | `col_map` mit `.lower()` Lookup |
+| `excel_output.py` | DST-Routing-Anzeige zeigt Faktor statt Umweg-Prozent | `f_num - 100` statt `f_num` |
+| `excel_output.py` | Fairness-Sheet Merge-Breiten falsch | Dynamische Breite + 7→6 Korrektur |
+| `excel_output.py` | `get_team_color(-1)` im Hallenbelegungsplan | Guard: `hi if hi >= 0 else 0` |
+| `wizard.py` | `n_active` undefiniert für Formate 1/2/3 → UnboundLocalError | `n_active = 0` als Default vor Format-Auswahl |
+| `wizard.py` | `k_group` nicht gesetzt im Auto-Select-Ast | `k_group = K` ergänzt |
+| `main.py` | `import numpy as np` innerhalb der `for`-Schleife | Import an Dateianfang verschoben |
+
+**Sitzung Mai 2026 – Kalender/Excel/UI-Fixes (v1.1.1 → v1.1.2):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `app.py` | Excel-Konfiguration speicherte `cal_table` (KW-Zuteilungen je Spieltag) nicht | Neues Sheet „Kalender" in `_full_config_excel_bytes()` + Lesen in `_load_full_config_excel()` + Anwenden in `_step0()`; `_cal_table_to_kw_compat()` leitet daraus DST-Blöcke ab |
+| `app.py` | „DST-Blöcke"-Sheet redundant nach Einführung des Kalender-Sheets | Sheet aus Export entfernt; Lese-Code bleibt für Rückwärtskompatibilität |
+| `app.py` | `use_container_width=True` deprecated (Streamlit ≥1.40) | `width='stretch'` in `st.link_button` und `st.data_editor` (2 Stellen) |
+| `app.py` | `pd.DataFrame(mat, …)` mit int-Array → `ArrowTypeError` in `st.data_editor` | `mat.astype(float)` beim DataFrame-Bau |
+| `app.py` | `st.text_input('Ligabezeichnung', ld['name'], key='lnm_{i}')` erzeugt Streamlit-Warnung nach Konfig-Upload (Session State + value= gleichzeitig gesetzt) | Session State initialisieren wenn nicht vorhanden, kein `value=`-Parameter |
+
 ---
 
-## 10. Offene Features (BACKLOG.md)
+## 10. Nutzer-Feedback
+
+### Feedback-Kanal
+
+Nutzer melden Fehler und Wünsche über den **„📋 Funktionswunsch / Fehler melden"-Button** in der App-Sidebar (Schritt 0–8, immer sichtbar).
+
+**Ablauf:**
+1. Nutzer füllt das Formular aus (Typ, Bereich, Wichtigkeit, Titel, Beschreibung, optionaler Kontakt)
+2. Klick auf „E-Mail vorbereiten" → App öffnet das Standard-E-Mail-Programm mit vorausgefüllter Nachricht
+3. Nutzer klickt „Senden" → E-Mail geht direkt an `it@floorball.de`
+
+**Kontaktadresse für alle Nutzer-Meldungen:** `it@floorball.de`
+Diese Adresse ist in `app.py` (`_show_backlog_dialog()`), `INSTALLATION.md` und `BENUTZERHANDBUCH.md` hinterlegt. Bei Änderung alle drei Stellen aktualisieren.
+
+### Offene Features (BACKLOG.md)
 
 Details im BACKLOG.md. Offene Punkte nach Priorität:
 
-**Distribution (nächste Sitzung):**
+**Ausstehend:**
 
 | Aufgabe | Aufwand |
 |---|---|
-| Ersten GitHub Release anlegen (`git tag v1.1.0 && git push --tags`) | Klein |
-| Bootstrap-Installer bauen (`installer\build_bootstrap.bat`) | Klein (einmalig ~30 Min) |
 | Installer-Flow auf frischem Windows-System testen | Klein |
-| `clubs_db.csv` uncommittete Änderungen committen | Klein |
 
-**Feature-Wünsche:**
+**Feature-Wünsche (langfristig):**
 
 | Feature | Aufwand |
 |---|---|
@@ -297,8 +354,6 @@ Details im BACKLOG.md. Offene Punkte nach Priorität:
 | Karten-Visualisierung Reiserouten | Groß |
 | Multi-Saison-Planung | Groß |
 | REST-API für externe Integration | Groß |
-| `.gitattributes` für CRLF-Konsistenz | Klein |
-| Style-Cleanup: `_clubs_excel_bytes` auf Modulebene | Klein |
 
 ---
 
@@ -356,6 +411,25 @@ Co-Home-Excel: Übersicht aller Ligen nebeneinander, KW-Heimspiel-Synchronisatio
 - **Upload:** Konfigurationsdatei → überschreibt aktuelle Wizard-Einstellungen
 - Kein serverseitiger Speicher – Nutzer verwaltet Konfigurationsdateien selbst
 - Gleichzeitige Nutzung durch mehrere Nutzer: jeder Browser hat eigene Session
+
+### Excel-Sheets der vollständigen Konfigurationsdatei
+
+| Sheet | Inhalt |
+|---|---|
+| `Ligen & Teams` | Liga-ID, Name, Format, Teams, Standorte, Gewicht, TT-Parameter |
+| `Einstellungen` | dist_method, same_weights, w_cohome, solver_p1/p2/sa/seeds |
+| `Distanzmatrizen` | NxN km-Matrizen je Liga (Liga-Header + Tabellenblock) |
+| `Gewichte` | switch / sw_fair / travel / trav_fair je Liga |
+| `Kalender` | Spieltag → KW + Datum je Liga; **Quelle für DST-Blöcke** (werden per `_detect_dst_blocks()` abgeleitet) |
+| `Routing` | DST-Routing aktiv (J/N) + Mehrkilometer-% je Liga |
+| `Pflichtspiele` | Fixierte Paarungen mit Spieltag + Heimrecht |
+| `Sperrtage` | Team + kommagetrennte gesperrte Spieltagnummern |
+| `Pflichtheim` | Team + kommagetrennte Pflicht-Heimspieltage |
+| `Co-Home` | Verein → Liga → Teamname |
+| `TT-Spielreihenfolge` | Turniertag-Parameter (nur wenn Turniertag-Ligen vorhanden) |
+| `Hinweise` | Lesbare Beschreibung aller Sheets |
+
+**Hinweis Rückwärtskompatibilität:** Alte Dateien mit „DST-Blöcke"-Sheet werden weiterhin geladen (Fallback). Neue Exporte enthalten stattdessen das „Kalender"-Sheet.
 
 ---
 
