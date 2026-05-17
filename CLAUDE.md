@@ -163,7 +163,7 @@ S.cancel_pending    # None|{lid,ht,at} – Spiel ausgefallen, Nachholtermin pend
 | 0 | Ligen & Teams konfigurieren (Vereinssuche, Konfiguration Download/Upload) |
 | 1 | Distanzmatrizen (manuell / CSV-Excel / Google Maps API) |
 | 2 | Kalender laden (Rahmenterminplan-Excel) + DST-Blöcke konfigurieren |
-| 3 | DST-Routing (Umwegbegrenzung) + Optimierungsgewichte (switch/sw_fair/travel/trav_fair) + Co-Home-Gewicht |
+| 3 | DST-Routing (Umwegbegrenzung) + Optimierungsgewichte (switch/sw_fair/travel/trav_fair/dst_eff) + Co-Home-Gewicht |
 | 4 | Pflichtspiele (teamA, teamB, Spieltag, Heimrecht) |
 | 5 | Heimspiel-Sperrtage (Team + Spieltagnummern) |
 | 6 | Co-Home-Vereine (automatische Erkennung + manuelle Eingabe) |
@@ -203,15 +203,18 @@ S.cancel_pending    # None|{lid,ht,at} – Spiel ausgefallen, Nachholtermin pend
 ## 7. Optimierungsgewichte (config.py)
 
 ```python
-WEIGHT_LABELS = {
-    'switch':    ('Heimrecht-Wechsel', 80.0),   # maximieren
-    'sw_fair':   ('Fairness Wechsel',   2.0),   # max-min minimieren
-    'travel':    ('Gesamtkilometer',    0.05),  # minimieren
-    'trav_fair': ('Fairness km',        0.02),  # max-min minimieren
+WEIGHT_SCALES = {
+    'switch':   80.0,   # Heimrecht-Wechsel maximieren
+    'sw_fair':   2.0,   # max-min Wechsel minimieren
+    'travel':   0.05,   # Gesamtkilometer minimieren
+    'trav_fair': 0.02,  # max-min km minimieren
+    'dst_eff':   0.03,  # DST-Reiseeffizienz maximieren (Standard: aus = 0)
 }
 ```
 Rohgewichte 0-10 (Slider) werden mit dem Skalar multipliziert → w_scaled.
-Zielfunktion: `sum(switch·scale·sw) - sum(sw_fair·scale·(max_sw-min_sw)) - sum(travel·scale·km) - sum(trav_fair·scale·(max_km-min_km))`
+Zielfunktion: `sum(switch·scale·sw) - sum(sw_fair·scale·(max_sw-min_sw)) - sum(travel·scale·km) - sum(trav_fair·scale·(max_km-min_km)) + sum(dst_eff·scale·dst_eff_total)`
+
+**DST-Reiseeffizienz (`dst_eff`):** Belohnt DST-Blöcke, bei denen beide Auswärtsspiele eines Teams räumlich nah beieinander liegen. Formel je Paar (ti, d1→i, d2→j): `gain = dist(ti,i) + dist(ti,j) − dist(i,j)`. Positiv wenn i und j nahe zueinander, aber weit von ti entfernt (→ Randlagen-Teams profitieren). Nur aktiv wenn `w_scaled['dst_eff'] > 0` und DST-Blöcke vorhanden; Standard-UI-Wert = 0 (aus). Wird als IntVar `dst_eff_total` in `LeagueVars` gespeichert.
 
 ---
 

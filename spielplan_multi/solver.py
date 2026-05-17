@@ -222,7 +222,7 @@ def build_league_vars(model: cp_model.CpModel,
     blocked_weekends_per_team: dict = {ti: set() for ti in range(n)}
     for _ti in range(n):
         for _w, _wdays in enumerate(cfg.weekends):
-            if _wdays[0] in blocked_per_team[_ti]:
+            if any(d in blocked_per_team[_ti] for d in _wdays):
                 blocked_weekends_per_team[_ti].add(_w)
 
     dst_weekends: set = {
@@ -331,10 +331,49 @@ def build_league_vars(model: cp_model.CpModel,
                             if lhs > rhs:
                                 model.Add(loc[ti, d2, j] == 0).OnlyEnforceIf(
                                     [loc[ti, d1, i], home[ti, d1].Not()])
+
+        # DST-Reiseeffizienz: reward pairing long-distance away trips in the same DST block
+        # gain(ti, i, j) = dist(home_ti, i) + dist(home_ti, j) - dist(i, j)
+        # positive when i and j are close to each other but far from ti's home
+        dst_eff_total = None
+        if cfg.dst_blocks and cfg.w_scaled.get('dst_eff', 0.0) > 0:
+            dst_eff_terms = []
+            for ti in range(n):
+                for d1, d2 in cfg.dst_blocks:
+                    if d1 not in days_set or d2 not in days_set:
+                        continue
+                    for i in range(n):
+                        if i == ti:
+                            continue
+                        dti_i = int(dist_int[ti, i])
+                        if dti_i >= UNREACHABLE_KM:
+                            continue
+                        for j in range(n):
+                            if j == ti or j == i:
+                                continue
+                            dti_j = int(dist_int[ti, j])
+                            di_j  = int(dist_int[i, j])
+                            if dti_j >= UNREACHABLE_KM or di_j >= UNREACHABLE_KM:
+                                continue
+                            gain = dti_i + dti_j - di_j
+                            if gain <= 0:
+                                continue
+                            z = model.NewBoolVar(f'{p}ze_{ti}_{d1}_{d2}_{i}_{j}')
+                            model.Add(z <= loc[ti, d1, i])
+                            model.Add(z <= loc[ti, d2, j])
+                            model.Add(z >= loc[ti, d1, i] + loc[ti, d2, j] - 1)
+                            dst_eff_terms.append(gain * z)
+            if dst_eff_terms:
+                finite = dist_int[dist_int < UNREACHABLE_KM]
+                max_d  = int(finite.max()) if len(finite) > 0 else 1000
+                ub_eff = max(1, n * len(cfg.dst_blocks) * 2 * max_d)
+                dst_eff_total = model.NewIntVar(0, ub_eff, f'{p}dst_eff_tot')
+                model.Add(dst_eff_total == sum(dst_eff_terms))
     else:
         # Turniertag: kein Standort-Modell, Reise auf 0 setzen
         for ti in range(n):
             model.Add(travel[ti] == 0)
+        dst_eff_total = None
 
     model.AddMaxEquality(max_travel, [travel[ti] for ti in range(n)])
     model.AddMinEquality(min_travel, [travel[ti] for ti in range(n)])
@@ -436,6 +475,7 @@ def build_league_vars(model: cp_model.CpModel,
         max_sw=max_sw, min_sw=min_sw,
         max_travel=max_travel, min_travel=min_travel,
         team_idx=t_idx, matches=matches, days=days,
+        dst_eff_total=dst_eff_total,
     )
 
 
@@ -464,12 +504,15 @@ def add_league_objective(model, lv: LeagueVars, cfg: LeagueConfig,
     total_travel  = sum(lv.travel[ti]    for ti in range(n))
     travel_spread = lv.max_travel - lv.min_travel
 
-    return [
+    terms = [
          W['switch']    * total_switch,
         -W['sw_fair']   * switch_spread,
         -W['travel']    * total_travel,
         -W['trav_fair'] * travel_spread,
     ]
+    if lv.dst_eff_total is not None and W.get('dst_eff', 0) > 0:
+        terms.append(W['dst_eff'] * lv.dst_eff_total)
+    return terms
 
 
 # ── Ergebnis-Extraktion ──────────────────────────────────────────────────────

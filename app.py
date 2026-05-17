@@ -12,6 +12,7 @@ from __future__ import annotations
 import io
 import json
 import math
+import multiprocessing
 import queue
 import re
 import sys
@@ -246,6 +247,7 @@ WEIGHT_LABELS = {
     'sw_fair':   ('Wechsel-Fairness',    'Wie gleichmäßig die Wechselhäufigkeit über alle Teams verteilt ist. Höherer Wert = kein Team hat deutlich mehr oder weniger Wechsel als die anderen.'),
     'travel':    ('Reisedistanz',        'Gesamte Fahrtstrecke aller Teams über die Saison. Höherer Wert = kürzere Gesamtkilometer werden stärker bevorzugt.'),
     'trav_fair': ('Reise-Fairness',      'Wie gleichmäßig die Reisebelastung auf alle Teams verteilt ist. Höherer Wert = kein Team muss deutlich mehr fahren als die anderen.'),
+    'dst_eff':   ('DST-Reiseeffizienz',  'Bevorzugt Doppelwochenenden, bei denen beide Auswärtsspiele räumlich nah beieinander liegen. Teams aus Randlagen (z.B. Hamburg, München) profitieren am meisten: ihre weit entfernten Auswärtsspiele werden in einem DST gebündelt statt getrennt angesetzt. 0 = aus · 5 = empfohlen'),
 }
 
 # ── Session-State initialisieren ──────────────────────────────────────────────
@@ -281,10 +283,11 @@ _DEFAULTS: dict = dict(
     cohome_bytes=None,
     hall_bytes=None,      # bytes – ligaübergreifender Hallenbelegungsplan
     opt_queue=None,
-    opt_thread=None,
+    opt_process=None,
     opt_result_holder=None,
     time_templates={},      # {lid: 'HH:MM, HH:MM, ...'} – Uhrzeiten-Vorlage je Liga
     opt_best={},            # {lid: {'obj': float, 'elapsed': str, 'count': int}}
+    opt_start_time=None,    # float – time.time() beim Start der Optimierung
     move_pending=None,      # {'lid','day','idx','ht','at'} – Spiel zum Verschieben gewählt
     cancel_pending=None,    # {'lid','ht','at'} – ausgefallenes Spiel, Nachholtermin offen
     cal_table={},           # {lid: [{'spieltag':int,'kw':int|None,'date':str}]}
@@ -828,23 +831,23 @@ def _full_config_excel_bytes() -> bytes:
 
     # ── Sheet 4: Gewichte ─────────────────────────────────────────────────────
     ws_w = wb.create_sheet('Gewichte')
-    hdrs_w = ['Liga-ID', 'Heimrechtwechsel', 'Wechsel-Fairness', 'Reisedistanz', 'Reise-Fairness']
-    _set_col_w(ws_w, [18, 20, 20, 16, 16])
+    hdrs_w = ['Liga-ID', 'Heimrechtwechsel', 'Wechsel-Fairness', 'Reisedistanz', 'Reise-Fairness', 'DST-Reiseeffizienz']
+    _set_col_w(ws_w, [18, 20, 20, 16, 16, 20])
     for col, h in enumerate(hdrs_w, 1):
         _h(ws_w, 1, col, h)
     wr = 2
     if S.same_weights:
         common = S.weights.get('__common__', {})
         _d(ws_w, wr, 1, '__common__')
-        for col, k in enumerate(['switch', 'sw_fair', 'travel', 'trav_fair'], 2):
-            _d(ws_w, wr, col, common.get(k, 5.0))
+        for col, k in enumerate(['switch', 'sw_fair', 'travel', 'trav_fair', 'dst_eff'], 2):
+            _d(ws_w, wr, col, common.get(k, 5.0) if k != 'dst_eff' else common.get(k, 0.0))
         wr += 1
     else:
         for lid in S.league_order:
             w = S.weights.get(lid, {})
             _d(ws_w, wr, 1, lid)
-            for col, k in enumerate(['switch', 'sw_fair', 'travel', 'trav_fair'], 2):
-                _d(ws_w, wr, col, w.get(k, 5.0))
+            for col, k in enumerate(['switch', 'sw_fair', 'travel', 'trav_fair', 'dst_eff'], 2):
+                _d(ws_w, wr, col, w.get(k, 5.0) if k != 'dst_eff' else w.get(k, 0.0))
             wr += 1
 
     # ── Sheet 5: Kalender ─────────────────────────────────────────────────────
@@ -1106,10 +1109,11 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                     continue
                 try:
                     weights[lid] = {
-                        'switch':    float(row.get('Heimrechtwechsel', 5.0) or 5.0),
-                        'sw_fair':   float(row.get('Wechsel-Fairness',  5.0) or 5.0),
-                        'travel':    float(row.get('Reisedistanz',       5.0) or 5.0),
-                        'trav_fair': float(row.get('Reise-Fairness',     5.0) or 5.0),
+                        'switch':    float(row.get('Heimrechtwechsel',    5.0) or 5.0),
+                        'sw_fair':   float(row.get('Wechsel-Fairness',    5.0) or 5.0),
+                        'travel':    float(row.get('Reisedistanz',        5.0) or 5.0),
+                        'trav_fair': float(row.get('Reise-Fairness',      5.0) or 5.0),
+                        'dst_eff':   float(row.get('DST-Reiseeffizienz',  0.0) or 0.0),
                     }
                 except Exception:
                     pass
@@ -2563,10 +2567,13 @@ def _step3():
     same = st.checkbox('Gleiche Gewichte für alle Ligen', S.same_weights, key='samew')
     S.same_weights = same
 
+    _W_DEFAULTS = {'dst_eff': 0.0}
+
     def _weight_inputs(key_prefix: str, existing: dict) -> dict:
         vals = {}
         for key, (label, tip) in WEIGHT_LABELS.items():
-            vals[key] = st.slider(label, 0.0, 10.0, float(existing.get(key, 5.0)),
+            default = float(existing.get(key, _W_DEFAULTS.get(key, 5.0)))
+            vals[key] = st.slider(label, 0.0, 10.0, default,
                 0.5, key=f'w_{key_prefix}_{key}', help=tip)
         return vals
 
@@ -3400,8 +3407,9 @@ def _build_league_configs() -> Dict[str, LeagueConfig]:
         n_md     = _calc_n_matchdays(ld)
         days     = list(range(1, n_md + 1))
         apply_r, pct = S.routing.get(lid, (False, 25))
-        raw      = S.weights.get(lid, {k: 5.0 for k in WEIGHT_SCALES})
-        scaled   = {k: v * WEIGHT_SCALES[k] for k, v in raw.items()}
+        _w_defaults = {k: (0.0 if k == 'dst_eff' else 5.0) for k in WEIGHT_SCALES}
+        raw      = S.weights.get(lid, _w_defaults)
+        scaled   = {k: v * WEIGHT_SCALES[k] for k, v in raw.items() if k in WEIGHT_SCALES}
         # Spielfrei-Modus: active_per_day < n_teams
         n = len(teams)
         n_active = 0
@@ -3588,7 +3596,7 @@ def _step8():
                 S.opt_running   = False
                 S.results       = None
                 S.opt_queue     = None
-                S.opt_thread    = None
+                S.opt_process   = None
                 S.opt_warnings  = []
                 S.opt_best      = {}
                 S.hall_bytes    = None
@@ -3615,7 +3623,7 @@ def _step8():
             )
         return
 
-    # Konfigurationsübersicht
+    # Konfigurationsübersicht (immer sichtbar wenn nicht fertig)
     st.subheader('Zusammenfassung der Konfiguration')
 
     # ─── Ligen (max. 3 pro Zeile) ─────────────────────────────────────────────
@@ -3679,7 +3687,8 @@ def _step8():
                 # Gewichte
                 _w = S.weights.get(_lid) or S.weights.get('__common__', {})
                 if _w:
-                    _wlines = [f'{lbl}: {_w.get(k, 5.0):.0f}'
+                    _W_DISP_DEF = {'dst_eff': 0.0}
+                    _wlines = [f'{lbl}: {_w.get(k, _W_DISP_DEF.get(k, 5.0)):.0f}'
                                for k, (lbl, _) in WEIGHT_LABELS.items()]
                     st.caption('Gewichte – ' + ' · '.join(_wlines))
         if _row_start + _ncols < len(_lids):
@@ -3726,10 +3735,152 @@ def _step8():
         _h, _m  = _est // 3600, (_est % 3600) // 60
         st.caption(f'Geschätzte Gesamtlaufzeit: ~{_h}h {_m:02d}min')
 
-    if not S.opt_running:
-        st.divider()
+    st.divider()
 
-        # ── Constraint-Vorab-Prüfung ───────────────────────────────────────────
+    # ── Unterer Bereich: Fortschritt ODER Startbereit – st.empty() sorgt für atomaren Tausch ──
+    _lower = st.empty()
+
+    if S.opt_running:
+        # Queue zuerst leeren (kein Rendern) – Daten für Container bereitstellen
+        _q = S.opt_queue
+        _done_flag = False
+        if _q is None:
+            S.opt_running = False
+            st.rerun()
+            return
+        try:
+            while True:
+                _line = _q.get_nowait()
+                if _line == '__DONE__':
+                    _done_flag = True
+                    break
+                if isinstance(_line, tuple) and len(_line) == 2 and _line[0] == '__RESULTS__':
+                    S.opt_result_holder = {'results': _line[1]}
+                    continue
+                S.opt_log.append(_line)
+                if _line.startswith('[BEST]'):
+                    _parts = _line.split()
+                    if len(_parts) >= 4:
+                        _lid_b = _parts[1]
+                        _obj_b = next((p.split('=')[1] for p in _parts
+                                       if p.startswith('obj=')), None)
+                        _t_b   = next((p.split('=')[1] for p in _parts
+                                       if p.startswith('t=')), '')
+                        _cnt_b = next((p.strip('(#)') for p in _parts
+                                       if p.startswith('(#')), '')
+                        if _obj_b:
+                            S.opt_best[_lid_b] = {
+                                'obj': float(_obj_b), 'elapsed': _t_b, 'count': _cnt_b
+                            }
+        except (queue.Empty, EOFError, OSError):
+            pass
+
+        # Zeitberechnung & Phase
+        _elapsed = time.time() - (S.opt_start_time or time.time())
+        _p1_tot  = S.solver['seeds'] * S.solver['p1']
+        _p2_tot  = S.solver['p2']
+        _p3_tot  = S.solver['sa'] * len(S.league_order)
+        _total   = max(_p1_tot + _p2_tot + _p3_tot, 1)
+        _pct     = min(_elapsed / _total, 0.99)
+        if any('PHASE 3' in l for l in S.opt_log):
+            _phase_name = 'Phase 3 – SA-Nachbearbeitung'
+        elif any(l.startswith('[BEST] P2') for l in S.opt_log):
+            _phase_name = 'Phase 2 – Kalender-Koordination'
+        else:
+            _phase_name = 'Phase 1 – Heimrecht-Optimierung'
+        _h_e = int(_elapsed // 3600)
+        _m_e = int((_elapsed % 3600) // 60)
+        _s_e = int(_elapsed % 60)
+        _elapsed_str = (f'{_h_e}h {_m_e:02d}min {_s_e:02d}s' if _h_e
+                        else f'{_m_e}min {_s_e:02d}s')
+
+        # Container ersetzt den alten Constraint-Check + Button atomisch
+        with _lower.container():
+            st.markdown(f'### ⏳ {_phase_name}')
+            st.progress(_pct)
+            st.markdown(
+                f'<p style="font-size:1.25rem; margin:-0.3rem 0 0.6rem 0;">'
+                f'<b>{int(_pct * 100)}&thinsp;%</b>&ensp;·&ensp;{_elapsed_str} vergangen'
+                f'</p>',
+                unsafe_allow_html=True,
+            )
+            if S.opt_best:
+                _m_cols = st.columns(max(1, min(4, len(S.opt_best))))
+                for _ci, (_lid_m, _bst) in enumerate(S.opt_best.items()):
+                    _name_m = (S.leagues.get(_lid_m, {}).get('name', _lid_m)
+                               if _lid_m != 'P2' else 'Phase 2 gesamt')
+                    with _m_cols[_ci % len(_m_cols)]:
+                        st.metric(
+                            label=f'Beste Lösung: {_name_m}',
+                            value=f'{_bst["obj"]:,.0f}',
+                            help=f't={_bst["elapsed"]}  |  #{_bst["count"]} Lösung(en)',
+                        )
+            st.code('\n'.join(S.opt_log[-80:]), language=None)
+            st.divider()
+            if st.button('⏹  OPTIMIERUNG ABBRECHEN', type='primary', width='stretch',
+                         help='Bricht die laufende Berechnung ab. '
+                              'Einstellungen bleiben erhalten – die Optimierung kann '
+                              'danach angepasst und neu gestartet werden.'):
+                _proc = S.opt_process
+                if _proc is not None:
+                    _proc.terminate()
+                    _proc.join(timeout=3)
+                    if _proc.is_alive():
+                        _proc.kill()
+                        _proc.join(timeout=1)
+                S.opt_running       = False
+                S.opt_done          = False
+                S.opt_queue         = None
+                S.opt_process       = None
+                S.opt_result_holder = None
+                S.opt_log           = []
+                S.opt_best          = {}
+                S.opt_warnings      = []
+                S.opt_start_time    = None
+                st.rerun()
+
+        if _done_flag:
+            S.opt_running = False
+            S.opt_done    = True
+            S.results     = S.opt_result_holder.get('results', {})
+            S.opt_warnings = []
+            for _wl in S.opt_log:
+                if '[!!]' in _wl:
+                    S.opt_warnings.append(_wl.replace('[!!]', '').strip())
+                elif '[FEHLER]' in _wl:
+                    S.opt_warnings.append(f'Fehler: {_wl.replace("[FEHLER]", "").strip()}')
+            try:
+                from spielplan_multi.excel_output import (
+                    build_league_excel, build_cohome_summary, build_hall_schedule,
+                )
+                for lid, res in (S.results or {}).items():
+                    if res is not None:
+                        wb  = build_league_excel(res)
+                        buf = io.BytesIO()
+                        wb.save(buf)
+                        S.excel_bytes[lid] = buf.getvalue()
+                if S.clubs and S.results:
+                    wb_ch  = build_cohome_summary(S.results, S.clubs, S.kw_compat)
+                    buf_ch = io.BytesIO()
+                    wb_ch.save(buf_ch)
+                    S.cohome_bytes = buf_ch.getvalue()
+                if S.results:
+                    wb_hall  = build_hall_schedule(S.results)
+                    buf_hall = io.BytesIO()
+                    wb_hall.save(buf_hall)
+                    S.hall_bytes = buf_hall.getvalue()
+            except Exception as _exc_excel:
+                import traceback as _tb_excel
+                S.opt_warnings.append(f'Excel-Erzeugung fehlgeschlagen: {_exc_excel}')
+                S.opt_log.append(f'[!!] Excel-Fehler: {_tb_excel.format_exc()}')
+            st.rerun()
+        else:
+            time.sleep(2)
+            st.rerun()
+        return
+
+    # ── Nicht laufend: Constraint-Prüfung + Startknopf im gleichen Placeholder ──
+    with _lower.container():
         issues = _validate_constraints()
         _has_errors = any(i['level'] == 'error' for i in issues)
         if issues:
@@ -3759,117 +3910,27 @@ def _step8():
                 st.error(f'Konfigurationsfehler: {exc}')
                 return
 
-            log_q    = queue.Queue()
-            holder   = {}
-            thread   = threading.Thread(
-                target=_solver_thread,
+            from spielplan_multi._worker import run_solver as _run_solver
+            log_q = multiprocessing.Queue()
+            proc  = multiprocessing.Process(
+                target=_run_solver,
                 args=(cfgs, S.clubs, S.kw_compat,
-                      S.w_cohome, S.solver, holder, log_q),
+                      S.w_cohome, S.solver, log_q, str(_HERE)),
                 daemon=True,
             )
-            thread.start()
+            proc.start()
 
             S.opt_queue         = log_q
-            S.opt_thread        = thread
-            S.opt_result_holder = holder
+            S.opt_process       = proc
+            S.opt_result_holder = {}
             S.opt_running       = True
+            S.opt_start_time    = time.time()
             S.opt_done          = False
             S.opt_log           = []
             S.opt_warnings      = []
             S.results           = None
             S.excel_bytes       = {}
             S.cohome_bytes      = None
-            st.rerun()
-
-    # Laufende Optimierung: Log anzeigen
-    if S.opt_running:
-        st.info('⏳ Optimierung läuft… Die Seite aktualisiert sich alle 2 Sekunden automatisch.')
-
-        # Queue leeren
-        q: queue.Queue = S.opt_queue
-        if q is None:
-            S.opt_running = False
-            st.rerun()
-        done = False
-        try:
-            while True:
-                line = q.get_nowait()
-                if line == '__DONE__':
-                    done = True
-                    break
-                S.opt_log.append(line)
-                # [BEST]-Zeilen parsen → Live-Metriken
-                if line.startswith('[BEST]'):
-                    # Format: [BEST] <lid>  obj=<val>  t=<mm:ss>  Δ<pct>  (#<n>)
-                    parts = line.split()
-                    if len(parts) >= 4:
-                        _lid_b = parts[1]
-                        _obj_b = next((p.split('=')[1] for p in parts if p.startswith('obj=')), None)
-                        _t_b   = next((p.split('=')[1] for p in parts if p.startswith('t=')), '')
-                        _cnt_b = next((p.strip('(#)') for p in parts if p.startswith('(#')), '')
-                        if _obj_b:
-                            S.opt_best[_lid_b] = {
-                                'obj': float(_obj_b), 'elapsed': _t_b, 'count': _cnt_b
-                            }
-        except queue.Empty:
-            pass
-
-        # Live-Metriken: beste Lösung je Liga
-        if S.opt_best:
-            _m_cols = st.columns(max(1, min(4, len(S.opt_best))))
-            for _ci, (_lid_m, _bst) in enumerate(S.opt_best.items()):
-                _name_m = (S.leagues.get(_lid_m, {}).get('name', _lid_m)
-                           if _lid_m != 'P2' else 'Phase 2 gesamt')
-                with _m_cols[_ci % len(_m_cols)]:
-                    st.metric(
-                        label=f'Beste Lösung: {_name_m}',
-                        value=f'{_bst["obj"]:,.0f}',
-                        help=f't={_bst["elapsed"]}  |  #{_bst["count"]} Lösung(en)',
-                    )
-
-        log_box = st.empty()
-        # Letzten 80 Zeilen anzeigen
-        log_box.code('\n'.join(S.opt_log[-80:]), language=None)
-
-        if done:
-            S.opt_running = False
-            S.opt_done    = True
-            S.results     = S.opt_result_holder.get('results', {})
-            # Warnzeilen fuer persistente Anzeige extrahieren
-            S.opt_warnings = []
-            for _wl in S.opt_log:
-                if '[!!]' in _wl:
-                    S.opt_warnings.append(_wl.replace('[!!]', '').strip())
-                elif '[FEHLER]' in _wl:
-                    S.opt_warnings.append(f'Fehler: {_wl.replace("[FEHLER]", "").strip()}')
-            # Excel-Bytes bauen
-            try:
-                from spielplan_multi.excel_output import (
-                    build_league_excel, build_cohome_summary, build_hall_schedule,
-                )
-                for lid, res in (S.results or {}).items():
-                    if res is not None:
-                        wb  = build_league_excel(res)
-                        buf = io.BytesIO()
-                        wb.save(buf)
-                        S.excel_bytes[lid] = buf.getvalue()
-                if S.clubs and S.results:
-                    wb_ch  = build_cohome_summary(S.results, S.clubs, S.kw_compat)
-                    buf_ch = io.BytesIO()
-                    wb_ch.save(buf_ch)
-                    S.cohome_bytes = buf_ch.getvalue()
-                if S.results:
-                    wb_hall  = build_hall_schedule(S.results)
-                    buf_hall = io.BytesIO()
-                    wb_hall.save(buf_hall)
-                    S.hall_bytes = buf_hall.getvalue()
-            except Exception as _exc_excel:
-                import traceback as _tb_excel
-                S.opt_warnings.append(f'Excel-Erzeugung fehlgeschlagen: {_exc_excel}')
-                S.opt_log.append(f'[!!] Excel-Fehler: {_tb_excel.format_exc()}')
-            st.rerun()
-        else:
-            time.sleep(2)
             st.rerun()
 
 

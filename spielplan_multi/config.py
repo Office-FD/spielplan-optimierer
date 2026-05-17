@@ -4,12 +4,13 @@ from collections import defaultdict
 from typing import Dict
 
 # ── Solver-Gewichte ───────────────────────────────────────────────────────────
-WEIGHT_SCALES = {'switch': 80.0, 'sw_fair': 2.0, 'trav_fair': 0.02, 'travel': 0.05}
+WEIGHT_SCALES = {'switch': 80.0, 'sw_fair': 2.0, 'trav_fair': 0.02, 'travel': 0.05, 'dst_eff': 0.03}
 WEIGHT_LABELS = [
     ('switch',    'Heimrecht-Wechsel maximieren'),
     ('sw_fair',   'Fairness bei Heimrecht-Wechseln'),
     ('trav_fair', 'Fairness bei Reisekilometern'),
     ('travel',    'Gesamtkilometer minimieren'),
+    ('dst_eff',   'DST-Reiseeffizienz'),
 ]
 
 KM_PAUSCHALE   = 0.20
@@ -31,4 +32,8 @@ def get_team_color(idx: int) -> str:
 
 
 # Backward-kompatibles Dict (wird in excel_output.py importiert)
-TEAM_COLORS: Dict[int, str] = defaultdict(get_team_color, {i: get_team_color(i) for i in range(20)})
+class _TeamColorDict(dict):
+    def __missing__(self, k):
+        return get_team_color(k)
+
+TEAM_COLORS: Dict[int, str] = _TeamColorDict({i: get_team_color(i) for i in range(20)})
