@@ -177,7 +177,13 @@ def load_distances_from_file(path: str, teams: List[str]) -> Optional[np.ndarray
 
     try:
         if path.suffix.lower() in ('.xlsx', '.xls'):
-            df = pd.read_excel(path, header=0)
+            xl = pd.ExcelFile(path)
+            dist_sheet = next(
+                (s for s in xl.sheet_names if s.strip().lower() == 'distanzmatrix'),
+                None,
+            )
+            sheet = dist_sheet if dist_sheet else xl.sheet_names[0]
+            df = xl.parse(sheet, header=0)
         else:
             df = pd.read_csv(path, sep=None, engine='python')
     except Exception as exc:
@@ -189,6 +195,7 @@ def load_distances_from_file(path: str, teams: List[str]) -> Optional[np.ndarray
 
     # Format 1: quadratische Matrix
     col_names = [str(c).strip().lower() for c in df.columns]
+    col_map = {str(c).strip().lower(): str(c) for c in df.columns}
     if all(t.strip().lower() in col_names for t in teams):
         try:
             dist = np.full((n, n), UNREACHABLE_KM, dtype=int)
@@ -197,9 +204,10 @@ def load_distances_from_file(path: str, teams: List[str]) -> Optional[np.ndarray
                 for j, team_j in enumerate(teams):
                     if i == j:
                         continue
+                    col_key = col_map.get(team_j.strip().lower(), team_j.strip())
                     val = df.loc[df.iloc[:, 0].astype(str).str.strip().str.lower()
                                  == team_i.strip().lower(),
-                                 team_j.strip()].values
+                                 col_key].values
                     if len(val) > 0:
                         dist[i, j] = int(float(val[0]))
             dist = np.maximum(dist, dist.T)

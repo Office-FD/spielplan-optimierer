@@ -225,6 +225,22 @@ def _calc_n_matchdays(ld: dict) -> int:
             return total_matches // games_per_day if games_per_day > 0 else 0
     return n_rounds * (n - 1) // max(1, gpd)
 
+def _detect_dst_blocks(rows: list) -> list:
+    """DST-Blöcke aus Kalender-Tabelle ableiten: aufeinanderfolgende Spieltag-Paare in gleicher KW."""
+    kw_to_sts: dict = {}
+    for row in rows:
+        kw = row.get('kw')
+        if kw is not None:
+            kw_to_sts.setdefault(kw, []).append(row['spieltag'])
+    blocks = []
+    for sts in kw_to_sts.values():
+        if len(sts) == 2:
+            d1, d2 = sorted(sts)
+            if d2 == d1 + 1:
+                blocks.append((d1, d2))
+    return sorted(blocks)
+
+
 WEIGHT_LABELS = {
     'switch':    ('Heimrechtswechsel',   'Wie oft wechselt ein Team zwischen Heim- und Auswärtsspielen. Höherer Wert = abwechslungsreichere Spielfolge (z.B. Heim–Auswärts–Heim statt drei Heimspiele hintereinander).'),
     'sw_fair':   ('Wechsel-Fairness',    'Wie gleichmäßig die Wechselhäufigkeit über alle Teams verteilt ist. Höherer Wert = kein Team hat deutlich mehr oder weniger Wechsel als die anderen.'),
@@ -271,6 +287,7 @@ _DEFAULTS: dict = dict(
     opt_best={},            # {lid: {'obj': float, 'elapsed': str, 'count': int}}
     move_pending=None,      # {'lid','day','idx','ht','at'} – Spiel zum Verschieben gewählt
     cancel_pending=None,    # {'lid','ht','at'} – ausgefallenes Spiel, Nachholtermin offen
+    cal_table={},           # {lid: [{'spieltag':int,'kw':int|None,'date':str}]}
 )
 
 for _k, _v in _DEFAULTS.items():
@@ -308,9 +325,22 @@ def _show_load_session_dialog():
 # ── Backlog-Dialog ────────────────────────────────────────────────────────────
 @st.dialog('Funktionswunsch / Fehler melden')
 def _show_backlog_dialog():
+    import urllib.parse as _up
+
+    # Bereits vorbereitete E-Mail anzeigen
+    if st.session_state.get('_backlog_mailto'):
+        st.success('E-Mail vorbereitet – klicke auf den Button, um sie in deinem E-Mail-Programm zu öffnen.')
+        st.link_button('📧 E-Mail jetzt senden', st.session_state['_backlog_mailto'],
+                       type='primary', use_container_width=True)
+        st.caption('Die Nachricht ist vorausgefüllt und geht direkt an das FD-Team.')
+        if st.button('Neue Meldung eingeben'):
+            del st.session_state['_backlog_mailto']
+            st.rerun()
+        return
+
     st.caption(
-        'Wünsche und Fehler werden in der Backlog-Datei gesammelt '
-        'und vom FD-Team geprüft.'
+        'Nach dem Ausfüllen wird eine vorbereitete E-Mail an das FD-Team geöffnet. '
+        'Du musst sie nur noch absenden.'
     )
     with st.form('backlog_form', clear_on_submit=True):
         _bl_typ = st.selectbox(
@@ -344,31 +374,32 @@ def _show_backlog_dialog():
             'Kontakt (optional) – E-Mail für Rückfragen',
             placeholder='name@verein.de',
         )
-        _bl_submit = st.form_submit_button('Eintragen', type='primary')
+        _bl_submit = st.form_submit_button('E-Mail vorbereiten', type='primary')
 
     if _bl_submit:
         if not _bl_titel.strip() or not _bl_beschr.strip():
             st.error('Bitte Titel und Beschreibung ausfüllen.')
         else:
-            from datetime import datetime as _dt
-            _ts = _dt.now().strftime('%Y-%m-%d %H:%M')
-            _entry = (
-                f'\n---\n\n'
-                f'### [{_ts}] {_bl_typ} – {_bl_titel.strip()}\n\n'
-                f'**Typ:** {_bl_typ}  \n'
-                f'**Bereich:** {_bl_bereich}  \n'
-                f'**Wichtigkeit:** {_bl_wichtig}  \n'
-                f'**Beschreibung:**  \n{_bl_beschr.strip()}\n\n'
-                + (f'**Kontakt:** {_bl_kontakt.strip()}  \n' if _bl_kontakt.strip() else '')
-                + f'**Status:** Offen\n'
+            _subject = f'[Spielplan-Optimierer] {_bl_typ} – {_bl_titel.strip()}'
+            _body_parts = [
+                f'Typ: {_bl_typ}',
+                f'Bereich: {_bl_bereich}',
+                f'Wichtigkeit: {_bl_wichtig}',
+                '',
+                f'Titel: {_bl_titel.strip()}',
+                '',
+                'Beschreibung:',
+                _bl_beschr.strip(),
+            ]
+            if _bl_kontakt.strip():
+                _body_parts += ['', f'Kontakt: {_bl_kontakt.strip()}']
+            _body = '\r\n'.join(_body_parts)
+            st.session_state['_backlog_mailto'] = (
+                f'mailto:it@floorball.de'
+                f'?subject={_up.quote(_subject)}'
+                f'&body={_up.quote(_body)}'
             )
-            _backlog_path = _HERE / 'BACKLOG.md'
-            try:
-                with open(_backlog_path, 'a', encoding='utf-8') as _f:
-                    _f.write(_entry)
-                st.success('Eintrag gespeichert – danke!')
-            except Exception as _e:
-                st.error(f'Fehler beim Speichern: {_e}')
+            st.rerun()
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -1017,7 +1048,9 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                 cell0 = str(rows_arr[i][0]).strip()
                 if cell0.startswith('Liga:'):
                     lid_part = cell0[5:].strip()
-                    lid = (lid_part.split('–')[0] if '–' in lid_part else lid_part).strip()
+                    # Robust gegen verschiedene Gedankenstrich-Varianten (–, —, ‒, U+FFFD)
+                    _parts = re.split(r'\s*[–—‒�]\s*', lid_part, maxsplit=1)
+                    lid = _parts[0].strip() if len(_parts) > 1 else lid_part.strip()
                     i += 1
                     if i >= len(rows_arr):
                         break
@@ -1027,18 +1060,24 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                         default=-1)
                     col_hdrs = [h for h in _all_hdrs[:_last_non_empty + 1]
                                 if h and h.lower() != 'nan']
-                    n = _last_non_empty + 1 if _last_non_empty >= 0 else 0
+                    # n = Anzahl Teams (nur nicht-leere Header-Zellen)
+                    n = len(col_hdrs)
                     i += 1
                     mat_rows = []
                     for _ in range(n):
                         if i >= len(rows_arr):
                             break
+                        row_vals = list(rows_arr[i])
                         vals = []
-                        for c in list(rows_arr[i])[1:n + 1]:
+                        for c in row_vals[1:n + 1]:
                             try:
                                 vals.append(float(str(c) if str(c).lower() != 'nan' else '0'))
                             except Exception:
                                 vals.append(0.0)
+                        # Zeilen überspringen die leer sind (Trennzeilen zwischen Ligen)
+                        if not any(v != 0.0 for v in vals) and not str(row_vals[0]).strip():
+                            i += 1
+                            break
                         mat_rows.append(vals)
                         i += 1
                     if len(mat_rows) == n > 0:
@@ -1261,14 +1300,19 @@ def _step0():
                 if parsed:
                     S.league_order  = parsed['league_order']
                     S.leagues       = parsed['leagues']
+                    _has_loaded_matrices = False
                     if 'dist_matrices' in parsed:
                         S.dist_matrices = parsed['dist_matrices']
                         for _lid in parsed['dist_matrices']:
                             st.session_state.pop(f'de_{_lid}', None)
+                        _has_loaded_matrices = bool(parsed['dist_matrices'])
                     if 'settings' in parsed:
                         s = parsed['settings']
                         if 'dist_method' in s:
                             S.dist_method = s['dist_method']
+                    # Matrizen sind bereits geladen → manuell anzeigen, kein API-Aufruf nötig
+                    if _has_loaded_matrices:
+                        S.dist_method = 'manual'
                         if 'same_weights' in s:
                             S.same_weights = s['same_weights'].strip().upper() == 'J'
                         if 'w_cohome' in s:
@@ -1823,6 +1867,8 @@ def _step0():
                     if _exp_key in st.session_state:
                         st.session_state[f'_exp_{new_lid}' if '_exp_' in _exp_key
                                          else f'_reset_{new_lid}'] = st.session_state.pop(_exp_key)
+                st.session_state[f'lid_{i}'] = new_lid
+                st.rerun()
 
             if len(teams) < 4:
                 errors.append(f'**{ld["name"]}**: Mindestens 4 Teams erforderlich '
@@ -1911,7 +1957,8 @@ def _step1():
                     st.success(f'✓ {n}×{n}-Matrix geladen.')
                 else:
                     st.error('Datei konnte nicht verarbeitet werden. Bitte Format prüfen.')
-                    errors.append(lid)
+                    if lid not in S.dist_matrices:
+                        errors.append(lid)
             if lid in S.dist_matrices:
                 with st.expander('Matrix anzeigen'):
                     st.dataframe(pd.DataFrame(S.dist_matrices[lid], index=teams, columns=teams))
@@ -1942,8 +1989,8 @@ def _step1():
                             st.caption(f'**{t}** → {loc}')
                     if st.button(f'Distanzen berechnen (Google Maps)', key=f'calc_{lid}', type='primary'):
                         _buf = io.StringIO()
-                        _old_stdout = _sys.stdout
-                        _sys.stdout = _buf
+                        _old_stdout = sys.stdout
+                        sys.stdout = _buf
                         mat = None
                         try:
                             from spielplan_multi.distances import calculate_distance_matrix
@@ -1951,7 +1998,7 @@ def _step1():
                                 mat = calculate_distance_matrix(locs, S.api_key,
                                     cache_dir / f'dist_{lid}.json')
                         finally:
-                            _sys.stdout = _old_stdout
+                            sys.stdout = _old_stdout
                         _output = _buf.getvalue()
                         if mat is not None:
                             S.dist_matrices[lid] = mat
@@ -2096,6 +2143,106 @@ def _rahmenterminplan_vorlage_bytes() -> bytes:
     return buf.getvalue()
 
 
+def _weekend_dates_for_kw(week_start: str, week_end: str):
+    """Gibt (samstag_str, sonntag_str, bereich_str) für eine KW zurück.
+
+    Erwartet week_end als 'DD.MM.YYYY' oder 'YYYY-MM-DD' (ISO-Woche endet Sonntag).
+    Samstag = Sonntag - 1 Tag.
+    Bereich z. B. '07.-13.09.2026' oder '29.08.-04.09.2026'.
+    """
+    from datetime import datetime, timedelta
+    sun = None
+    for fmt in ('%d.%m.%Y', '%Y-%m-%d', '%d.%m.%y'):
+        for src in (week_end, week_start):
+            s = str(src).strip()
+            if not s or s == 'nan':
+                continue
+            try:
+                sun = datetime.strptime(s, fmt)
+                # Wenn week_start übergeben: auf Sonntag vorwärts rechnen
+                if src == week_start and sun.weekday() != 6:
+                    sun = sun + timedelta(days=(6 - sun.weekday()))
+                break
+            except ValueError:
+                continue
+        if sun:
+            break
+    if sun is None:
+        return '', '', ''
+    sat = sun - timedelta(days=1)
+    sat_s = sat.strftime('%d.%m.%Y')
+    sun_s = sun.strftime('%d.%m.%Y')
+    # Bereichsstring: gleicher Monat → '07.-13.09.2026', sonst '29.08.-04.09.2026'
+    ws_dt = sun - timedelta(days=6)  # Montag der Woche
+    if ws_dt.month == sun.month:
+        bereich = f'{ws_dt.day:02d}.-{sun.day:02d}.{sun.month:02d}.{sun.year}'
+    else:
+        bereich = f'{ws_dt.day:02d}.{ws_dt.month:02d}.-{sun.day:02d}.{sun.month:02d}.{sun.year}'
+    return sat_s, sun_s, bereich
+
+
+def _apply_weekend_dates(rows: list, spieltage_info: dict) -> None:
+    """Setzt Datum-Felder in rows basierend auf KW-Wochenend-Logik (in-place).
+
+    DST-Paar (zwei aufeinanderfolgende Spieltage in gleicher KW):
+      → erster Spieltag = Samstag, zweiter = Sonntag
+    Einzelspieltag:
+      → Datum = Wochenbereich (z. B. '07.-13.09.2026')
+    """
+    kw_to_sts: dict = {}
+    for row in rows:
+        kw = row.get('kw')
+        if kw is not None:
+            kw_to_sts.setdefault(kw, []).append(row['spieltag'])
+    for kw, sts in kw_to_sts.items():
+        info = spieltage_info.get(sts[0], {})
+        sat_s, sun_s, bereich = _weekend_dates_for_kw(
+            info.get('week_start', ''), info.get('week_end', ''))
+        sorted_sts = sorted(sts)
+        if (len(sorted_sts) == 2
+                and sorted_sts[1] == sorted_sts[0] + 1
+                and sat_s):
+            rows[sorted_sts[0] - 1]['date'] = sat_s
+            rows[sorted_sts[1] - 1]['date'] = sun_s
+        else:
+            for st_nr in sorted_sts:
+                rows[st_nr - 1]['date'] = bereich if bereich else ''
+
+
+def _cal_table_to_kw_compat() -> None:
+    """Leitet S.kw_compat und S.dst_per_liga aus S.cal_table ab."""
+    kw_compat: dict = {}
+    for lid in S.league_order:
+        rows = S.cal_table.get(lid, [])
+        ld = S.leagues.get(lid, {})
+        _, gpd = _get_n_rounds_gpd(ld)
+        kw_to_sts: dict = {}
+        for row in rows:
+            kw = row.get('kw')
+            if kw is not None:
+                kw_to_sts.setdefault(kw, []).append(row['spieltag'])
+        for kw, sts in kw_to_sts.items():
+            kw_compat.setdefault(kw, {})[lid] = sorted(sts)
+        S.dst_per_liga[lid] = [] if gpd > 1 else _detect_dst_blocks(rows)
+    S.kw_compat = kw_compat
+
+
+def _migrate_cal_table_from_kw_compat() -> None:
+    """Migriert alte S.kw_compat-Daten in S.cal_table (für ältere gespeicherte Sitzungen)."""
+    for lid in S.league_order:
+        if lid in S.cal_table:
+            continue
+        ld = S.leagues.get(lid, {})
+        n_md = _calc_n_matchdays(ld)
+        rows = [{'spieltag': i + 1, 'kw': None, 'date': ''} for i in range(n_md)]
+        for kw, kw_data in (S.kw_compat or {}).items():
+            if lid in kw_data:
+                for st_nr in kw_data[lid]:
+                    if 1 <= st_nr <= n_md:
+                        rows[st_nr - 1]['kw'] = int(kw)
+        S.cal_table[lid] = rows
+
+
 def _step2():
     st.header('3. Kalender & Doppelspieltage (DST)')
     st.info(
@@ -2103,23 +2250,19 @@ def _step2():
         '(typisch: Samstag + Sonntag), bei denen jedes Team das **gleiche Heimrecht** '
         'an beiden Tagen hat – also entweder beide Tage zuhause oder beide auswärts. '
         'Das vermeidet unnötige Fahrten zwischen den Spielen. '
-        'Beim Turniertag-Format entfallen DST-Blöcke, da alle Teams am selben Ort spielen. '
-        '**Wichtig:** Nur unmittelbar aufeinanderfolgende Spieltag-Nummern sind erlaubt '
-        '(z. B. Spieltag 3 + 4, nicht 3 + 5).'
+        'Beim Turniertag-Format entfallen DST-Blöcke.'
     )
 
-    S.use_calendar = st.checkbox('Rahmenterminplan aus Excel laden (optional)',
-        value=S.use_calendar,
-        help='Weist Spieltagen Kalenderwochen zu. Für die Optimierung selbst nicht zwingend nötig.')
-
-    if S.use_calendar:
+    # ── Excel-Import (optional, klappt Tabellen vor) ──────────────────────────
+    with st.expander('Rahmenterminplan aus Excel laden (optional)'):
+        st.caption(
+            'Importiert Spieltag-Kalenderwochen aus einer Excel-Datei und befüllt die '
+            'Tabellen unten automatisch. Ohne Import können die KW-Spalten manuell eingetragen werden.'
+        )
         _col_tpl, _col_upl = st.columns([1, 2])
         with _col_tpl:
             st.markdown('**Vorlage herunterladen**')
-            st.caption(
-                'Noch keine Datei? Vorlage herunterladen, '
-                'mit den eigenen Spieltagen befüllen und rechts hochladen.'
-            )
+            st.caption('Noch keine Datei? Vorlage herunterladen, befüllen und rechts hochladen.')
             st.download_button(
                 '⬇ Rahmenterminplan-Vorlage',
                 data=_rahmenterminplan_vorlage_bytes(),
@@ -2145,10 +2288,10 @@ def _step2():
                 with st.expander('Spaltenvorschau (erste 8 Zeilen)'):
                     st.dataframe(prev.head(8))
                 st.caption(
-                    'Schau in die Spaltenvorschau oben. Spalten werden von links gezählt: A = 0, B = 1, C = 2, … '
+                    'Spalten werden von links gezählt: A = 0, B = 1, C = 2, … '
                     'Trage für jede Liga die Spaltennummer ein, in der die Spieltag-Nummern stehen. '
-                    'Gültige Zellinhalte: **"7"** (einzelner Spieltag 7) oder **"6 & 7"** bzw. **"6/7"** '
-                    '(Doppelspieltag – wird automatisch als DST-Block erkannt und übernommen).'
+                    'Gültige Zellinhalte: **"7"** (einzelner Spieltag) oder **"6 & 7"** / **"6/7"** '
+                    '(Doppelspieltag – wird automatisch als DST erkannt).'
                 )
                 col_mapping = {}
                 _cols = st.columns(max(1, len(S.league_order)))
@@ -2158,7 +2301,7 @@ def _step2():
                             S.leagues[lid]['name'], 0, 50,
                             int(st.session_state.get(f'col_{lid}', 2)),
                             key=f'col_{lid}',
-                            help='Spalte A = 0, B = 1, C = 2 usw. – Zählung beginnt bei 0'))
+                            help='Spalte A = 0, B = 1, C = 2 usw.'))
                 kw_col = int(st.number_input(
                     'Spalte mit Kalenderwochen-Nummern (z. B. "KW 37" oder "37")',
                     0, 50, int(st.session_state.get('kw_col', 1)),
@@ -2169,128 +2312,165 @@ def _step2():
                     from spielplan_multi.calendar_parser import parse_rahmenterminplan
                     cal = parse_rahmenterminplan(S.cal_path, col_mapping,
                         kw_col=kw_col,
-                        date_from_col=kw_col,   # Datumsbereich aus KW-Text extrahieren
+                        date_from_col=kw_col,
                         date_to_col=kw_col)
                     if cal:
-                        S.kw_compat = cal.get('kw_compat', {})
-                        # DST-Blöcke automatisch übernehmen
-                        dst_from_cal = cal.get('dst_blocks', {})
-                        n_dst_total  = 0
-                        for lid, blocks in dst_from_cal.items():
-                            if blocks:
-                                existing = list(S.dst_per_liga.get(lid, []))
-                                for blk in blocks:
-                                    if blk not in existing:
-                                        existing.append(blk)
-                                existing.sort()
-                                S.dst_per_liga[lid] = existing
-                                n_dst_total += len(blocks)
-                        n_st = sum(
-                            len(v) for v in cal.get('spieltage', {}).values())
+                        spieltage_from_cal = cal.get('spieltage', {})
+                        for lid in S.league_order:
+                            ld = S.leagues.get(lid, {})
+                            n_md = _calc_n_matchdays(ld)
+                            rows = [{'spieltag': i + 1, 'kw': None, 'date': ''}
+                                    for i in range(n_md)]
+                            for st_nr, info in spieltage_from_cal.get(lid, {}).items():
+                                if 1 <= st_nr <= n_md:
+                                    rows[st_nr - 1]['kw'] = int(info['kw'])
+                            # Wochenend-Datums-Logik: DST → Sa/So, Einzelspiel → Bereich
+                            _apply_weekend_dates(rows, spieltage_from_cal.get(lid, {}))
+                            S.cal_table[lid] = rows
+                            # Tabellen-Widget zurücksetzen, damit neue Daten angezeigt werden
+                            editor_key = f'cal_editor_{lid}'
+                            if editor_key in st.session_state:
+                                del st.session_state[editor_key]
+                        _cal_table_to_kw_compat()
+                        n_st = sum(len(v) for v in spieltage_from_cal.values())
+                        n_dst = sum(len(b) for b in S.dst_per_liga.values())
                         st.success(
-                            f'Kalender geladen: {n_st} Spieltage, '
-                            f'{n_dst_total} DST-Blöcke erkannt und übernommen.')
+                            f'Kalender geladen: {n_st} Spieltage, {n_dst} DST-Blöcke erkannt.')
+                        st.rerun()
                     else:
                         st.error(
                             'Kalender konnte nicht gelesen werden. '
                             'Bitte prüfen: Ist es eine gültige Excel-Datei (.xlsx/.xls)? '
-                            'Stimmen die Spaltennummern? Die Spieltag-Spalte muss '
-                            'Zahlen wie "7" oder Paare wie "6 & 7" / "6/7" enthalten.'
+                            'Stimmen die Spaltennummern?'
                         )
 
-                # Status anzeigen wenn bereits geladen
-                if S.kw_compat:
-                    st.info(f'Kalender aktiv: {len(S.kw_compat)} Kalenderwochen mit Spieltagen.')
+    # ── Kalender-Tabellen je Liga ─────────────────────────────────────────────
+    _migrate_cal_table_from_kw_compat()
 
-    st.subheader('Doppelspieltage konfigurieren')
+    st.subheader('Spieltage & Kalenderwochen')
+    st.caption(
+        'Trage für jeden Spieltag die **Kalenderwoche (KW)** ein. '
+        'Zwei aufeinanderfolgende Spieltage in derselben KW werden automatisch als '
+        '**DST-Block** erkannt. '
+        'Optional: **Datum** eintragen (z. B. 20.09.2025) für einen fixen Termin – '
+        'leer lassen = Team wählt Termin frei innerhalb der KW.'
+    )
+
+    _any_changed = False
     for lid in S.league_order:
-        ld      = S.leagues[lid]
-        n_t     = len(ld['teams'])
+        ld = S.leagues[lid]
+        n_t = len(ld['teams'])
         if n_t < 4:
             continue
         n_rounds, gpd = _get_n_rounds_gpd(ld)
-        n_md    = n_rounds * (n_t - 1)
+        n_md = _calc_n_matchdays(ld)
 
         if gpd > 1:
-            S.dst_per_liga[lid] = []  # kompaktes Turniertag-Modell: keine DST-Blöcke
-            n_days = n_rounds * (n_t - 1) // gpd
-            st.info(f'**{ld["name"]}** (Turniertag {gpd} Spiele/Tag): '
+            S.dst_per_liga[lid] = []
+            n_days = n_md
+            st.info(f'**{ld["name"]}** (Turniertag, {gpd} Spiele/Tag): '
                     f'{n_days} Turniertage – keine DST-Blöcke erforderlich.')
             continue
 
-        existing: List = S.dst_per_liga.get(lid, [])
-        _n_dst = len(existing)
-        _ekey_dst = f'_exp_dst_{lid}'
-        if _n_dst > 0:
-            st.session_state[_ekey_dst] = True
-        elif _ekey_dst not in st.session_state:
-            st.session_state[_ekey_dst] = False
+        # Tabelle initialisieren oder bei Größenänderung anpassen
+        existing = S.cal_table.get(lid, [])
+        if len(existing) != n_md:
+            new_rows = [{'spieltag': i + 1, 'kw': None, 'date': ''} for i in range(n_md)]
+            for old_row in existing:
+                st_nr = old_row.get('spieltag', 0)
+                if 1 <= st_nr <= n_md:
+                    new_rows[st_nr - 1] = old_row
+            S.cal_table[lid] = new_rows
+            existing = new_rows
+
+        # DST-Erkennung für Anzeige-Spalte
+        kw_count: dict = {}
+        for row in existing:
+            kw = row.get('kw')
+            if kw is not None:
+                kw_count[kw] = kw_count.get(kw, 0) + 1
+
+        display_rows = []
+        for row in existing:
+            kw = row.get('kw')
+            if kw is None:
+                dst_col = ''
+            elif kw_count.get(kw, 0) == 2:
+                dst_col = 'DST'
+            elif kw_count.get(kw, 0) > 2:
+                dst_col = '> 2 ⚠'
+            else:
+                dst_col = ''
+            display_rows.append({
+                'ST': row['spieltag'],
+                'KW': pd.NA if kw is None else kw,
+                'Datum': row.get('date', ''),
+                'DST': dst_col,
+            })
+
+        df = pd.DataFrame(display_rows)
+        df['KW'] = df['KW'].astype(pd.Int64Dtype())
+
+        assigned = sum(1 for r in existing if r.get('kw') is not None)
+        dst_blocks = _detect_dst_blocks(existing)
+        header_parts = [f'{assigned}/{n_md} KW vergeben']
+        if dst_blocks:
+            header_parts.append(f'{len(dst_blocks)} DST erkannt')
+
         with st.expander(
-                f'{ld["name"]} – DST-Blöcke  ({_n_dst} Blöcke · Spieltage 1–{n_md})',
-                expanded=st.session_state[_ekey_dst]):
-            for idx_b, (d1, d2) in enumerate(existing):
-                ca, cb = st.columns([5, 1])
-                ca.write(f'ST {d1} + ST {d2}')
-                if cb.button('✕', key=f'deld_{lid}_{idx_b}'):
-                    existing.pop(idx_b)
-                    S.dst_per_liga[lid] = existing
-                    st.session_state[_ekey_dst] = True
-                    st.rerun()
+                f'{ld["name"]}  ({n_md} Spieltage · {" · ".join(header_parts)})',
+                expanded=True):
+            edited_df = st.data_editor(
+                df,
+                column_config={
+                    'ST': st.column_config.NumberColumn(
+                        'ST', disabled=True, width='small'),
+                    'KW': st.column_config.NumberColumn(
+                        'KW', min_value=1, max_value=53, step=1, width='small',
+                        help='Kalenderwoche 1–53. Gleiche KW bei zwei aufeinanderfolgenden '
+                             'Spieltagen → automatisch DST-Block.'),
+                    'Datum': st.column_config.TextColumn(
+                        'Datum (opt.)',
+                        help='Konkretes Datum des Spieltags, z. B. 20.09.2025. '
+                             'Leer lassen = Termin frei wählbar innerhalb der KW.',
+                        width='medium'),
+                    'DST': st.column_config.TextColumn(
+                        'DST', disabled=True, width='small'),
+                },
+                hide_index=True,
+                use_container_width=True,
+                key=f'cal_editor_{lid}',
+                num_rows='fixed',
+            )
 
-            used  = {d for b in existing for d in b}
-            nc1, nc2, nc3 = st.columns([2, 2, 2])
-            d1n = nc1.number_input('Spieltag 1', 1, n_md, 1, key=f'dd1_{lid}')
-            d2n = nc2.number_input('Spieltag 2', 1, n_md, 2, key=f'dd2_{lid}')
-            if nc3.button('+ Hinzufügen', key=f'addd_{lid}'):
-                d1n, d2n = int(d1n), int(d2n)
-                if abs(d2n - d1n) != 1:
-                    st.error(
-                        f'Spieltag {d1n} und Spieltag {d2n} sind nicht direkt '
-                        f'aufeinanderfolgend. Bitte zwei benachbarte Spieltage wählen '
-                        f'(z. B. {min(d1n,d2n)} + {min(d1n,d2n)+1}).'
-                    )
-                elif d1n in used or d2n in used:
-                    _conflict = d1n if d1n in used else d2n
-                    st.error(
-                        f'Spieltag {_conflict} ist bereits Teil eines anderen DST-Blocks. '
-                        f'Jeder Spieltag darf nur in genau einem DST-Block vorkommen.'
-                    )
-                else:
-                    existing.append((min(d1n, d2n), max(d1n, d2n)))
-                    S.dst_per_liga[lid] = existing
-                    st.session_state[_ekey_dst] = True
-                    st.rerun()
+            # Geänderte Werte in Session speichern
+            new_rows = []
+            for _, erow in edited_df.iterrows():
+                kw_val = erow['KW']
+                try:
+                    kw_val = int(kw_val) if pd.notna(kw_val) else None
+                except (ValueError, TypeError):
+                    kw_val = None
+                date_raw = erow['Datum']
+                date_val = str(date_raw).strip() if pd.notna(date_raw) and str(date_raw).strip() else ''
+                new_rows.append({
+                    'spieltag': int(erow['ST']),
+                    'kw': kw_val,
+                    'date': date_val,
+                })
+            if new_rows != existing:
+                S.cal_table[lid] = new_rows
+                _any_changed = True
 
-            # Automatisch vorschlagen
-            if st.button('Paare automatisch vorschlagen', key=f'suggest_dst_{lid}',
-                         help='Schlägt alle aufeinanderfolgenden Spieltag-Paare vor '
-                              '(aus Kalender wenn geladen, sonst alle geraden Paare).'):
-                _suggested: list = []
-                if S.use_calendar and S.kw_compat:
-                    for _kw, _lid_map in S.kw_compat.items():
-                        _kw_days = sorted(_lid_map.get(lid, []))
-                        if len(_kw_days) == 2 and _kw_days[1] == _kw_days[0] + 1:
-                            _blk = (_kw_days[0], _kw_days[1])
-                            if (_blk not in existing
-                                    and _kw_days[0] not in used
-                                    and _kw_days[1] not in used):
-                                _suggested.append(_blk)
-                else:
-                    for _d in range(1, n_md, 2):
-                        _blk = (_d, _d + 1)
-                        if (_d + 1 <= n_md and _blk not in existing
-                                and _d not in used and _d + 1 not in used):
-                            _suggested.append(_blk)
-                if _suggested:
-                    existing.extend(_suggested)
-                    existing.sort()
-                    S.dst_per_liga[lid] = existing
-                    st.session_state[_ekey_dst] = True
-                    st.rerun()
-                else:
-                    st.info('Keine neuen Vorschläge – alle Paare bereits eingetragen.')
+            if dst_blocks:
+                st.caption('Erkannte DST-Blöcke: ' +
+                           ', '.join(f'ST {d1}+{d2}' for d1, d2 in dst_blocks))
+            missing = n_md - assigned
+            if missing > 0:
+                st.caption(f'ℹ {missing} Spieltage ohne KW – Termin frei wählbar.')
 
-            S.dst_per_liga[lid] = existing
+    if _any_changed:
+        _cal_table_to_kw_compat()
 
     go_back, go_fwd = _nav()
     if go_back:
@@ -2937,6 +3117,7 @@ def _session_to_json() -> bytes:
             'routing':      routing_data,
             'clubs':        S.clubs,
             'kw_compat':    kw_compat_data,
+            'cal_table':    {lid: rows for lid, rows in (S.cal_table or {}).items()},
             'w_cohome':     float(S.w_cohome),
             'dist_matrices': dist_mat_data,
             'weights':      S.weights,
@@ -2964,6 +3145,9 @@ def _session_from_json(raw: bytes) -> str:
         S.league_order = cfg_data['league_order']
     if 'leagues' in cfg_data:
         S.leagues = cfg_data['leagues']
+        for _ld in S.leagues.values():
+            if 'teams' in _ld:
+                _ld['teams'] = [tuple(e) for e in _ld['teams']]
     if 'dst_per_liga' in cfg_data:
         S.dst_per_liga = {
             lid: [tuple(b) for b in blocks]
@@ -2984,6 +3168,11 @@ def _session_from_json(raw: bytes) -> str:
         S.clubs = cfg_data['clubs']
     if 'kw_compat' in cfg_data:
         S.kw_compat = {int(kw): kw_data for kw, kw_data in cfg_data['kw_compat'].items()}
+    if 'cal_table' in cfg_data:
+        S.cal_table = cfg_data['cal_table']
+    else:
+        # Ältere Sitzung ohne cal_table: aus kw_compat migrieren
+        _migrate_cal_table_from_kw_compat()
     if 'w_cohome' in cfg_data:
         S.w_cohome = float(cfg_data['w_cohome'])
     if 'weights' in cfg_data:
@@ -3097,32 +3286,56 @@ def _session_from_json(raw: bytes) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class _QueueWriter:
-    """Leitet sys.stdout aller Solver-Threads in eine Queue um."""
-    def __init__(self, q: queue.Queue):
+    """Leitet sys.stdout nur für den Solver-Thread in eine Queue um; andere Threads schreiben in das Original."""
+    def __init__(self, q: queue.Queue, original, thread_id: int):
         import threading as _threading
-        self._q, self._buf = q, ''
+        self._q = q
+        self._original = original
+        self._thread_id = thread_id
+        self._buf = ''
         self._lock = _threading.Lock()
 
     def write(self, text: str):
-        with self._lock:
-            self._buf += text
-            while '\n' in self._buf:
-                line, self._buf = self._buf.split('\n', 1)
-                self._q.put(line)
+        import threading as _threading
+        if _threading.get_ident() == self._thread_id:
+            with self._lock:
+                self._buf += text
+                while '\n' in self._buf:
+                    line, self._buf = self._buf.split('\n', 1)
+                    self._q.put(line)
+        else:
+            self._original.write(text)
 
     def flush(self):
-        pass
+        import threading as _threading
+        if _threading.get_ident() != self._thread_id:
+            self._original.flush()
 
 
 def _build_league_configs() -> Dict[str, LeagueConfig]:
     """Baut LeagueConfig-Objekte aus dem GUI-State."""
-    # kw_compat → spieltage_per_liga
+    # cal_table → spieltage_per_liga (inkl. Datum wenn vorhanden)
     spieltage: Dict[str, Dict] = {}
-    for kw, kw_data in S.kw_compat.items():
-        for lid, sts in kw_data.items():
-            spieltage.setdefault(lid, {})
-            for st_nr in sts:
-                spieltage[lid][st_nr] = {'kw': kw}
+    for lid in S.league_order:
+        rows = S.cal_table.get(lid, [])
+        if rows:
+            for row in rows:
+                kw = row.get('kw')
+                if kw is None:
+                    continue
+                date = row.get('date', '').strip()
+                spieltage.setdefault(lid, {})[row['spieltag']] = {
+                    'kw': int(kw),
+                    'week_start': date,
+                    'week_end': date,
+                }
+        else:
+            # Fallback für Ligen ohne cal_table-Eintrag (Altdaten)
+            for kw, kw_data in S.kw_compat.items():
+                if lid in kw_data:
+                    for st_nr in kw_data[lid]:
+                        spieltage.setdefault(lid, {}).setdefault(
+                            st_nr, {'kw': kw, 'week_start': '', 'week_end': ''})
 
     cfgs = {}
     for lid in S.league_order:
@@ -3181,8 +3394,9 @@ def _build_league_configs() -> Dict[str, LeagueConfig]:
 
 def _solver_thread(cfgs, clubs, kw_compat, w_cohome, solver_cfg,
                    result_holder: dict, log_q: queue.Queue):
+    import threading as _threading
     old_out = sys.stdout
-    sys.stdout = _QueueWriter(log_q)
+    sys.stdout = _QueueWriter(log_q, old_out, _threading.get_ident())
     try:
         result_holder['results'] = solve_all(
             cfgs=cfgs,
@@ -3569,10 +3783,12 @@ def _step8():
             S.opt_done    = True
             S.results     = S.opt_result_holder.get('results', {})
             # Warnzeilen fuer persistente Anzeige extrahieren
-            S.opt_warnings = [
-                l.replace('[!!]', '').strip()
-                for l in S.opt_log if '[!!]' in l
-            ]
+            S.opt_warnings = []
+            for _wl in S.opt_log:
+                if '[!!]' in _wl:
+                    S.opt_warnings.append(_wl.replace('[!!]', '').strip())
+                elif '[FEHLER]' in _wl:
+                    S.opt_warnings.append(f'Fehler: {_wl.replace("[FEHLER]", "").strip()}')
             # Excel-Bytes bauen
             try:
                 from spielplan_multi.excel_output import (
@@ -4335,11 +4551,6 @@ def _show_results():
                         _cmp_frame = pd.DataFrame(_rows_cmp)
                         st.dataframe(_cmp_frame, hide_index=True, width='stretch')
                         _cur_tot = sum(_cr.travels)
-                        _prev_tot = sum(
-                            v[0] for v in _cmp_lookup.values()
-                            if any(t == k for k, t in zip(_cmp_lookup, _cr.cfg.teams))
-                        )
-                        # Einfachere Gesamtsumme
                         _prev_total_km = sum(
                             _cmp_lookup[t][0] for t in _cr.cfg.teams if t in _cmp_lookup
                         )
