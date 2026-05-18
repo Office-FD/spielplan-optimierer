@@ -288,6 +288,7 @@ _DEFAULTS: dict = dict(
     excel_bytes={},       # {lid: bytes}
     cohome_bytes=None,
     hall_bytes=None,      # bytes – ligaübergreifender Hallenbelegungsplan
+    overview_bytes=None,  # bytes – Gesamtübersicht aller Spielpläne nebeneinander
     opt_queue=None,
     opt_process=None,
     opt_result_holder=None,
@@ -3263,9 +3264,10 @@ def _session_from_json(raw: bytes) -> str:
 
     from spielplan_multi.excel_output import (
         build_league_excel, build_cohome_summary, build_hall_schedule,
+        build_overview_excel,
     )
 
-    S.results    = {}
+    S.results     = {}
     S.excel_bytes = {}
 
     for lid, res_data in results_data.items():
@@ -3341,6 +3343,15 @@ def _session_from_json(raw: bytes) -> str:
             buf_hall = io.BytesIO()
             wb_hall.save(buf_hall)
             S.hall_bytes = buf_hall.getvalue()
+        except Exception:
+            pass
+
+    if S.results:
+        try:
+            wb_ov  = build_overview_excel(S.results, S.clubs, S.kw_compat)
+            buf_ov = io.BytesIO()
+            wb_ov.save(buf_ov)
+            S.overview_bytes = buf_ov.getvalue()
         except Exception:
             pass
 
@@ -3511,11 +3522,13 @@ def _step8():
                     S.results   = _data.get('results', {})
                     S.clubs     = _data.get('clubs',   S.clubs)
                     S.kw_compat = _data.get('kw_compat', S.kw_compat)
-                    S.excel_bytes  = {}
-                    S.cohome_bytes = None
-                    S.hall_bytes   = None
+                    S.excel_bytes    = {}
+                    S.cohome_bytes   = None
+                    S.hall_bytes     = None
+                    S.overview_bytes = None
                     from spielplan_multi.excel_output import (
-                        build_league_excel, build_cohome_summary, build_hall_schedule)
+                        build_league_excel, build_cohome_summary, build_hall_schedule,
+                        build_overview_excel)
                     for _lid, _res in S.results.items():
                         if _res is None:
                             continue
@@ -3539,6 +3552,13 @@ def _step8():
                         _buf_h = io.BytesIO()
                         _wb_h.save(_buf_h)
                         S.hall_bytes = _buf_h.getvalue()
+                    except Exception:
+                        pass
+                    try:
+                        _wb_ov  = build_overview_excel(S.results, S.clubs, S.kw_compat)
+                        _buf_ov = io.BytesIO()
+                        _wb_ov.save(_buf_ov)
+                        S.overview_bytes = _buf_ov.getvalue()
                     except Exception:
                         pass
                     S.opt_done = True
@@ -3569,9 +3589,10 @@ def _step8():
                 S.opt_process   = None
                 S.opt_warnings  = []
                 S.opt_best      = {}
-                S.hall_bytes    = None
-                S.cohome_bytes  = None
-                S.excel_bytes   = {}
+                S.hall_bytes     = None
+                S.cohome_bytes   = None
+                S.overview_bytes = None
+                S.excel_bytes    = {}
                 st.rerun()
         with _rcol_b:
             if st.button('↺  Neuen Spielplan erstellen', key='restart', width='stretch'):
@@ -3704,6 +3725,7 @@ def _step8():
             try:
                 from spielplan_multi.excel_output import (
                     build_league_excel, build_cohome_summary, build_hall_schedule,
+                    build_overview_excel,
                 )
                 for lid, res in (S.results or {}).items():
                     if res is not None:
@@ -3721,6 +3743,11 @@ def _step8():
                     buf_hall = io.BytesIO()
                     wb_hall.save(buf_hall)
                     S.hall_bytes = buf_hall.getvalue()
+                if S.results:
+                    wb_ov  = build_overview_excel(S.results, S.clubs, S.kw_compat)
+                    buf_ov = io.BytesIO()
+                    wb_ov.save(buf_ov)
+                    S.overview_bytes = buf_ov.getvalue()
             except Exception as _exc_excel:
                 import traceback as _tb_excel
                 S.opt_warnings.append(f'Excel-Erzeugung fehlgeschlagen: {_exc_excel}')
@@ -3894,8 +3921,9 @@ def _step8():
                 S.opt_log           = []
                 S.opt_warnings      = []
                 S.results           = None
-                S.excel_bytes       = {}
-                S.cohome_bytes      = None
+                S.excel_bytes    = {}
+                S.cohome_bytes   = None
+                S.overview_bytes = None
                 st.rerun()
     
     
@@ -3932,11 +3960,19 @@ def _find_schedule_warnings(result, cfg) -> list:
 
 
 def _regen_league_excel(lid: str, res) -> None:
-    from spielplan_multi.excel_output import build_league_excel as _ble
+    from spielplan_multi.excel_output import (
+        build_league_excel as _ble, build_overview_excel as _boe)
     _wb  = _ble(res)
     _buf = io.BytesIO()
     _wb.save(_buf)
     S.excel_bytes[lid] = _buf.getvalue()
+    try:
+        _wb_ov  = _boe(S.results, S.clubs, S.kw_compat)
+        _buf_ov = io.BytesIO()
+        _wb_ov.save(_buf_ov)
+        S.overview_bytes = _buf_ov.getvalue()
+    except Exception:
+        pass
 
 
 def _diagnose_infeasible_league(lid: str) -> None:
@@ -4173,7 +4209,8 @@ def _show_results():
     st.subheader('Excel-Dateien')
     _n_dl = (len(S.excel_bytes)
              + (1 if S.cohome_bytes else 0)
-             + (1 if S.hall_bytes else 0))
+             + (1 if S.hall_bytes else 0)
+             + (1 if S.overview_bytes else 0))
     dl_cols = st.columns(max(1, min(4, _n_dl)))
     idx = 0
     for lid, res in S.results.items():
@@ -4210,6 +4247,17 @@ def _show_results():
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 width='stretch',
                 key='dl_hall',
+            )
+        idx += 1
+    if S.overview_bytes:
+        with dl_cols[idx % len(dl_cols)]:
+            st.download_button(
+                '⬇ Gesamtübersicht',
+                data=S.overview_bytes,
+                file_name='Gesamtuebersicht.xlsx',
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                width='stretch',
+                key='dl_overview',
             )
 
     # ── Kalender-Export (.ics) ────────────────────────────────────────────────

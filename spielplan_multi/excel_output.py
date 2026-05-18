@@ -969,6 +969,233 @@ def build_hall_schedule(results: Dict[str, Optional['LeagueResult']]) -> Workboo
     return wb
 
 
+def build_overview_excel(
+    results: Dict[str, Optional['LeagueResult']],
+    clubs: Dict[str, Dict[str, str]],
+    kw_compat: Dict[int, Dict[str, List[int]]],
+) -> Workbook:
+    """Gesamtübersicht aller Spielpläne nebeneinander (Rahmenterminplan-Struktur).
+
+    Blatt 1 – 'Spielplan-Uebersicht': eine Zeile pro KW und Spieltag (DST = 2 Zeilen).
+    Blatt 2 – 'Co-Home' (optional): Co-Home-Realisierung fuer Mehrsparten-Vereine.
+    """
+    import datetime as _dt
+    from openpyxl.styles import Border, Side
+
+    _sep = Side(style='thin', color='AAAAAA')
+
+    valid = {lid: res for lid, res in results.items()
+             if res is not None and res.cfg and res.schedule}
+
+    wb    = Workbook()
+    ws    = wb.active
+    ws.title = 'Spielplan-Uebersicht'
+
+    lids   = list(valid.keys())
+    n_ligs = len(lids)
+    n_cols = max(2 + n_ligs, 3)
+
+    # ── Hilfsfunktionen ───────────────────────────────────────────────────────
+
+    def _fmt_date(s: str) -> str:
+        if not s or str(s).strip() in ('', 'nan'):
+            return ''
+        s = str(s).strip()
+        try:
+            d = _dt.date.fromisoformat(s) if '-' in s else _dt.date(
+                int(s.split('.')[2]), int(s.split('.')[1]), int(s.split('.')[0]))
+            wd = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][d.weekday()]
+            return f'{wd} {d.day:02d}.{d.month:02d}.'
+        except Exception:
+            return s
+
+    def _games_cell(lid: str, d: int) -> str:
+        games = valid[lid].schedule.get(d, [])
+        return '\n'.join(f'{ht} – {at}' for ht, at in games) if games else ''
+
+    def _finish_cols():
+        ws.column_dimensions['A'].width = 8
+        ws.column_dimensions['B'].width = 13
+        for i in range(n_ligs):
+            ws.column_dimensions[get_column_letter(3 + i)].width = 38
+        ws.freeze_panes = 'A3'
+
+    def _add_cohome():
+        if not clubs or not kw_compat:
+            return
+        ws_c = wb.create_sheet('Co-Home')
+        ws_c.merge_cells('A1:F1')
+        c = ws_c.cell(1, 1, 'CO-HOME REALISIERUNG – MEHRSPARTEN-VEREINE')
+        c.fill = TITLE_FILL; c.font = Font(bold=True, color='FFFFFF', size=12)
+        c.alignment = Alignment(horizontal='center')
+        ws_c.row_dimensions[1].height = 20
+        for col, txt in enumerate(
+                ['Verein', 'KW', 'Woche von', 'Woche bis', 'Ligen', 'Alle Heim?'], 1):
+            c = ws_c.cell(3, col, txt)
+            c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
+            c.alignment = Alignment(horizontal='center', vertical='center')
+        ws_c.row_dimensions[3].height = 18
+        r = 4
+        for club_name, liga_team_map in clubs.items():
+            for kw, kw_data in sorted(kw_compat.items()):
+                entries = []
+                for lid, tname in liga_team_map.items():
+                    if lid not in kw_data or lid not in results or results[lid] is None:
+                        continue
+                    sts = kw_data[lid]
+                    if not sts:
+                        continue
+                    res = results[lid]
+                    ti  = {t: i for i, t in enumerate(res.cfg.teams)}.get(tname, -1)
+                    if ti < 0:
+                        continue
+                    is_home = res.home_vals.get((ti, sts[0]), 0) >= 1
+                    entries.append((lid, tname, is_home))
+                if len(entries) < 2:
+                    continue
+                all_home  = all(e[2] for e in entries)
+                ligen     = ', '.join(f'{lid}({tname})' for lid, tname, _ in entries)
+                first_lid = entries[0][0]
+                first_st  = (kw_compat[kw].get(first_lid) or [None])[0]
+                cal_e     = (results[first_lid].cfg.calendar.get(first_st, {})
+                             if results.get(first_lid) else {})
+                ws_c.cell(r, 1, club_name)
+                ws_c.cell(r, 2, f'KW {kw}')
+                ws_c.cell(r, 3, cal_e.get('week_start', ''))
+                ws_c.cell(r, 4, cal_e.get('week_end', ''))
+                ws_c.cell(r, 5, ligen)
+                c = ws_c.cell(r, 6, 'JA' if all_home else 'nein')
+                c.fill    = GREEN_FILL if all_home else RED_FILL
+                c.font    = Font(bold=True, color='006100' if all_home else '9C0006')
+                c.alignment = Alignment(horizontal='center')
+                r += 1
+        for col, w in zip(range(1, 7), [24, 8, 12, 12, 60, 10]):
+            ws_c.column_dimensions[get_column_letter(col)].width = w
+
+    # ── Titelzeile ────────────────────────────────────────────────────────────
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+    c = ws.cell(1, 1, 'GESAMTÜBERSICHT SPIELPLÄNE')
+    c.fill = TITLE_FILL; c.font = Font(bold=True, color='FFFFFF', size=13)
+    c.alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[1].height = 20
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    for col, txt in enumerate(['KW', 'Datum'], 1):
+        c = ws.cell(2, col, txt)
+        c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
+        c.alignment = Alignment(horizontal='center', vertical='center')
+    for col_idx, lid in enumerate(lids, 3):
+        c = ws.cell(2, col_idx, valid[lid].cfg.name)
+        c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
+        c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    ws.row_dimensions[2].height = 28
+
+    if not valid:
+        ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=n_cols)
+        c = ws.cell(3, 1, 'Keine Ergebnisse verfügbar.')
+        c.font = Font(italic=True, color='888888')
+        _finish_cols()
+        return wb
+
+    # ── KW-Struktur ───────────────────────────────────────────────────────────
+    # kw_league_days[kw][lid] = sortierte Liste der Spieltage in dieser KW
+    kw_league_days: Dict[int, Dict[str, list]] = {}
+    for lid, res in valid.items():
+        for d in res.cfg.days:
+            kw_raw = res.cfg.calendar.get(d, {}).get('kw')
+            if kw_raw is None or str(kw_raw).strip() in ('', 'nan'):
+                continue
+            try:
+                kw = int(kw_raw)
+            except (ValueError, TypeError):
+                continue
+            kw_league_days.setdefault(kw, {}).setdefault(lid, []).append(d)
+    for kw_data in kw_league_days.values():
+        for lst in kw_data.values():
+            lst.sort()
+
+    if not kw_league_days:
+        ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=n_cols)
+        c = ws.cell(3, 1,
+                    'Kein Rahmenterminplan geladen – Gesamtübersicht nicht verfügbar.')
+        c.font = Font(italic=True, color='888888')
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        _finish_cols()
+        _add_cohome()
+        return wb
+
+    # ── Rows aufbauen ─────────────────────────────────────────────────────────
+    # Eine Zeile pro (KW, Position-im-KW); DST-Wochen = 2 Zeilen
+    rows = []
+    for kw in sorted(kw_league_days.keys()):
+        kw_data   = kw_league_days[kw]
+        max_rows  = max((len(v) for v in kw_data.values()), default=1)
+        is_dst_wk = max_rows > 1
+        for row_idx in range(max_rows):
+            date_str = ''
+            row_data: Dict[str, Optional[int]] = {}
+            for lid in lids:
+                days_in_kw = kw_data.get(lid, [])
+                d = days_in_kw[row_idx] if row_idx < len(days_in_kw) else None
+                row_data[lid] = d
+                if d is not None and not date_str:
+                    cal = valid[lid].cfg.calendar.get(d, {})
+                    raw = cal.get('week_start' if row_idx == 0 else 'week_end', '')
+                    if not raw:
+                        raw = cal.get('week_end' if row_idx == 0 else 'week_start', '')
+                    date_str = _fmt_date(str(raw))
+            rows.append((kw, row_idx, date_str, is_dst_wk, row_data))
+
+    # ── Datenzeilen schreiben ─────────────────────────────────────────────────
+    kw_start_er: Dict[int, int] = {}
+    kw_row_cnt:  Dict[int, int] = {}
+    prev_kw = None
+
+    for offset, (kw, row_idx, date_str, is_dst_wk, row_data) in enumerate(rows):
+        er = 3 + offset
+        if kw != prev_kw:
+            kw_start_er[kw] = er
+            kw_row_cnt[kw]  = 0
+            prev_kw = kw
+        kw_row_cnt[kw] += 1
+
+        bg = DST_FILL if is_dst_wk else None
+        c  = ws.cell(er, 2, date_str)
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        if bg:
+            c.fill = bg
+
+        max_games = 0
+        for col_idx, lid in enumerate(lids, 3):
+            d   = row_data.get(lid)
+            txt = _games_cell(lid, d) if d is not None else ''
+            n_g = len(valid[lid].schedule.get(d, [])) if d is not None else 0
+            max_games = max(max_games, n_g)
+            c = ws.cell(er, col_idx, txt)
+            c.alignment = Alignment(vertical='center', wrap_text=True)
+            if bg:
+                c.fill = bg
+
+        ws.row_dimensions[er].height = max(16, 6 + max(1, max_games) * 13)
+
+    # ── KW-Spalte: füllen und mergen ─────────────────────────────────────────
+    for kw, start in kw_start_er.items():
+        count   = kw_row_cnt[kw]
+        end_row = start + count - 1
+        if count > 1:
+            ws.merge_cells(start_row=start, start_column=1,
+                           end_row=end_row,    end_column=1)
+        c = ws.cell(start, 1, f'KW {kw}')
+        c.font = Font(bold=True)
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        for col in range(1, n_cols + 1):
+            ws.cell(end_row, col).border = Border(bottom=_sep)
+
+    _finish_cols()
+    _add_cohome()
+    return wb
+
+
 def save_cohome_summary(wb: Workbook, output_dir: Path) -> str:
     date_str  = datetime.now().strftime('%Y-%m-%d')
     filename  = output_dir / f'{date_str}_CoHome_Zusammenfassung.xlsx'
