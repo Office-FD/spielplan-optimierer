@@ -224,7 +224,13 @@ def _calc_n_matchdays(ld: dict) -> int:
             total_matches = n_rounds * n * (n - 1) // 2
             games_per_day = apd * gpd // 2
             return total_matches // games_per_day if games_per_day > 0 else 0
-    return n_rounds * (n - 1) // max(1, gpd)
+    # Allgemeine Formel: funktioniert auch bei ungerader Teamzahl (Spielfrei-Tage)
+    gpd = max(1, gpd)
+    n_active = int(ld.get('n_active_per_day', 0)) or n
+    games_per_day = n_active * gpd // 2
+    if games_per_day > 0:
+        return n_rounds * n * (n - 1) // 2 // games_per_day
+    return n_rounds * (n - 1) // gpd
 
 def _detect_dst_blocks(rows: list) -> list:
     """DST-Blöcke aus Kalender-Tabelle ableiten: aufeinanderfolgende Spieltag-Paare in gleicher KW."""
@@ -531,7 +537,7 @@ def _sidebar():
                 if st.button('Eigene Einträge entfernen', key='clear_extra'):
                     st.session_state.extra_clubs = []
                     st.rerun()
-        st.caption('v1.1 · Spielplan-Optimierer')
+        st.caption(f'v{(_HERE / "VERSION").read_text().strip()} · Spielplan-Optimierer')
         if st.button('💾 Gespeicherte Sitzung laden', width='stretch'):
             _show_load_session_dialog()
         if st.button('📋 Funktionswunsch / Fehler melden', width='stretch'):
@@ -810,7 +816,8 @@ def _full_config_excel_bytes() -> bytes:
         if mat is None or np.sum(mat) == 0:
             continue
         tms = [t for t, _ in ld.get('teams', [])]
-        n   = len(tms)
+        n   = min(len(tms), mat.shape[0])   # guard against team/matrix size mismatch
+        tms = tms[:n]
         if n == 0:
             continue
         c = ws_d.cell(d_row, 1, f'Liga: {lid} – {ld.get("name", "")}')
@@ -3625,125 +3632,9 @@ def _step8():
             )
         return
 
-    # Konfigurationsübersicht (immer sichtbar wenn nicht fertig)
-    st.subheader('Zusammenfassung der Konfiguration')
-
-    # ─── Ligen (max. 3 pro Zeile) ─────────────────────────────────────────────
-    _lids = S.league_order
-    _ncols = min(len(_lids), 3)
-    for _row_start in range(0, len(_lids), _ncols):
-        _row_lids = _lids[_row_start:_row_start + _ncols]
-        _row_cols = st.columns(_ncols)
-        for _ci, _lid in enumerate(_row_lids):
-            _ld  = S.leagues[_lid]
-            _nmd = _calc_n_matchdays(_ld)
-            _nt  = len(_ld.get('teams', []))
-            _dst = S.dst_per_liga.get(_lid, [])
-            _pin = S.pinned.get(_lid, [])
-            _blk = S.blocked.get(_lid, {})
-            _n_blk = sum(len(v) for v in _blk.values())
-            _rt_on, _rt_pct = S.routing.get(_lid, (False, 25))
-            with _row_cols[_ci]:
-                # **bold** verhindert, dass Markdown "1. Name" als Liste interpretiert
-                st.markdown(f'**{_ld["name"]}** &nbsp;`{_lid}`',
-                            unsafe_allow_html=True)
-                st.write(f'Format: {_ld.get("fmt", "–")}')
-                st.write(f'Teams: {_nt} · Spieltage: {_nmd}')
-                if _ld.get('fmt') == 'Turniertag':
-                    _apd = int(_ld.get('active_per_day', _nt) or _nt)
-                    _gpd = int(_ld.get('gpd', 2) or 2)
-                    _tt  = _ld.get('tt_settings') or {}
-                    if _apd < _nt:
-                        st.write(f'Teams/Tag: {_apd} von {_nt} · {_nt - _apd} Spielfrei')
-                    else:
-                        _kg = int(_ld.get('k_group', 0) or 0)
-                        if 0 < _kg < _nt:
-                            import math as _math2
-                            st.write(f'Gruppen: {_math2.ceil(_nt / _kg)} × {_kg} Teams')
-                    st.caption(f'Spiele/Team/Tag: {_gpd}')
-                    if _tt:
-                        _tt_parts = []
-                        _tt_slots = _tt.get('host_slots', [])
-                        if not _tt_slots and _tt.get('host_position'):
-                            _tt_slots = ['2', 'N-1']
-                        if _tt_slots:
-                            _tt_parts.append(f'Ausrichterslots: {list(_tt_slots)}')
-                        _tt_parts.append(f'Pause {_tt.get("min_gap", 0)}–{_tt.get("max_gap", 3)}')
-                        if _tt.get('host_mode') == 'per_day' and _tt.get('host_per_day'):
-                            _tt_parts.append(f'{len(_tt["host_per_day"])} ST fix')
-                        elif _tt.get('host_counts') and any(v > 0 for v in _tt['host_counts'].values()):
-                            _tt_parts.append(f'{sum(_tt["host_counts"].values())} Ausrichter-ST')
-                        st.caption('Spielreihenf.: ' + ' · '.join(_tt_parts))
-                if _dst:
-                    _dst_str = ', '.join(f'ST {a}+{b}' for a, b in _dst)
-                    st.write(f'DST-Blöcke ({len(_dst)}): {_dst_str}')
-                else:
-                    st.write('Keine DST-Blöcke')
-                if _pin:
-                    st.write(f'Pflichtspiele: {len(_pin)}')
-                if _n_blk:
-                    st.write(f'Sperrtage: {_n_blk} '
-                             f'({len(_blk)} {"Team" if len(_blk)==1 else "Teams"})')
-                if _rt_on:
-                    st.write(f'DST-Routing: max. +{_rt_pct}% Umweg')
-                # Gewichte
-                _w = S.weights.get(_lid) or S.weights.get('__common__', {})
-                if _w:
-                    _W_DISP_DEF = {'dst_eff': 0.0}
-                    _wlines = [f'{lbl}: {_w.get(k, _W_DISP_DEF.get(k, 5.0)):.0f}'
-                               for k, (lbl, _) in WEIGHT_LABELS.items()]
-                    st.caption('Gewichte – ' + ' · '.join(_wlines))
-        if _row_start + _ncols < len(_lids):
-            st.write('')
-
-    st.divider()
-
-    # ─── Globale Einstellungen ─────────────────────────────────────────────────
-    _ga, _gb = st.columns(2)
-
-    with _ga:
-        st.markdown('**Co-Home – Vereine mit mehreren FBL-Teams**')
-        _n_clubs = len(S.clubs)
-        if _n_clubs:
-            for _cn, _cm in S.clubs.items():
-                _team_str = ', '.join(
-                    f'{S.leagues.get(l, {}).get("name", l)}: {t}'
-                    for l, t in _cm.items())
-                st.write(f'· {_cn} ({_team_str})')
-            st.caption(f'Co-Home-Bonus: {S.w_cohome:.1f} / 10')
-        else:
-            st.caption('Keine Vereine mit mehreren FBL-Teams konfiguriert.')
-
-    with _gb:
-        sol = S.solver
-        _ligen_wort = 'Liga' if len(_lids) == 1 else 'Ligen'
-        st.markdown('**Solver**')
-        st.write(f'Versuche pro Liga: {sol["seeds"]}')
-        st.write(f'Schritt 1: {sol["p1"]//60} min pro Versuch '
-                 f'(alle {_ligen_wort} gleichzeitig)')
-        _p2_label = {5400: 'Standard', 10800: 'Intensiv', 28800: 'Nachtlauf'}.get(
-            sol["p2"], f'{sol["p2"]//60} min')
-        st.write(f'Schritt 2: {_p2_label} ({sol["p2"]//60} min, '
-                 f'alle {_ligen_wort} gemeinsam)')
-        if sol['sa']:
-            st.write(f'Schritt 3: {sol["sa"]} s pro Liga '
-                     f'({len(_lids)} {_ligen_wort} × {sol["sa"]} s = '
-                     f'~{sol["sa"] * len(_lids) // 60} min)')
-        else:
-            st.write('Schritt 3: deaktiviert')
-        _p1_tot = sol["seeds"] * sol["p1"]
-        _p3_tot = sol["sa"] * len(_lids)
-        _est    = _p1_tot + sol["p2"] + _p3_tot
-        _h, _m  = _est // 3600, (_est % 3600) // 60
-        st.caption(f'Geschätzte Gesamtlaufzeit: ~{_h}h {_m:02d}min')
-
-    st.divider()
-
-    # ── Unterer Bereich: Fortschritt ODER Startbereit – st.empty() sorgt für atomaren Tausch ──
-    _lower = st.empty()
-
+    _dyn = st.empty()
+    # ── Laufende Optimierung (vor Config-Summary, damit nichts darunter rendert) ──
     if S.opt_running:
-        # Queue zuerst leeren (kein Rendern) – Daten für Container bereitstellen
         _q = S.opt_queue
         _done_flag = False
         if _q is None:
@@ -3777,7 +3668,6 @@ def _step8():
         except (queue.Empty, EOFError, OSError):
             pass
 
-        # Zeitberechnung & Phase
         _elapsed = time.time() - (S.opt_start_time or time.time())
         _p1_tot  = S.solver['seeds'] * S.solver['p1']
         _p2_tot  = S.solver['p2']
@@ -3796,8 +3686,7 @@ def _step8():
         _elapsed_str = (f'{_h_e}h {_m_e:02d}min {_s_e:02d}s' if _h_e
                         else f'{_m_e}min {_s_e:02d}s')
 
-        # Container ersetzt den alten Constraint-Check + Button atomisch
-        with _lower.container():
+        with _dyn.container():
             st.markdown(f'### ⏳ {_phase_name}')
             st.progress(_pct)
             st.markdown(
@@ -3879,63 +3768,176 @@ def _step8():
         else:
             time.sleep(2)
             st.rerun()
-        return
-
-    # ── Nicht laufend: Constraint-Prüfung + Startknopf im gleichen Placeholder ──
-    with _lower.container():
-        issues = _validate_constraints()
-        _has_errors = any(i['level'] == 'error' for i in issues)
-        if issues:
-            with st.expander(
-                f'{"❌" if _has_errors else "⚠️"}  Konfigurations-Prüfung '
-                f'({sum(1 for i in issues if i["level"]=="error")} Fehler, '
-                f'{sum(1 for i in issues if i["level"]=="warning")} Hinweise)',
-                expanded=True,
-            ):
-                for issue in issues:
-                    prefix = f'`{issue["lid"]}`  ' if issue.get('lid') else ''
-                    if issue['level'] == 'error':
-                        st.error(prefix + issue['msg'])
-                    else:
-                        st.warning(prefix + issue['msg'])
-                if _has_errors:
-                    st.info('Bitte die Fehler (rot) beheben, bevor die Optimierung gestartet wird.')
-        else:
-            st.success('✅ Konfiguration geprüft – keine Probleme gefunden.')
-
-        st.markdown('### Bereit zur Optimierung')
-        if st.button('🖩  OPTIMIERUNG STARTEN', type='primary',
-                     width='stretch', disabled=_has_errors):
-            try:
-                cfgs = _build_league_configs()
-            except Exception as exc:
-                st.error(f'Konfigurationsfehler: {exc}')
-                return
-
-            from spielplan_multi._worker import run_solver as _run_solver
-            log_q = multiprocessing.Queue()
-            proc  = multiprocessing.Process(
-                target=_run_solver,
-                args=(cfgs, S.clubs, S.kw_compat,
-                      S.w_cohome, S.solver, log_q, str(_HERE)),
-                daemon=True,
-            )
-            proc.start()
-
-            S.opt_queue         = log_q
-            S.opt_process       = proc
-            S.opt_result_holder = {}
-            S.opt_running       = True
-            S.opt_start_time    = time.time()
-            S.opt_done          = False
-            S.opt_log           = []
-            S.opt_warnings      = []
-            S.results           = None
-            S.excel_bytes       = {}
-            S.cohome_bytes      = None
-            st.rerun()
-
-
+    else:
+        with _dyn.container():
+            # ── Konfigurationsübersicht ──────────────────────────────────────────────
+            st.subheader('Zusammenfassung der Konfiguration')
+    
+            # ─── Ligen (max. 3 pro Zeile) ───────────────────────────────────────────
+            _lids = S.league_order
+            _ncols = min(len(_lids), 3)
+            for _row_start in range(0, len(_lids), _ncols):
+                _row_lids = _lids[_row_start:_row_start + _ncols]
+                _row_cols = st.columns(_ncols)
+                for _ci, _lid in enumerate(_row_lids):
+                    _ld  = S.leagues[_lid]
+                    _nmd = _calc_n_matchdays(_ld)
+                    _nt  = len(_ld.get('teams', []))
+                    _dst = S.dst_per_liga.get(_lid, [])
+                    _pin = S.pinned.get(_lid, [])
+                    _blk = S.blocked.get(_lid, {})
+                    _n_blk = sum(len(v) for v in _blk.values())
+                    _rt_on, _rt_pct = S.routing.get(_lid, (False, 25))
+                    with _row_cols[_ci]:
+                        # **bold** verhindert, dass Markdown "1. Name" als Liste interpretiert
+                        st.markdown(f'**{_ld["name"]}** &nbsp;`{_lid}`',
+                                    unsafe_allow_html=True)
+                        st.write(f'Format: {_ld.get("fmt", "–")}')
+                        st.write(f'Teams: {_nt} · Spieltage: {_nmd}')
+                        if _ld.get('fmt') == 'Turniertag':
+                            _apd = int(_ld.get('active_per_day', _nt) or _nt)
+                            _gpd = int(_ld.get('gpd', 2) or 2)
+                            _tt  = _ld.get('tt_settings') or {}
+                            if _apd < _nt:
+                                st.write(f'Teams/Tag: {_apd} von {_nt} · {_nt - _apd} Spielfrei')
+                            else:
+                                _kg = int(_ld.get('k_group', 0) or 0)
+                                if 0 < _kg < _nt:
+                                    import math as _math2
+                                    st.write(f'Gruppen: {_math2.ceil(_nt / _kg)} × {_kg} Teams')
+                            st.caption(f'Spiele/Team/Tag: {_gpd}')
+                            if _tt:
+                                _tt_parts = []
+                                _tt_slots = _tt.get('host_slots', [])
+                                if not _tt_slots and _tt.get('host_position'):
+                                    _tt_slots = ['2', 'N-1']
+                                if _tt_slots:
+                                    _tt_parts.append(f'Ausrichterslots: {list(_tt_slots)}')
+                                _tt_parts.append(f'Pause {_tt.get("min_gap", 0)}–{_tt.get("max_gap", 3)}')
+                                if _tt.get('host_mode') == 'per_day' and _tt.get('host_per_day'):
+                                    _tt_parts.append(f'{len(_tt["host_per_day"])} ST fix')
+                                elif _tt.get('host_counts') and any(v > 0 for v in _tt['host_counts'].values()):
+                                    _tt_parts.append(f'{sum(_tt["host_counts"].values())} Ausrichter-ST')
+                                st.caption('Spielreihenf.: ' + ' · '.join(_tt_parts))
+                        if _dst:
+                            _dst_str = ', '.join(f'ST {a}+{b}' for a, b in _dst)
+                            st.write(f'DST-Blöcke ({len(_dst)}): {_dst_str}')
+                        else:
+                            st.write('Keine DST-Blöcke')
+                        if _pin:
+                            st.write(f'Pflichtspiele: {len(_pin)}')
+                        if _n_blk:
+                            st.write(f'Sperrtage: {_n_blk} '
+                                     f'({len(_blk)} {"Team" if len(_blk)==1 else "Teams"})')
+                        if _rt_on:
+                            st.write(f'DST-Routing: max. +{_rt_pct}% Umweg')
+                        # Gewichte
+                        _w = S.weights.get(_lid) or S.weights.get('__common__', {})
+                        if _w:
+                            _W_DISP_DEF = {'dst_eff': 0.0}
+                            _wlines = [f'{lbl}: {_w.get(k, _W_DISP_DEF.get(k, 5.0)):.0f}'
+                                       for k, (lbl, _) in WEIGHT_LABELS.items()]
+                            st.caption('Gewichte – ' + ' · '.join(_wlines))
+                if _row_start + _ncols < len(_lids):
+                    st.write('')
+    
+            st.divider()
+    
+            # ─── Globale Einstellungen ───────────────────────────────────────────────
+            _ga, _gb = st.columns(2)
+    
+            with _ga:
+                st.markdown('**Co-Home – Vereine mit mehreren FBL-Teams**')
+                _n_clubs = len(S.clubs)
+                if _n_clubs:
+                    for _cn, _cm in S.clubs.items():
+                        _team_str = ', '.join(
+                            f'{S.leagues.get(l, {}).get("name", l)}: {t}'
+                            for l, t in _cm.items())
+                        st.write(f'· {_cn} ({_team_str})')
+                    st.caption(f'Co-Home-Bonus: {S.w_cohome:.1f} / 10')
+                else:
+                    st.caption('Keine Vereine mit mehreren FBL-Teams konfiguriert.')
+    
+            with _gb:
+                sol = S.solver
+                _ligen_wort = 'Liga' if len(_lids) == 1 else 'Ligen'
+                st.markdown('**Solver**')
+                st.write(f'Versuche pro Liga: {sol["seeds"]}')
+                st.write(f'Schritt 1: {sol["p1"]//60} min pro Versuch '
+                         f'(alle {_ligen_wort} gleichzeitig)')
+                _p2_label = {5400: 'Standard', 10800: 'Intensiv', 28800: 'Nachtlauf'}.get(
+                    sol["p2"], f'{sol["p2"]//60} min')
+                st.write(f'Schritt 2: {_p2_label} ({sol["p2"]//60} min, '
+                         f'alle {_ligen_wort} gemeinsam)')
+                if sol['sa']:
+                    st.write(f'Schritt 3: {sol["sa"]} s pro Liga '
+                             f'({len(_lids)} {_ligen_wort} × {sol["sa"]} s = '
+                             f'~{sol["sa"] * len(_lids) // 60} min)')
+                else:
+                    st.write('Schritt 3: deaktiviert')
+                _p1_tot = sol["seeds"] * sol["p1"]
+                _p3_tot = sol["sa"] * len(_lids)
+                _est    = _p1_tot + sol["p2"] + _p3_tot
+                _h, _m  = _est // 3600, (_est % 3600) // 60
+                st.caption(f'Geschätzte Gesamtlaufzeit: ~{_h}h {_m:02d}min')
+    
+            st.divider()
+    
+            # ── Constraint-Prüfung + Startknopf ─────────────────────────────────────
+            issues = _validate_constraints()
+            _has_errors = any(i['level'] == 'error' for i in issues)
+            if issues:
+                with st.expander(
+                    f'{"❌" if _has_errors else "⚠️"}  Konfigurations-Prüfung '
+                    f'({sum(1 for i in issues if i["level"]=="error")} Fehler, '
+                    f'{sum(1 for i in issues if i["level"]=="warning")} Hinweise)',
+                    expanded=True,
+                ):
+                    for issue in issues:
+                        prefix = f'`{issue["lid"]}`  ' if issue.get('lid') else ''
+                        if issue['level'] == 'error':
+                            st.error(prefix + issue['msg'])
+                        else:
+                            st.warning(prefix + issue['msg'])
+                    if _has_errors:
+                        st.info('Bitte die Fehler (rot) beheben, bevor die Optimierung gestartet wird.')
+            else:
+                st.success('✅ Konfiguration geprüft – keine Probleme gefunden.')
+    
+            st.markdown('### Bereit zur Optimierung')
+            if st.button('🖩  OPTIMIERUNG STARTEN', type='primary',
+                         width='stretch', disabled=_has_errors):
+                try:
+                    cfgs = _build_league_configs()
+                except Exception as exc:
+                    st.error(f'Konfigurationsfehler: {exc}')
+                    return
+    
+                from spielplan_multi._worker import run_solver as _run_solver
+                log_q = multiprocessing.Queue()
+                proc  = multiprocessing.Process(
+                    target=_run_solver,
+                    args=(cfgs, S.clubs, S.kw_compat,
+                          S.w_cohome, S.solver, log_q, str(_HERE)),
+                    daemon=True,
+                )
+                proc.start()
+    
+                S.opt_queue         = log_q
+                S.opt_process       = proc
+                S.opt_result_holder = {}
+                S.opt_running       = True
+                S.opt_start_time    = time.time()
+                S.opt_done          = False
+                S.opt_log           = []
+                S.opt_warnings      = []
+                S.results           = None
+                S.excel_bytes       = {}
+                S.cohome_bytes      = None
+                st.rerun()
+    
+    
 def _recompute_result_stats(result, cfg) -> tuple:
     return _recompute_result_stats_fn(result, cfg)
 
@@ -4843,6 +4845,29 @@ Außerdem je Liga verfügbar:
 # ═══════════════════════════════════════════════════════════════════════════════
 # Haupt-Rendering
 # ═══════════════════════════════════════════════════════════════════════════════
+def _inject_floorball_css() -> None:
+    st.markdown("""
+<style>
+[data-testid="stStatusWidgetRunningManIcon"] svg { display: none !important; }
+[data-testid="stStatusWidgetRunningManIcon"]::before {
+    content: '';
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    background: #ffffff;
+    border-radius: 50%;
+    vertical-align: middle;
+    animation: fb_bounce 0.65s ease-in-out infinite;
+}
+@keyframes fb_bounce {
+    0%, 100% { transform: translateY(0px); }
+    45%       { transform: translateY(-7px); }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+_inject_floorball_css()
 _sidebar()
 
 if not S._wizard_started:

@@ -12,6 +12,7 @@ Fallback-Sequenz bei Unloesbarkeit:
 from __future__ import annotations
 
 import random
+from itertools import permutations as _permutations
 from typing import Dict, List, Optional, Tuple
 
 from .league_types import LeagueConfig, LeagueResult
@@ -187,35 +188,53 @@ def _order_day_games(games: List[Tuple[str, str]],
                    mg: int) -> Tuple[Optional[List[Tuple[str, str]]], bool]:
         """Versucht Loesung mit gegebenen Ausrichter-Slots und max_gap.
         Gibt (ordered, feasible) zurueck; (None, False) wenn Slots nicht belegbar.
+        Probiert alle Permutationen der Ausrichter-Spiele auf die Ziel-Slots durch.
         """
-        # Doppelte Slots sofort ablehnen – wuerden Spiele lautlos ueberschreiben
         if len(set(target_slots)) < len(target_slots):
             return None, False
 
-        slots: List[Optional[Tuple[str, str]]] = [None] * N
-        pool = list(games)
-        placed_init: Dict[str, List[int]] = {}
+        n_slots = len(target_slots)
+        sorted_slots = sorted(target_slots)
 
-        for s in sorted(target_slots):
-            if s >= N:
-                return None, False
-            host_idxs = [i for i, g in enumerate(pool)
-                         if host_team and host_team in g]
-            if not host_idxs:
-                return None, False
-            g = pool.pop(host_idxs[0])
-            slots[s] = g
-            for t in g:
-                placed_init.setdefault(t, []).append(s)
+        # Alle Spiele die das Ausrichter-Team enthalten
+        all_host_idxs = ([i for i, g in enumerate(games) if host_team and host_team in g]
+                         if host_team else [])
 
-        unfixed = [s for s in range(N) if slots[s] is None]
-        nodes = [0]
-        solution = _backtrack(unfixed, 0, pool, placed_init, mg, nodes)
+        if n_slots > 0 and len(all_host_idxs) < n_slots:
+            return None, False
 
-        if solution is not None:
-            for slot, game in solution:
-                slots[slot] = game
-            return [g for g in slots if g is not None], True
+        # Permutationen der Host-Spiele auf die Ziel-Slots (i.d.R. nur 1-2 Slots)
+        host_assignments = (list(_permutations(all_host_idxs, n_slots))
+                            if n_slots > 0 else [()])
+
+        for assignment in host_assignments:
+            slots: List[Optional[Tuple[str, str]]] = [None] * N
+            pool = list(games)
+            placed_init: Dict[str, List[int]] = {}
+            bad = False
+
+            for s, game_idx in zip(sorted_slots, assignment):
+                if s >= N:
+                    bad = True; break
+                g = games[game_idx]
+                if g not in pool:
+                    bad = True; break
+                pool.remove(g)
+                slots[s] = g
+                for t in g:
+                    placed_init.setdefault(t, []).append(s)
+
+            if bad:
+                continue
+
+            unfixed = [s for s in range(N) if slots[s] is None]
+            nodes = [0]
+            solution = _backtrack(unfixed, 0, pool, placed_init, mg, nodes)
+
+            if solution is not None:
+                for slot, game in solution:
+                    slots[slot] = game
+                return [g for g in slots if g is not None], True
 
         return None, False
 
@@ -327,6 +346,7 @@ def apply_tournament_ordering(result: LeagueResult,
         games = result.schedule.get(d, [])
         host = host_per_day.get(d)
         if host and not any(host in g for g in games):
+            warn(f'{cfg.name}: Ausrichter "{host}" an Spieltag {d} nicht im Spielplan – wird ignoriert.')
             host = None
 
         # Ausrichter-Slots nur anwenden wenn Ausrichter vorhanden

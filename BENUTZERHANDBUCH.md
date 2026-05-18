@@ -300,7 +300,6 @@ Datei einfach wieder hoch und alle Einstellungen sind wiederhergestellt.
 
 Bei Fragen oder Problemen wenden Sie sich an:
 
-**Martin Günther** · m.guenther@floorball.de
+**FLOORBALL VERBAND DEUTSCHLAND e.V. – IT** · it@floorball.de
 
-Fehler und Verbesserungsvorschläge bitte hier melden:
-https://github.com/Office-FD/spielplan-optimierer/issues
+Fehler und Verbesserungsvorschläge können auch direkt in der App gemeldet werden (Sidebar-Button „Funktionswunsch / Fehler melden").

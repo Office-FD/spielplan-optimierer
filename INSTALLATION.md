@@ -97,15 +97,24 @@ Um den Hintergrunddienst vollständig zu beenden:
 
 ## Deinstallation
 
-1. Windows-Taste → **Einstellungen** → **Apps**
-2. Suchen Sie nach `Spielplan-Optimierer`
-3. Klicken Sie auf **„Deinstallieren"**
+> **Hinweis:** Beim Deinstallieren werden **alle Dateien im Programmordner gelöscht**,
+> einschließlich Ihrer erstellten Spielpläne. Sichern Sie diese vorher, falls Sie
+> sie behalten möchten.
 
-Ihre erstellten Spielpläne im Ordner `Spielplaene\` werden dabei **nicht** gelöscht.
-Diese finden Sie unter:
+Die Spielpläne befinden sich unter:
 ```
 C:\Users\IhrName\AppData\Local\Programs\Spielplan-Optimierer\Spielplaene\
 ```
+
+Das Deinstallationsprogramm öffnet diesen Ordner automatisch zur Sicherung,
+bevor die Deinstallation beginnt.
+
+1. Windows-Taste → **Einstellungen** → **Apps**
+2. Suchen Sie nach `Spielplan-Optimierer`
+3. Klicken Sie auf **„Deinstallieren"**
+4. Falls Spielpläne vorhanden sind: Sicherheitsdialog erscheint →
+   **„Ja"** öffnet den Ordner und bricht ab (danach erneut deinstallieren),
+   **„Nein"** deinstalliert sofort.
 
 ---
 
@@ -126,4 +135,4 @@ aktiv ist, fragen Sie Ihren IT-Administrator ob GitHub-Verbindungen erlaubt sind
 **Das Programm startet nicht nach Installation**
 Starten Sie den Computer neu und versuchen Sie es erneut.
 Falls das Problem bestehen bleibt, wenden Sie sich an:
-m.guenther@floorball.de
+it@floorball.de

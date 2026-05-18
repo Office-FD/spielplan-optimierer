@@ -325,7 +325,7 @@ def solve_all(cfgs: Dict[str, LeagueConfig],
         rel_gap=rel_gap,
     )
 
-    phase3 = run_phase3(phase2, cfgs, sa_time=sa_time, seed=seed) if sa_time > 0 else phase2
+    phase3 = run_phase3(phase2, cfgs, sa_time=sa_time, seed=seed) if sa_time > 0 else dict(phase2)
 
     # Turniertag-Spielreihenfolge anwenden (Weg X)
     for lid, result in list(phase3.items()):

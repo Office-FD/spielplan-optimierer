@@ -154,7 +154,8 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
             err('Bitte 1, 2, 3 oder 4 eingeben.')
         fmt = fmt if fmt else '2'
 
-        k_group = 0  # Standard: Stufe 1 (kein Gruppenmodell)
+        k_group  = 0  # Standard: Stufe 1 (kein Gruppenmodell)
+        n_active = 0  # 0 = alle Teams spielen
         n_events = 0
         tt_settings: dict = {}
 
@@ -268,6 +269,7 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
                         n_days = math.ceil(n_t * (n_t - 1) * n_rounds / max(1, G * K * gpd))
                         info(f'  Einzige gültige Gruppen-Konfiguration: {K} Teams/Gruppe '
                              f'({G} Gruppen, {n_days} Spieltage) – automatisch gewählt.')
+                        k_group = K
 
                 if k_group > 0:
                     G = math.ceil(n_t / k_group)

@@ -115,6 +115,14 @@ def validate(
         # Viele Pflichtspiele
         n_rounds, gpd = get_n_rounds_gpd(ld)
         total_games = n * (n - 1) // 2 * n_rounds
+
+        # Ungerade Team-Anzahl → automatisch ein Spielfrei-Tag pro Runde (kein Fehler, nur Hinweis)
+        n_active = ld.get('n_active_per_day', 0)
+        if gpd == 1 and n_active == 0 and n % 2 == 1:
+            warn(lid, f'**{name}**: {n} Teams (ungerade Anzahl) – an jedem Spieltag hat '
+                       f'ein Team spielfrei. Der Spielplan hat {n} statt {n - 1} Spieltage '
+                       f'pro Runde.')
+
         if total_games > 0 and len(pins) > total_games * 0.4:
             warn(lid, f'**{name}**: {len(pins)} von {total_games} Spielen sind Pflichtspiele '
                        '(> 40 %). Der Solver hat wenig Spielraum – Optimierungsqualität '
@@ -247,7 +255,7 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
             err(lid, f'{name}: Spieltag-Berechnung ergibt 0 – Format oder Team-Anzahl prüfen.')
             continue
 
-        if cfg.dist is None or float(cfg.dist.sum()) == 0.0:
+        if cfg.dist is None or float(cfg.dist.sum()) == 0.0 or bool(np.isnan(cfg.dist).any()):
             warn(lid, f'{name}: Distanzmatrix ist leer – Reiseminimierung nicht möglich.')
 
         for d1, d2 in cfg.dst_blocks:
@@ -320,6 +328,12 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
                               f'erzwingt Auswärtsspiel → unlösbar.')
 
         total_games = n * (n - 1) // 2 * cfg.n_rounds
+
+        # Ungerade Team-Anzahl → automatisch ein Spielfrei-Tag pro Runde
+        if cfg.games_per_team_per_day == 1 and cfg.n_active_per_day == 0 and n % 2 == 1:
+            warn(lid, f'{name}: {n} Teams (ungerade Anzahl) – je Spieltag hat ein Team spielfrei. '
+                       f'Spielplan hat {n} statt {n - 1} Spieltage pro Runde.')
+
         if total_games > 0 and len(cfg.pinned) > total_games * 0.4:
             warn(lid, f'{name}: {len(cfg.pinned)} von {total_games} Spielen sind Pflichtspiele '
                        '(> 40 %). Optimierungsqualität kann eingeschränkt sein.')

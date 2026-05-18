@@ -51,12 +51,45 @@ Name: "{userprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{userprograms}\{#MyAppName} deinstallieren"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
+[UninstallDelete]
+; Entfernt alle Dateien die nachträglich per ZIP entpackt wurden (app.py, spielplan_multi/, etc.)
+; sowie zur Laufzeit erstellte Verzeichnisse (.cache/, Spielplaene/)
+Type: filesandordirs; Name: "{app}"
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{#MyAppName} jetzt starten"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var
   DownloadPage: TDownloadWizardPage;
+
+function InitializeUninstall(): Boolean;
+var
+  SpielplaenePath: String;
+  Answer: Integer;
+  ResultCode: Integer;
+begin
+  Result := True;
+  SpielplaenePath := ExpandConstant('{app}\Spielplaene');
+  if DirExists(SpielplaenePath) then
+  begin
+    Answer := MsgBox(
+      'Im Programmordner wurden erstellte Spielplaene gefunden:' + #13#10 + #13#10 +
+      '  ' + SpielplaenePath + #13#10 + #13#10 +
+      'Diese Dateien werden beim Deinstallieren geloescht.' + #13#10 +
+      'Moechten Sie den Ordner jetzt oeffnen, um Dateien zu sichern?' + #13#10 + #13#10 +
+      '  Ja   -> Ordner oeffnen und Deinstallation abbrechen' + #13#10 +
+      '  Nein -> Direkt fortfahren (Spielplaene gehen verloren)',
+      mbConfirmation,
+      MB_YESNO
+    );
+    if Answer = IDYES then
+    begin
+      ShellExec('explore', SpielplaenePath, '', '', SW_SHOW, ewNoWait, ResultCode);
+      Result := False;
+    end;
+  end;
+end;
 
 procedure InitializeWizard;
 begin

@@ -56,7 +56,11 @@ class LeagueConfig:
             total_matches = self.n_rounds * n * (n - 1) // 2
             games_per_day = G * K * gpd // 2
             return total_matches // games_per_day if games_per_day > 0 else self.n_rounds * (n - 1) // gpd
-        # Stufe 1 oder Standard
+        # Stufe 1 oder Standard – allgemeine Formel, funktioniert auch bei ungerader Teamzahl
+        n_active = self.n_active_per_day if self.n_active_per_day > 0 else n
+        games_per_day = n_active * gpd // 2
+        if games_per_day > 0:
+            return self.n_rounds * n * (n - 1) // 2 // games_per_day
         return self.n_rounds * (n - 1) // gpd
 
     @property

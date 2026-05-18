@@ -226,6 +226,7 @@ Zielfunktion: `sum(switch·scale·sw) - sum(sw_fair·scale·(max_sw-min_sw)) - s
 - **Sliding-Window 3er**: in jedem Spieltag-Tripel min 1 Heim und max 2 Heim — **überspringt Wochen mit DST-Tagen**
 - **Sliding-Window 4er**: in jedem Quadrupel max 3 Heim — **überspringt Wochen mit DST-Tagen** (fix für back-to-back DST)
 - DST: beide Tage haben identisches Heimrecht
+- **DST-Nachbarschaft (Constraints A/B/C):** Rund um jeden DST-Block max 3 Spiele in Folge mit gleicher Heim-/Auswärtszuteilung. A: `home[pre1]+home[post1] ≤ 1` (DST=H) / `≥ 1` (DST=A). B: `home[post1]+home[post2]` analog. C: `home[pre2]+home[pre1]` analog. Nur gpd==1, via `OnlyEnforceIf`. ≥1-Constraints werden bei Sperrtagen übersprungen.
 - DST-Routing: Reiseweg zwischen DST-Tag 1 → Tag 2 ≤ (1 + f_num/f_den) × Direktweg
 - Sperrtage und Pflichtspiele: Hard Constraints
 

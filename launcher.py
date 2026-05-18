@@ -7,8 +7,10 @@ Spielplan-Optimierer Launcher.
 import ctypes
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -40,6 +42,14 @@ def _msgbox(title: str, msg: str, flags: int = _MB_OK | _MB_ICONINFO) -> int:
     return ctypes.windll.user32.MessageBoxW(0, msg, title, flags)
 
 
+def _parse_version(v: str) -> tuple:
+    """Gibt ein Tupel aus ints zurück, z. B. '1.10.0' → (1, 10, 0)."""
+    try:
+        return tuple(int(x) for x in v.strip().lstrip("v").split("."))
+    except Exception:
+        return (0,)
+
+
 def _get_local_version() -> str:
     try:
         with open(VERSION_FILE, encoding="utf-8") as f:
@@ -58,7 +68,10 @@ def _check_update():
             data = json.loads(resp.read().decode())
         latest = data.get("tag_name", "").lstrip("v")
         local = _get_local_version()
-        if not latest or latest == local:
+        if not latest:
+            return None, None
+        # CR4-L1: semantischer Versionsvergleich statt lexikografisch
+        if _parse_version(latest) <= _parse_version(local):
             return None, None
         for asset in data.get("assets", []):
             if asset["name"] == APP_ZIP_NAME:
@@ -69,15 +82,35 @@ def _check_update():
 
 
 def _apply_update(url: str, new_version: str) -> bool:
-    import tempfile
-
-    tmp = tempfile.mktemp(suffix=".zip")
+    # CR4-L2: NamedTemporaryFile statt mktemp (kein TOCTOU)
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".zip")
+    os.close(tmp_fd)
+    tmp_extract = tempfile.mkdtemp()
     try:
-        urllib.request.urlretrieve(url, tmp)
-        with zipfile.ZipFile(tmp) as z:
+        urllib.request.urlretrieve(url, tmp_path)
+
+        # CR4-L3: erst vollstaendig in temporaeres Verzeichnis entpacken
+        with zipfile.ZipFile(tmp_path) as z:
+            base_real = os.path.realpath(BASE_DIR)
             for member in z.namelist():
-                if not member.startswith("python/"):
-                    z.extract(member, BASE_DIR)
+                if member.startswith("python/"):
+                    continue
+                # CR4-L4: Path-Traversal verhindern
+                dest = os.path.realpath(os.path.join(BASE_DIR, member))
+                if not dest.startswith(base_real + os.sep) and dest != base_real:
+                    raise ValueError(f"ZIP-Eintrag außerhalb von BASE_DIR: {member}")
+                z.extract(member, tmp_extract)
+
+        # Alle extrahierten Dateien atomar nach BASE_DIR verschieben
+        for root, dirs, files in os.walk(tmp_extract):
+            rel_root = os.path.relpath(root, tmp_extract)
+            dest_root = os.path.join(BASE_DIR, rel_root) if rel_root != "." else BASE_DIR
+            os.makedirs(dest_root, exist_ok=True)
+            for fname in files:
+                src = os.path.join(root, fname)
+                dst = os.path.join(dest_root, fname)
+                shutil.move(src, dst)
+
         with open(VERSION_FILE, "w", encoding="utf-8") as f:
             f.write(new_version + "\n")
         return True
@@ -91,7 +124,11 @@ def _apply_update(url: str, new_version: str) -> bool:
         return False
     finally:
         try:
-            os.unlink(tmp)
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        try:
+            shutil.rmtree(tmp_extract, ignore_errors=True)
         except OSError:
             pass
 
@@ -114,6 +151,8 @@ def _wait_for_server(timeout: int = 45) -> bool:
 
 
 def main():
+    updated = False
+
     # 1. Update pruefen (max. 5 Sekunden, Fehler werden ignoriert)
     new_version, dl_url = _check_update()
     if new_version:
@@ -125,10 +164,10 @@ def main():
             _MB_YESNO | _MB_ICONINFO,
         )
         if result == _IDYES:
-            _apply_update(dl_url, new_version)
+            updated = _apply_update(dl_url, new_version)
 
-    # 2. Schon laufenden Server nutzen
-    if _server_ready():
+    # 2. Schon laufenden Server nutzen – aber NICHT nach einem Update (CR4-L5)
+    if not updated and _server_ready():
         webbrowser.open(f"http://localhost:{PORT}")
         return
 

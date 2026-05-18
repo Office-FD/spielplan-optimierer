@@ -124,7 +124,7 @@ def build_league_excel(result: LeagueResult) -> Workbook:
     sec(r, 'DST ROUTING'); r += 1
     kv(r, 'Aktiv:', 'Ja' if cfg.apply_routing else 'Nein'); r += 1
     if cfg.apply_routing:
-        kv(r, 'Max:', f'{cfg.f_num}% der Direktstrecke'); r += 1
+        kv(r, 'Max:', f'+{cfg.f_num - 100}% Umweg erlaubt'); r += 1
     r += 1
 
     sec(r, 'GEWICHTUNGEN (0-10)'); r += 1
@@ -237,8 +237,8 @@ def build_league_excel(result: LeagueResult) -> Workbook:
                 ws_sp.cell(r, _uhr_col, t_val).alignment = Alignment(horizontal='center')
             ch = ws_sp.cell(r, _heim_col, ht)
             ca = ws_sp.cell(r, _gast_col, at)
-            ch.fill = _fill(get_team_color(hi))
-            ca.fill = _fill(get_team_color(ai))
+            ch.fill = _fill(get_team_color(hi if hi >= 0 else 0))
+            ca.fill = _fill(get_team_color(ai if ai >= 0 else 0))
             r += 1
     for col, w in zip(range(1, len(hdr_cols) + 1), col_widths):
         ws_sp.column_dimensions[get_column_letter(col)].width = w
@@ -425,8 +425,9 @@ def build_league_excel(result: LeagueResult) -> Workbook:
         c = ws.cell(r, 1, txt)
         c.fill = SEC_FILL; c.font = Font(bold=True); c.alignment = Alignment(horizontal='left')
 
-    # Titel
-    ws_fa.merge_cells('A1:H1')
+    # Titel (Breite = max(Section-A:6, Section-B:4+2*n_rounds, Section-C:6))
+    _fa_ncols = max(6, 4 + 2 * cfg.n_rounds)
+    ws_fa.merge_cells(start_row=1, start_column=1, end_row=1, end_column=_fa_ncols)
     tc = ws_fa.cell(1, 1, f'FAIRNESS-ANALYSE – {cfg.name}')
     tc.fill = TITLE_FILL
     tc.font = Font(bold=True, color='FFFFFF', size=13)
@@ -531,7 +532,7 @@ def build_league_excel(result: LeagueResult) -> Workbook:
                 cur_a_streak[ti] += 1; cur_h_streak[ti] = 0
                 max_a_streak[ti] = max(max_a_streak[ti], cur_a_streak[ti])
 
-    _section_hdr(ws_fa, r, 'C  ABWECHSLUNG & KONSEKUTIVE SEQUENZEN', 7); r += 1
+    _section_hdr(ws_fa, r, 'C  ABWECHSLUNG & KONSEKUTIVE SEQUENZEN', 6); r += 1
     for col, txt in enumerate(
             ['Team', 'Wechsel', 'Quote (%)',
              'Max. kons. Heim', 'Max. kons. Ausw.', 'Bewertung'], 1):
@@ -585,6 +586,69 @@ def build_league_excel(result: LeagueResult) -> Workbook:
     _fa_widths = [26, 12, 12, 14] + [10, 10] * cfg.n_rounds + [14]
     for col, w in zip(range(1, len(_fa_widths) + 1), _fa_widths):
         ws_fa.column_dimensions[get_column_letter(col)].width = w
+
+    # ── Legende ─────────────────────────────────────────────────────────────
+    # r zeigt noch auf die Label-Zeile der Zusammenfassung; +2 Zeilen Inhalt +1 Leerzeile
+    r_leg = r + 3
+
+    def _leg_row(row, term, desc):
+        ws_fa.merge_cells(start_row=row, start_column=2, end_row=row, end_column=_fa_ncols)
+        c1 = ws_fa.cell(row, 1, term)
+        c1.font = Font(bold=True); c1.alignment = Alignment(horizontal='left', vertical='center')
+        ws_fa.cell(row, 2, desc).alignment = Alignment(horizontal='left', vertical='center')
+
+    ws_fa.merge_cells(start_row=r_leg, start_column=1, end_row=r_leg, end_column=_fa_ncols)
+    lc = ws_fa.cell(r_leg, 1, 'LEGENDE')
+    lc.fill = TITLE_FILL; lc.font = Font(bold=True, color='FFFFFF', size=12)
+    lc.alignment = Alignment(horizontal='center', vertical='center')
+    ws_fa.row_dimensions[r_leg].height = 20
+    r_leg += 2
+
+    _section_hdr(ws_fa, r_leg, 'Farbcodierung der Bewertungsspalten', _fa_ncols); r_leg += 1
+    for _f, _l, _d in [
+        (GREEN_FILL, 'gut',       'Wert liegt im idealen Bereich'),
+        (OK_FILL,    'ok',        'Wert liegt im akzeptablen Bereich'),
+        (RED_FILL,   'ungünstig', 'Wert liegt außerhalb des idealen Bereichs – Handlungsbedarf prüfen'),
+    ]:
+        ws_fa.merge_cells(start_row=r_leg, start_column=2, end_row=r_leg, end_column=_fa_ncols)
+        c1 = ws_fa.cell(r_leg, 1, _l)
+        c1.fill = _f; c1.font = Font(bold=True); c1.alignment = Alignment(horizontal='center')
+        ws_fa.cell(r_leg, 2, _d).alignment = Alignment(horizontal='left', vertical='center')
+        r_leg += 1
+    r_leg += 1
+
+    _section_hdr(ws_fa, r_leg, 'A  REISE-FAIRNESS – Begriffserklärungen', _fa_ncols); r_leg += 1
+    for _term, _desc in [
+        ('Kilometer',  'Gesamte Reisestrecke des Teams in der Saison (Summe aller Auswärtsfahrten in km)'),
+        ('Abw. (km)',  'Abweichung vom Liga-Durchschnitt in km  (negative Werte = weniger Reisen als Durchschnitt)'),
+        ('Abw. (%)',   'Abweichung vom Liga-Durchschnitt in Prozent – Grundlage für die Bewertung'),
+        ('Heim-km',    'Summe der Anreisestrecken aller Gastteams zu den Heimspielen dieses Teams'),
+        ('Bewertung',  'gut: |Abw.| ≤ 10 %   |   ok: |Abw.| ≤ 25 %   |   ungünstig: |Abw.| > 25 %'),
+    ]:
+        _leg_row(r_leg, _term, _desc); r_leg += 1
+    r_leg += 1
+
+    _section_hdr(ws_fa, r_leg, 'B  HEIMRECHT PRO PHASE – Begriffserklärungen', _fa_ncols); r_leg += 1
+    for _term, _desc in [
+        ('Heim ges.',              'Gesamtanzahl der Heimspiele über alle Spielphasen'),
+        ('Ausw. ges.',             'Gesamtanzahl der Auswärtsspiele über alle Spielphasen'),
+        ('Hinrunde Heim / Ausw.',  'Heimspiele und Auswärtsspiele in der Hinrunde'),
+        ('Rückrunde Heim / Ausw.', 'Heimspiele und Auswärtsspiele in der Rückrunde (bei Hin-Rückrunde und Dreifachrunde)'),
+        ('Bewertung',              'gut: 40–60 % Heimspiele   |   ok: 30–70 %   |   ungünstig: außerhalb'),
+    ]:
+        _leg_row(r_leg, _term, _desc); r_leg += 1
+    r_leg += 1
+
+    _section_hdr(ws_fa, r_leg, 'C  ABWECHSLUNG & KONSEKUTIVE SEQUENZEN – Begriffserklärungen', _fa_ncols); r_leg += 1
+    for _term, _desc in [
+        ('Wechsel',           'Anzahl der Spieltage, an denen das Heimrecht gegenüber dem Vorspieltag wechselt'),
+        ('Quote (%)',         'Anteil der Heimrechtswechsel an allen Spieltagen (höher = ausgewogener)'),
+        ('Max. kons. Heim',   'Längste ununterbrochene Folge von Heimspielen (DST-Blöcke zählen als 2)'),
+        ('Max. kons. Ausw.',  'Längste ununterbrochene Folge von Auswärtsspielen (DST-Blöcke zählen als 2)'),
+        ('Bewertung (Quote)', 'gut: Quote ≥ 70 %   |   ok: Quote ≥ 50 %   |   ungünstig: Quote < 50 %'),
+        ('Bewertung (kons.)', 'gut: max. 2 in Folge   |   ok: max. 3 in Folge   |   ungünstig: 4 oder mehr'),
+    ]:
+        _leg_row(r_leg, _term, _desc); r_leg += 1
 
     # ── Sheet: Team-Ansichten ────────────────────────────────────────────────
     ws_ta = wb.create_sheet('Team-Ansichten')
@@ -888,7 +952,7 @@ def build_hall_schedule(results: Dict[str, Optional['LeagueResult']]) -> Workboo
         hi = row['hi']
         c_h = ws.cell(r, _heim_col, row['heimteam'])
         c_g = ws.cell(r, _gast_col, row['gastteam'])
-        c_h.fill = _fill(get_team_color(hi))
+        c_h.fill = _fill(get_team_color(hi if hi >= 0 else 0))
         c_g.fill = GRAY_FILL
         r += 1
 

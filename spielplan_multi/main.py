@@ -10,6 +10,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import numpy as np
+
 # Sicherstellen, dass das Elternverzeichnis im Suchpfad ist
 _HERE = Path(__file__).resolve().parent
 if str(_HERE.parent) not in sys.path:
@@ -87,7 +89,6 @@ def main():
             for i, (ht, at) in enumerate(result.schedule.get(d, []), 1):
                 print(f'    {i}. {ht:22s} vs. {at}')
 
-        import numpy as np
         _tr = result.travels or [0]
         _sw = result.sw_counts or [0]
         print(f'\n  Reise: min={min(_tr)} max={max(_tr)} '

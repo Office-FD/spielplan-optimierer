@@ -53,6 +53,8 @@ def _to_date_str(cell) -> str:
     """Wandelt eine Zelle in einen Datumsstring um."""
     if cell is None:
         return ''
+    if isinstance(cell, float) and np.isnan(cell):
+        return ''
     if hasattr(cell, 'date'):
         return str(cell.date())
     return str(cell)

@@ -47,10 +47,12 @@ def recompute_result_stats(result, cfg) -> tuple:
             if not wknd:
                 continue
             cur = result.home_vals.get((ti, wknd[0]))
-            if cur is not None:
-                if prev is not None and cur != prev:
-                    sw_counts[ti] += 1
-                prev = cur
+            if cur is None:
+                prev = None
+                continue
+            if prev is not None and cur != prev:
+                sw_counts[ti] += 1
+            prev = cur
 
     n_wkds   = max(1, len(weekends) - 1)
     sw_rates = [round(100.0 * sw / n_wkds, 1) for sw in sw_counts]
@@ -59,6 +61,8 @@ def recompute_result_stats(result, cfg) -> tuple:
 
 def swap_home_away(result, cfg, day: int, match_idx: int) -> None:
     """Tauscht Heim- und Auswaertsteam fuer ein Spiel (inkl. DST-Partner-Tag)."""
+    if cfg.games_per_team_per_day > 1:
+        return  # Turniertag: home_vals sind Zaehler, kein einfacher Swap
     t_idx = {t: i for i, t in enumerate(cfg.teams)}
 
     games = list(result.schedule.get(day, []))
@@ -154,6 +158,8 @@ def move_game(result, cfg, old_day: int, match_idx: int, new_day: int) -> str:
 
     Gibt '' bei Erfolg zurueck, sonst eine Fehlermeldung.
     """
+    if cfg.games_per_team_per_day > 1:
+        return 'Verschieben bei Turniertag nicht unterstützt.'
     if new_day not in cfg.days:
         return f'Spieltag {new_day} existiert nicht im Spielplan.'
     t_idx     = {t: i for i, t in enumerate(cfg.teams)}
@@ -324,14 +330,11 @@ def build_ics_bytes(result, season_year: int) -> bytes:
             uid   = f'{cfg.league_id}-ST{d:03d}-{uid_n}@flvd.de'
             host  = f' · Ausrichter: {result.hosts[d]}' if is_tt and d in result.hosts else ''
             desc  = f'Spieltag {d} · {phase}{host} · {cfg.name}'
-            if date:
-                dt_str   = date.strftime('%Y%m%d')
-                dt_end   = (date + _dt.timedelta(days=1)).strftime('%Y%m%d')
-                dt_lines = [f'DTSTART;VALUE=DATE:{dt_str}', f'DTEND;VALUE=DATE:{dt_end}']
-            else:
-                dt_lines = [f'DTSTART;VALUE=DATE:{season_year}0101',
-                            f'DTEND;VALUE=DATE:{season_year}0102']
-                desc += f' (Spieltag {d} – kein Datum verfuegbar)'
+            if not date:
+                continue  # Kein Datum verfuegbar – Spiel aus iCal ausschliessen
+            dt_str   = date.strftime('%Y%m%d')
+            dt_end   = (date + _dt.timedelta(days=1)).strftime('%Y%m%d')
+            dt_lines = [f'DTSTART;VALUE=DATE:{dt_str}', f'DTEND;VALUE=DATE:{dt_end}']
             lines += ['BEGIN:VEVENT', f'UID:{uid}', f'DTSTAMP:{dtstamp}'] + dt_lines + [
                 f'SUMMARY:{_ical_escape(f"{ht} vs. {at}")}',
                 f'LOCATION:{_ical_escape(loc)}',
@@ -509,8 +512,8 @@ def build_print_html(result, season_year: int = 0) -> str:
             parts.append(
                 f'<div class="team-section">'
                 f'<h3><span class="team-name" style="background:{tc}">{_esc(t)}</span>'
-                f'  &nbsp; {result.travels[ti]:,} km &nbsp; '
-                f'Wechselquote: {result.sw_rates[ti]:.0f}%</h3>'
+                f'  &nbsp; {result.travels[ti] if ti < len(result.travels) else 0:,} km &nbsp; '
+                f'Wechselquote: {result.sw_rates[ti] if ti < len(result.sw_rates) else 0:.0f}%</h3>'
                 '<table><thead><tr>'
                 + ('<th>ST</th><th>KW</th><th>Phase</th><th>Uhrzeit</th><th>Heimrecht</th><th>Gegner</th><th>km</th>'
                    if has_times else

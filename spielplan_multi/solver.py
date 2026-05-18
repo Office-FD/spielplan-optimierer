@@ -170,12 +170,19 @@ def build_league_vars(model: cp_model.CpModel,
                 model.Add(x[m, d] == 0)
 
     if K == 0:
-        # Stufe 1: feste Anzahl Spiele pro Tag und pro Team
+        # Stufe 1: feste Anzahl Spiele pro Tag
         for d in days:
             model.Add(sum(x[m, d] for m in range(num_matches)) == n_gpd)
+        # Gerade Teamzahl → jedes Team spielt exakt gpd Spiele pro Tag.
+        # Ungerade Teamzahl → ein Team hat je Spieltag spielfrei (≤ gpd).
+        needs_bye = (n * gpd) % 2 == 1
         for ti in range(n):
             for d in days:
-                model.Add(sum(x[m, d] for m in range(num_matches) if team_in_match[ti][m]) == gpd)
+                cstr = sum(x[m, d] for m in range(num_matches) if team_in_match[ti][m])
+                if needs_bye:
+                    model.Add(cstr <= gpd)
+                else:
+                    model.Add(cstr == gpd)
     # Stufe 2: Spiele-Constraints werden nach Gruppenbildung gesetzt (siehe unten)
 
     # home-Variable konsistent mit yA/yB
@@ -231,6 +238,10 @@ def build_league_vars(model: cp_model.CpModel,
     }
 
     # Sliding-Window + Switch: nur fuer Standard-Format (gpd=1)
+    # needs_bye: bei ungerader Teamzahl hat je Spieltag ein Team spielfrei (home=0 am Bye-Tag).
+    # Die >=1-Schranken muessen dann konditionalisiert werden: nur erzwingen wenn alle
+    # Tage im Fenster tatsaechlich gespielt werden (sonst zaehlt der Bye-Tag als "away").
+    needs_bye = (n * gpd) % 2 == 1
 
     if gpd == 1:
         for ti in range(n):
@@ -243,7 +254,15 @@ def build_league_vars(model: cp_model.CpModel,
                     model.Add(sum(seg) <= 3)
                     if (not any((w + k) in blocked_weekends_per_team[ti] for k in range(4))
                             and not any((w + k) in dst_weekends for k in range(4))):
-                        model.Add(sum(seg) >= 1)
+                        if needs_bye:
+                            # Erzwinge >= 1 nur wenn alle 4 Spieltage der Wochen tatsaechlich gespielt
+                            _plays = sum(
+                                sum(x[m, d] for m in range(num_matches) if team_in_match[ti][m])
+                                for k in range(4) for d in cfg.weekends[w + k]
+                            )
+                            model.Add(sum(seg) >= _plays - 3)
+                        else:
+                            model.Add(sum(seg) >= 1)
 
         for ti in range(n):
             for d in range(1, N):
@@ -274,7 +293,15 @@ def build_league_vars(model: cp_model.CpModel,
                     model.Add(sum(seg) <= 2)   # nicht 3x Heim
                     # "nicht 3x Auswaerts" nur wenn kein Tag durch Sperre erzwungen away
                     if not any(d in blocked_per_team[ti] for d in (d0, d1, d2)):
-                        model.Add(sum(seg) >= 1)
+                        if needs_bye:
+                            # Spielfrei-Tag zaehlt als home=0; nur erzwingen wenn alle 3 Tage gespielt
+                            _plays = sum(
+                                sum(x[m, d] for m in range(num_matches) if team_in_match[ti][m])
+                                for d in (d0, d1, d2)
+                            )
+                            model.Add(sum(seg) >= _plays - 2)
+                        else:
+                            model.Add(sum(seg) >= 1)
             for ki in range(N - 3):
                 d0, d1, d2, d3 = days[ki], days[ki + 1], days[ki + 2], days[ki + 3]
                 if d0 in dst_day_set or d1 in dst_day_set or d2 in dst_day_set or d3 in dst_day_set:
@@ -284,14 +311,52 @@ def build_league_vars(model: cp_model.CpModel,
                 seg = [home[ti, d0], home[ti, d1], home[ti, d2], home[ti, d3]]
                 model.Add(sum(seg) <= 3)   # nicht 4x Heim
                 if not any(d in blocked_per_team[ti] for d in (d0, d1, d2, d3)):
-                    model.Add(sum(seg) >= 1)   # nicht 4x Auswaerts
+                    if needs_bye:
+                        _plays = sum(
+                            sum(x[m, d] for m in range(num_matches) if team_in_match[ti][m])
+                            for d in (d0, d1, d2, d3)
+                        )
+                        model.Add(sum(seg) >= _plays - 3)
+                    else:
+                        model.Add(sum(seg) >= 1)   # nicht 4x Auswaerts
+        # DST-Nachbarschaft: max 3 in Folge rund um DST-Blöcke (Constraints A/B/C)
+        # Verhindert: pre2+pre1+DST(2), DST(2)+post1+post2, pre1+DST(2)+post1 = je 4 in Folge
+        if cfg.dst_blocks:
+            _non_dst = [d for d in days if d not in dst_day_set]
+            for ti in range(n):
+                for _d1, _d2 in cfg.dst_blocks:
+                    if _d1 not in days_set or _d2 not in days_set:
+                        continue
+                    h_dst = home[ti, _d1]
+                    _pres  = [d for d in _non_dst if d < _d1]
+                    _posts = [d for d in _non_dst if d > _d2]
+                    pre1  = _pres[-1] if len(_pres) >= 1 else None
+                    pre2  = _pres[-2] if len(_pres) >= 2 else None
+                    post1 = _posts[0] if len(_posts) >= 1 else None
+                    post2 = _posts[1] if len(_posts) >= 2 else None
+                    # A: pre1 und post1 nicht beide gleich DST
+                    if pre1 is not None and post1 is not None:
+                        model.Add(home[ti, pre1] + home[ti, post1] <= 1).OnlyEnforceIf(h_dst)
+                        if not any(d in blocked_per_team[ti] for d in (pre1, post1)):
+                            model.Add(home[ti, pre1] + home[ti, post1] >= 1).OnlyEnforceIf(h_dst.Not())
+                    # B: post1 und post2 nicht beide gleich DST
+                    if post1 is not None and post2 is not None:
+                        model.Add(home[ti, post1] + home[ti, post2] <= 1).OnlyEnforceIf(h_dst)
+                        if not any(d in blocked_per_team[ti] for d in (post1, post2)):
+                            model.Add(home[ti, post1] + home[ti, post2] >= 1).OnlyEnforceIf(h_dst.Not())
+                    # C: pre2 und pre1 nicht beide gleich DST
+                    if pre2 is not None and pre1 is not None:
+                        model.Add(home[ti, pre2] + home[ti, pre1] <= 1).OnlyEnforceIf(h_dst)
+                        if not any(d in blocked_per_team[ti] for d in (pre2, pre1)):
+                            model.Add(home[ti, pre2] + home[ti, pre1] >= 1).OnlyEnforceIf(h_dst.Not())
     # Turniertag (gpd>1): kein Konsekutiv-Constraint noetig
 
     if not is_turniertag:
         # Standort-Constraints (nur Standard-Format, gpd=1)
+        # <=1 statt ==1: bei Spielfrei-Tagen (ungerade Teams) sind alle loc=0 – das ist korrekt.
         for ti in range(n):
             for d in days:
-                model.Add(sum(loc[ti, d, i] for i in range(n)) == 1)
+                model.Add(sum(loc[ti, d, i] for i in range(n)) <= 1)
                 by_loc = {i: [] for i in range(n)}
                 for m, is_A, ai, bi in team_matches[ti]:
                     if is_A:
