@@ -48,7 +48,8 @@ def _calc_n_matchdays(ld: tuple) -> int:
         total_matches = n_rounds * n * (n - 1) // 2
         games_per_day = G * K * max(1, gpd) // 2
         return total_matches // games_per_day if games_per_day > 0 else n_rounds * (n - 1) // max(1, gpd)
-    return n_rounds * (n - 1) // max(1, gpd)
+    _gpd_eff = max(1, n * gpd // 2)
+    return n_rounds * n * (n - 1) // 2 // _gpd_eff
 
 
 # ── Schritt 0: Ligen definieren ───────────────────────────────────────────────
@@ -335,7 +336,8 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
 
         n_t = len(teams)
         if gpd == 1 and k_group == 0:
-            n_md = n_rounds * (n_t - 1)
+            _gpd_eff = max(1, n_t // 2)
+            n_md = n_rounds * n_t * (n_t - 1) // 2 // _gpd_eff
             info(f'  {mode_label}: {n_md} Spieltage.')
         else:
             info(f'  {mode_label}: {n_events} Spieltage.')
@@ -473,7 +475,8 @@ def step2_calendar_and_dst(
 
             # DST aus Kalender vorbelegen
             for lid, (teams, _, name, _, gpd, n_rounds_lid, _, *_r) in league_defs.items():
-                n_md = n_rounds_lid * (len(teams) - 1)
+                _n_t = len(teams)
+                n_md = n_rounds_lid * _n_t * (_n_t - 1) // 2 // max(1, _n_t // 2)
                 if gpd > 1:
                     dst_result[lid] = []  # kompaktes Turniertag-Modell braucht keine DST-Bloecke
                     ok(f'  {lid}: Turniertag ({gpd} Spiele/Tag) – keine DST-Bloecke noetig.')
@@ -491,7 +494,8 @@ def step2_calendar_and_dst(
     if not use_cal:
         # Manuell DST eingeben, kein Kalender
         for lid, (teams, _, name, _, gpd, n_rounds, _, *_r) in league_defs.items():
-            n_md = n_rounds * (len(teams) - 1)
+            _n_t = len(teams)
+            n_md = n_rounds * _n_t * (_n_t - 1) // 2 // max(1, _n_t // 2)
             if gpd > 1:
                 dst_result[lid] = []  # kompaktes Turniertag-Modell braucht keine DST-Bloecke
                 ok(f'  {lid}: Turniertag ({gpd} Spiele/Tag) – keine DST-Bloecke noetig.')
@@ -877,7 +881,8 @@ def build_configs(league_defs: Dict,
             games_per_day = G * K * gpd // 2
             n_md = total_matches // games_per_day if games_per_day > 0 else n_rounds * (n - 1) // max(1, gpd)
         else:
-            n_md = n_rounds * (n - 1) // max(1, gpd)
+            _gpd_eff = max(1, n * gpd // 2)
+            n_md = n_rounds * n * (n - 1) // 2 // _gpd_eff
         days  = list(range(1, n_md + 1))
         cal   = spieltage_per_liga.get(lid, {})
 

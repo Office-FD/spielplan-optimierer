@@ -29,10 +29,10 @@ from .tt_scheduler import apply_tournament_ordering
 def _phase1_worker(args):
     """Loest eine einzelne Liga in einem separaten Thread."""
     import traceback as _tb
-    lid, cfg, time_limit, seed, num_workers = args
+    lid, cfg, time_limit, seed, num_workers, rel_gap = args
     try:
         result = solve_league_phase1(cfg, time_limit=time_limit, seed=seed,
-                                     num_workers=num_workers)
+                                     num_workers=num_workers, rel_gap=rel_gap)
         if result is not None:
             status_name = 'OK'
         else:
@@ -48,7 +48,8 @@ def _phase1_worker(args):
 def run_phase1(cfgs: Dict[str, LeagueConfig],
                time_limit: int = 900,
                seed: int = 42,
-               n_seeds: int = 2) -> Dict[str, Optional[LeagueResult]]:
+               n_seeds: int = 2,
+               rel_gap: float = 0.05) -> Dict[str, Optional[LeagueResult]]:
     """Loest alle Ligen parallel mit mehreren Seeds; gibt die beste Loesung je Liga zurueck."""
     active = list(cfgs.keys())
     if not active:
@@ -65,7 +66,7 @@ def run_phase1(cfgs: Dict[str, LeagueConfig],
 
     seed_list = [seed + i * 100 for i in range(n_seeds)]
     tasks = [
-        (lid, cfgs[lid], time_limit, s, workers_per)
+        (lid, cfgs[lid], time_limit, s, workers_per, rel_gap)
         for lid in active
         for s in seed_list
     ]
@@ -312,7 +313,7 @@ def solve_all(cfgs: Dict[str, LeagueConfig],
         rel_gap     = 0.005  # 0,5% Gap – Abbruch bei nahezu-optimalem Ergebnis
         info('Nachtlauf-Modus: Phase-2-Zeitlimit = 8h, Gap-Limit = 0,5%.')
 
-    phase1 = run_phase1(cfgs, time_limit=phase1_time, seed=seed, n_seeds=n_seeds)
+    phase1 = run_phase1(cfgs, time_limit=phase1_time, seed=seed, n_seeds=n_seeds, rel_gap=rel_gap)
 
     phase2 = run_phase2(
         cfgs=cfgs,

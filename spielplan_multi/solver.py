@@ -241,7 +241,6 @@ def build_league_vars(model: cp_model.CpModel,
     # needs_bye: bei ungerader Teamzahl hat je Spieltag ein Team spielfrei (home=0 am Bye-Tag).
     # Die >=1-Schranken muessen dann konditionalisiert werden: nur erzwingen wenn alle
     # Tage im Fenster tatsaechlich gespielt werden (sonst zaehlt der Bye-Tag als "away").
-    needs_bye = (n * gpd) % 2 == 1
 
     if gpd == 1:
         for ti in range(n):
@@ -513,7 +512,10 @@ def build_league_vars(model: cp_model.CpModel,
             continue
         model.Add(x[m, day] == 1)
         if home_team:
-            model.Add(h[m] == (0 if home_team == can_a else 1))
+            if home_team not in (can_a, can_b):
+                warn(f'[{prefix}] Pflichtspiel {a} vs. {b}: Heimrecht "{home_team}" unbekannt – ignoriert.')
+            else:
+                model.Add(h[m] == (0 if home_team == can_a else 1))
 
     # Heimspiel-Sperrtage (überspringt Tage, die auch Pflichtheim-Tage sind)
     for team, block_days in cfg.blocked.items():

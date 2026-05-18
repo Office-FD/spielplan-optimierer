@@ -77,7 +77,7 @@ def refine_schedule(result: LeagueResult,
 
     # ── Zustand aufbauen: loc[team][day] = venue_index ───────────────────────
     # venue_index = Index des Heimteams, an dessen Halle gespielt wird
-    loc: List[List[int]] = [[0] * (N + 2) for _ in range(n)]
+    loc: List[List[int]] = [[ti] * (N + 2) for ti in range(n)]
     for d, games in result.schedule.items():
         for ht, at in games:
             hi   = t_idx.get(ht, -1)

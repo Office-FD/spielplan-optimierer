@@ -1363,10 +1363,9 @@ def _step0():
                         for _lid in parsed['dist_matrices']:
                             st.session_state.pop(f'de_{_lid}', None)
                         _has_loaded_matrices = bool(parsed['dist_matrices'])
-                    if 'settings' in parsed:
-                        s = parsed['settings']
-                        if 'dist_method' in s:
-                            S.dist_method = s['dist_method']
+                    s = parsed.get('settings', {})
+                    if 'dist_method' in s:
+                        S.dist_method = s['dist_method']
                     # Matrizen sind bereits geladen → manuell anzeigen, kein API-Aufruf nötig
                     if _has_loaded_matrices:
                         S.dist_method = 'manual'
@@ -3460,44 +3459,6 @@ def _build_league_configs() -> Dict[str, LeagueConfig]:
             tt_settings=ld.get('tt_settings', {}),
         )
     return cfgs
-
-
-def _solver_thread(cfgs, clubs, kw_compat, w_cohome, solver_cfg,
-                   result_holder: dict, log_q: queue.Queue):
-    import threading as _threading
-    old_out = sys.stdout
-    sys.stdout = _QueueWriter(log_q, old_out, _threading.get_ident())
-    try:
-        result_holder['results'] = solve_all(
-            cfgs=cfgs,
-            clubs=clubs,
-            kw_compat=kw_compat,
-            w_cohome=w_cohome,
-            phase1_time=solver_cfg['p1'],
-            phase2_time=solver_cfg['p2'],
-            night_mode=solver_cfg['nm'],
-            n_seeds=solver_cfg['seeds'],
-            sa_time=solver_cfg['sa'],
-        )
-        # Ergebnis sofort auf Disk sichern – überlebt einen Streamlit-Session-Verlust
-        _pkl = _HERE / '.cache' / 'last_result.pkl'
-        try:
-            import pickle as _pickle
-            _pkl.parent.mkdir(exist_ok=True)
-            _pkl.write_bytes(_pickle.dumps({
-                'results':   result_holder['results'],
-                'clubs':     clubs,
-                'kw_compat': kw_compat,
-            }))
-        except Exception:
-            pass
-    except Exception as exc:
-        import traceback
-        log_q.put(f'[FEHLER] {exc}')
-        log_q.put(traceback.format_exc())
-    finally:
-        sys.stdout = old_out
-        log_q.put('__DONE__')
 
 
 def _validate_constraints() -> List[dict]:

@@ -799,7 +799,7 @@ def build_cohome_summary(results: Dict[str, Optional[LeagueResult]],
                 ti  = {t: i for i, t in enumerate(res.cfg.teams)}.get(tname, -1)
                 if ti < 0:
                     continue
-                is_home = res.home_vals.get((ti, st), 0) == 1
+                is_home = res.home_vals.get((ti, st), 0) >= 1
                 entries.append((lid, tname, is_home))
 
             if len(entries) < 2:

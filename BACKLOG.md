@@ -25,6 +25,37 @@ Einträge werden über die App eingereicht und hier gesammelt.
 
 ---
 
+### [intern] Code-Review Runde 5 – Block 1: Datenmodell & Validierung
+
+**Typ:** Verbesserung / Fehler
+**Bereich:** Spielplan-Optimierung / Validierung
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+
+**B1-M1: `config_validator.py` `validate()` + `validate_cfgs()`: Pflichtspiel- und Sperrtag-Teams nicht gegen Teamliste geprüft**
+Wenn ein Pflichtspiel-Teamnamen oder ein Sperrtag-Teamname durch Tipp- oder Importfehler nicht in der Liga existiert, landet er ungeprüft im Solver → konfuser INFEASIBLE statt klarer Meldung. Im UI tritt das nicht auf (Selectbox), aber beim Excel/JSON-Konfig-Upload schon.
+Fix: In `validate()` und `validate_cfgs()` prüfen ob `pm.get('teamA')` und `pm.get('teamB')` in `teams` enthalten sind; analog für Sperrtag-Teamnamen.
+
+**B1-M2: `config_validator.py` `validate()` + `validate_cfgs()`: Doppelte Pflichtspiel-Paarung bei n_rounds=1 (Einfachrunde) nicht erkannt**
+Bei Einfachrunde muss jede Paarung genau 1× stattfinden. Wird dieselbe Paarung auf zwei verschiedenen Spieltagen als Pflichtspiel eingetragen, kombiniert der Solver `x[m,d1]==1` und `x[m,d2]==1` mit `sum_d x[m,d]==1` → unlösbar ohne erklärende Meldung.
+Fix: Bei `n_rounds==1` prüfen ob `frozenset({teamA, teamB})` mehr als einmal in den Pflichtspiel-Einträgen vorkommt → Error.
+
+**B1-L1: `config.py` Z.3: `from collections import defaultdict` – unbenutzter Import**
+Seit Einführung von `_TeamColorDict` nicht mehr verwendet.
+Fix: Import entfernen.
+
+**B1-L2: `config_validator.py`: kein Check `teamA == teamB` in Pflichtspielen**
+Ein Team gegen sich selbst → kein gültiges Match im Solver → stilles INFEASIBLE.
+Fix: `if pm.get('teamA') == pm.get('teamB'): err(...)`.
+
+**B1-L3: `distances.py` Z.211 + Z.232: negative km-Werte beim Datei-Import nicht abgefangen**
+`int(float(val[0]))` und `int(float(row[km_col]))` akzeptieren negative Zahlen kommentarlos. Negative Distanz korrumpiert die Reiseoptimierung.
+Fix: Nach Konvertierung `if km < 0: warn(...)` ergänzen.
+**Status:** Offen
+
+---
+
 ### [intern] Interaktive Kalenderansicht im Browser
 
 **Typ:** Neue Funktion
@@ -514,3 +545,151 @@ Fix: Import an den Dateianfang verschieben.
 Fix: `model.Add(co_var >= sum(home_vars) - len(home_vars) + 1)` als dritte Klausel.
 **Analyse:** Kein Bug. Constraint 2 (`co_var=0 → ∃ home_var=0`) ist das Kontrapositive von `alle home_vars=1 → co_var=1`, daher ist das Modell vollständig. Kein Fix erforderlich.
 **Status:** Erledigt
+
+---
+
+### [intern] Code-Review Runde 5 – Block 2: Solver-Kleinigkeiten
+
+**Typ:** Verbesserung / Fehler
+**Bereich:** Spielplan-Optimierung
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+
+**B2-L1: `solver.py`: `needs_bye` doppelt berechnet (Z.178 und Z.244)**
+`needs_bye = (n * gpd) % 2 == 1` steht einmal vor dem Modellaufbau und einmal inmitten der Constraint-Schleife – redundante Berechnung, keine Auswirkung auf Korrektheit.
+Fix: Zweite Zeile (Z.244) entfernen.
+
+**B2-L2: `solver.py`: `home_team`-Validierung in Pflichtspiel-Constraint stille Falllback**
+`model.Add(h[m] == (0 if home_team == can_a else 1))` setzt `h[m]=1` (B-Heim) wenn `home_team` weder `can_a` noch `can_b` ist – z.B. durch Tippfehler im Import. Der Solver liefert eine Lösung, aber das Heimrecht ist falsch ohne jede Meldung.
+Fix: Explizit prüfen: `if home_team not in (can_a, can_b): warn(...); continue` vor dem `model.Add`.
+
+**B2-L3: `multi_solver.py`/`app.py`: `rel_gap` erreicht Phase 1 nicht**
+`solve_all()` nimmt `rel_gap` als Parameter entgegen und gibt ihn an `run_phase2()` weiter. `run_phase1()` verwendet stets den hardcodierten Default `0.05`. Phase-1-Läufe können daher nicht über den UI-Solver-Slider gesteuert werden.
+Fix: `run_phase1()` ebenfalls ein `rel_gap`-Parameter hinzufügen und in `solve_all()` übergeben. Alternativ: als bekannte Einschränkung dokumentieren.
+**Status:** Offen
+
+---
+
+### [intern] Code-Review Runde 5 – Block 3: SA + Schedule-Utils + TT-Scheduler
+
+**Typ:** Fehler/Bug
+**Bereich:** Spielplan-Optimierung / Spielplanverwaltung
+**Wichtigkeit:** Wichtig für Alltag (B3-H1) / Kleiner Wunsch (B3-M1, B3-L1)
+**Aufwand:** Klein
+**Beschreibung:**
+
+**B3-H1 (Hoch): `sa_refine.py` Z.80: `loc`-Array mit `0` statt Teamindex initialisiert**
+```python
+loc: List[List[int]] = [[0] * (N + 2) for _ in range(n)]
+```
+Für Spieltage vor dem ersten Spiel (bye-Tage bei ungerader Teamzahl) bleibt `loc[ti][d] = 0` (immer Team 0's Standort). Die SA berechnet damit für jeden bye-Tag die Reise von Team-0-Heimort statt vom tatsächlichen Heimort des Teams – `_recompute_team` gibt falsche Reisekosten zurück, SA nimmt Tausch-Entscheidungen auf Basis falscher Werte.
+Fix: `[[ti] * (N + 2) for ti in range(n)]` – jedes Team startet an seinem eigenen Standort.
+Betroffen: alle Ligen mit ungerader Teamzahl (Spielfrei-Modus, in v1.2.2 neu eingeführt).
+
+**B3-M1 (Mittel): `schedule_utils.py` `recompute_result_stats()`: Reisedistanz-Formel inkonsistent mit Solver**
+`recompute_result_stats` summiert pro Auswärtsspiel `dist[ai, hi]` (Einzel-Fahrt Heimort Auswärtsteam → Spielort). Solver und SA verwenden dagegen `dist[loc[d], loc[d+1]]` (Übergänge zwischen aufeinanderfolgenden Spieltagen). Bei aufeinanderfolgenden Auswärtsspielen an verschiedenen Orten weichen die Werte systematisch ab – nach manuellen Spielplanänderungen zeigt die UI falsche km-Zahlen.
+Fix: Entweder `recompute_result_stats` auf Transitions-Berechnung umstellen (analog SA) oder die Inkonsistenz als Design-Entscheidung explizit dokumentieren.
+
+**B3-L1 (Niedrig): `tt_scheduler.py` Z.324–325: `int(s)` ohne try-except auf rohen Slot-Strings**
+`raw_slots` kommt aus `tt_settings['slots']` (Nutzereingabe). `int(s)` wirft `ValueError` wenn ein nicht-numerischer String übergeben wird → unbehandelter Absturz in der Nachbearbeitung.
+Fix: `try: slots = [int(s) for s in raw_slots] except ValueError: warn(...); slots = []`.
+**Status:** Offen
+
+---
+
+### [intern] Code-Review Runde 5 – Block 4: Excel-Export & Kalender-Parser
+
+**Typ:** Verbesserung
+**Bereich:** Excel-Export
+**Wichtigkeit:** Kleiner Wunsch
+**Aufwand:** Klein
+**Beschreibung:**
+
+**B4-L1 (Niedrig): `excel_output.py` Z.800: `is_home == 1` statt `>= 1` in Co-Home-Zusammenfassung**
+`is_home = res.home_vals.get((ti, st), 0) == 1` – für Turniertag-Ligen enthält `home_vals` Zähler (Anzahl Heimspiele, kann > 1 sein). Der strikte Vergleich `== 1` gibt für Zähler ≥ 2 `False` zurück → Co-Home-Übersicht zeigt für Turniertag-Teams immer „nein" statt „JA". Gleiches Muster wie der bereits behobene CR4-U2 in `schedule_utils.py`.
+Fix: `>= 1` statt `== 1`.
+
+`calendar_parser.py`: keine Befunde.
+**Status:** Offen
+
+---
+
+### [intern] Code-Review Runde 5 – Block 5: CLI-Wizard & Distribution
+
+**Typ:** Fehler/Bug
+**Bereich:** CLI / Distribution
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Klein
+**Beschreibung:**
+
+**B5-H1 (Hoch): `wizard.py` – Spieltagzahl-Formel für ungerades n nicht auf Stand von v1.2.2**
+Vier Stellen im CLI-Wizard verwenden noch die alte Formel `n_rounds * (n-1)` statt der korrekten `n_rounds * n * (n-1) // 2 // games_per_day`:
+
+1. `_calc_n_matchdays` Z.51: Rückgabewert für K=0 – liefert 8 statt 10 für n=5, n_rounds=2.
+2. `build_configs` Z.880: `n_md = n_rounds * (n-1)` → `days = [1..8]` → `LeagueConfig` hat 8 Tage, erwartet aber 10 → CLI-Solver liefert INFEASIBLE für ungerades n.
+3. `step2_calendar_and_dst` Z.476: `n_md = n_rounds_lid * (len(teams) - 1)` → DST-Tage 9 und 10 werden bei n=5 als außerhalb des erlaubten Bereichs abgelehnt.
+4. `step2_calendar_and_dst` Z.493: identischer Fehler im manuellen DST-Pfad.
+
+Hintergrund: Gleicher Bug wurde in `app.py` für v1.2.2 behoben; `wizard.py` wurde dabei nicht mitgezogen.
+
+Fix: An allen vier Stellen entweder `_calc_n_matchdays(ld)` aufrufen oder direkt die korrekte Formel einsetzen:
+```python
+games_per_day = max(1, n * gpd // 2)
+total_matches = n_rounds * n * (n - 1) // 2
+n_md = total_matches // games_per_day
+```
+
+`main.py`, `launcher.py`: keine Befunde.
+**Status:** Offen
+
+---
+
+### [intern] Code-Review Runde 5 – Block 6: app.py (vollständig)
+
+**Typ:** Fehler/Bug
+**Bereich:** Streamlit-UI
+**Wichtigkeit:** Mittel (B6-M1) / Kleiner Wunsch (B6-L1)
+**Aufwand:** Klein
+**Beschreibung:**
+
+**B6-M1 (Mittel): `app.py` Z.1371–1388: `NameError` bei Konfigurationsimport ohne `Einstellungen`-Sheet**
+In `_step0()` (Konfigurationsdatei hochladen): Variable `s = parsed['settings']` wird nur im `if 'settings' in parsed:`-Block (Z.1367) definiert. Der nachfolgende `if _has_loaded_matrices:`-Block (Z.1371) greift auf `s` zu – unabhängig davon, ob `settings` in `parsed` vorhanden ist. Wenn eine Excel-Datei das `Distanzmatrizen`-Sheet enthält (→ `_has_loaded_matrices=True`), aber kein `Einstellungen`-Sheet, → `NameError: name 's' is not defined`.
+Fix: `s = parsed.get('settings', {})` als erste Zeile setzen, `if 'settings' in parsed:`-Block und zugehörige `s`-Zuweisung entfernen.
+
+**B6-L1 (Niedrig): `app.py` Z.3465–3500: `_solver_thread` ist toter Code**
+Die Funktion `_solver_thread` (Thread-basierter Solver-Start) ist seit der Subprocess-Migration via `spielplan_multi/_worker.py` nicht mehr aufgerufen – `_step8` verwendet ausschließlich `multiprocessing.Process`. Die Funktion nimmt ~35 Zeilen ein und erzeugt keinen Schaden, ist aber irreführend.
+Fix: `_solver_thread` entfernen.
+
+Restliche app.py (Schritte 0–8, Serialisierung, Ergebnisanzeige, Spielplan-Nachbearbeitung): keine weiteren Befunde.
+**Status:** Offen
+
+---
+
+### [intern] Code-Review Runde 5 – Block 7: app.py Z.2600–3800 (Schritte 3–8, Sitzungsserialierung)
+
+**Typ:** Review
+**Bereich:** Streamlit-UI
+**Wichtigkeit:** –
+**Aufwand:** –
+**Beschreibung:**
+
+Vollständig gereviewed zusammen mit Block 6 (app.py in einem Durchgang). Abgedeckte Bereiche: `_step3` (Gewichte, Co-Home), `_step4` (Pflichtspiele), `_step5` (Sperrtage/Pflichttage), `_step6` (Co-Home-Erkennung), `_step7` (Solver-Konfiguration), `_session_to_json` / `_session_from_json`, `_build_league_configs`, `_solver_thread` (als toter Code identifiziert → B6-L1), Beginn `_step8`.
+
+Keine eigenen neuen Befunde – gefundene Bugs sind unter Block 6 (B6-M1, B6-L1) dokumentiert.
+**Status:** Offen
+
+---
+
+### [intern] Code-Review Runde 5 – Block 8: app.py Z.3800–4877 (Ergebnisanzeige, Downloads, Nachbearbeitung)
+
+**Typ:** Review
+**Bereich:** Streamlit-UI
+**Wichtigkeit:** –
+**Aufwand:** –
+**Beschreibung:**
+
+Vollständig gereviewed zusammen mit Block 6. Abgedeckte Bereiche: `_step8` Ergebnisanzeige (Kennzahlen, Warnungen, Fairness-Tabelle, Spielpläne, Downloads), Spielzeiten-Zuweisung, Spielplan manuell anpassen (Heim/Auswärts-Tausch), Spiel verschieben / absagen / Nachholtermin, Spielplan-Vergleich, `_step_intro`, Haupt-Rendering, `_inject_floorball_css`.
+
+Keine eigenen neuen Befunde.
+**Status:** Offen

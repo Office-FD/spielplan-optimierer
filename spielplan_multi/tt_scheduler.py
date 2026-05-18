@@ -321,8 +321,12 @@ def apply_tournament_ordering(result: LeagueResult,
     N_eff = n_active * cfg.games_per_team_per_day // 2
     raw_slots = tt.get('host_slots', None)
     if raw_slots is not None:
-        host_slots_0 = [int(s) - 1 for s in raw_slots
-                        if s and 1 <= int(s) <= N_eff]
+        try:
+            host_slots_0 = [int(s) - 1 for s in raw_slots
+                            if s and 1 <= int(s) <= N_eff]
+        except (ValueError, TypeError):
+            warn('tt_scheduler: Ungültige Slot-Angabe in host_slots – Slots werden ignoriert.')
+            host_slots_0 = []
     elif tt.get('host_position', False):
         # Rueckwaertskompatibilitaet: Slot 2 und N-1 (1-indexiert)
         host_slots_0 = [1, N_eff - 2] if N_eff >= 4 else []
