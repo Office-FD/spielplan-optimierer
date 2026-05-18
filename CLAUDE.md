@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.2.4 · Stand Mai 2026 · Status: Produktionsbereit, Code-Review Runde 5 vollständig abgeschlossen, keine bekannten Bugs**
+> **Version 1.2.5 · Stand Mai 2026 · Status: Produktionsbereit, Code-Review Runde 5 vollständig abgeschlossen, keine bekannten Bugs**
 
 ---
 
@@ -361,6 +361,12 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `config_validator.py` | Doppelt gepinnte Paarung bei n_rounds=1 nicht erkannt → zwei identische Pflichtspiele ohne Warnung | Duplikat-Check per `frozenset` nach Gesamtspielzahl-Prüfung |
 | `config.py` | `from collections import defaultdict` ungenutzter Import (seit `_TeamColorDict` in Runde 3) | Import entfernt |
 | `distances.py` | Negative km-Werte in CSV/Excel-Matrix werden gespeichert statt verworfen | Warnung + Zeile überspringen bei `km < 0` in Matrix- und Paarlisten-Format |
+
+**Code-Review Runde 5 – Teil 3 (v1.2.4 → v1.2.5):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `schedule_utils.py` | `recompute_result_stats()` summierte Einzel-Fahrten (Heimort Auswärtsteam → Spielort), Solver/SA nutzen Transitions-Modell → km-Anzeige nach manuellen Änderungen systematisch falsch | Transitions-Modell: `loc[ti][pos]` = Venue-Index, summiert `dist[loc[ti][pos], loc[ti][pos+1]]` über aufeinanderfolgende Spieltage |
 
 ---
 

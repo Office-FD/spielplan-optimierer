@@ -26,18 +26,38 @@ def assign_game_times(result, time_slots: list) -> None:
 
 
 def recompute_result_stats(result, cfg) -> tuple:
-    """Berechnet travels, sw_counts, sw_rates aus dem aktuellen Schedule neu."""
+    """Berechnet travels, sw_counts, sw_rates aus dem aktuellen Schedule neu.
+
+    Reisekilometer nach Transitions-Modell (identisch mit Solver/SA):
+    summiert dist[loc[d], loc[d+1]] fuer aufeinanderfolgende Spieltage,
+    wobei Heimteam am eigenen Standort, Gastteam am Standort des Heimteams.
+    """
     n     = cfg.n_teams
     t_idx = {t: i for i, t in enumerate(cfg.teams)}
     dist  = cfg.dist
+    days  = sorted(cfg.days)
 
-    travels = [0] * n
+    # loc[ti][pos] = Venue-Index fuer Team ti an Position pos in days
+    # Default = eigener Standort (ti), wird durch Spieldaten ueberschrieben
+    loc   = [[ti] * len(days) for ti in range(n)]
+    d_pos = {d: i for i, d in enumerate(days)}
+
     for d, games in result.schedule.items():
+        pos = d_pos.get(d)
+        if pos is None:
+            continue
         for ht, at in games:
             hi = t_idx.get(ht, -1)
             ai = t_idx.get(at, -1)
-            if 0 <= ai < n and 0 <= hi < n:
-                travels[ai] += int(dist[ai, hi])
+            if hi >= 0:
+                loc[hi][pos] = hi
+            if ai >= 0 and hi >= 0:
+                loc[ai][pos] = hi
+
+    travels = [0] * n
+    for ti in range(n):
+        for pos in range(len(days) - 1):
+            travels[ti] += int(dist[loc[ti][pos], loc[ti][pos + 1]])
 
     weekends   = cfg.weekends
     sw_counts  = [0] * n

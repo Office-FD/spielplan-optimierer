@@ -52,7 +52,7 @@ Fix: `if pm.get('teamA') == pm.get('teamB'): err(...)`.
 **B1-L3: `distances.py` Z.211 + Z.232: negative km-Werte beim Datei-Import nicht abgefangen**
 `int(float(val[0]))` und `int(float(row[km_col]))` akzeptieren negative Zahlen kommentarlos. Negative Distanz korrumpiert die Reiseoptimierung.
 Fix: Nach Konvertierung `if km < 0: warn(...)` ergänzen.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -567,7 +567,7 @@ Fix: Explizit prüfen: `if home_team not in (can_a, can_b): warn(...); continue`
 **B2-L3: `multi_solver.py`/`app.py`: `rel_gap` erreicht Phase 1 nicht**
 `solve_all()` nimmt `rel_gap` als Parameter entgegen und gibt ihn an `run_phase2()` weiter. `run_phase1()` verwendet stets den hardcodierten Default `0.05`. Phase-1-Läufe können daher nicht über den UI-Solver-Slider gesteuert werden.
 Fix: `run_phase1()` ebenfalls ein `rel_gap`-Parameter hinzufügen und in `solve_all()` übergeben. Alternativ: als bekannte Einschränkung dokumentieren.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -589,12 +589,12 @@ Betroffen: alle Ligen mit ungerader Teamzahl (Spielfrei-Modus, in v1.2.2 neu ein
 
 **B3-M1 (Mittel): `schedule_utils.py` `recompute_result_stats()`: Reisedistanz-Formel inkonsistent mit Solver**
 `recompute_result_stats` summiert pro Auswärtsspiel `dist[ai, hi]` (Einzel-Fahrt Heimort Auswärtsteam → Spielort). Solver und SA verwenden dagegen `dist[loc[d], loc[d+1]]` (Übergänge zwischen aufeinanderfolgenden Spieltagen). Bei aufeinanderfolgenden Auswärtsspielen an verschiedenen Orten weichen die Werte systematisch ab – nach manuellen Spielplanänderungen zeigt die UI falsche km-Zahlen.
-Fix: Entweder `recompute_result_stats` auf Transitions-Berechnung umstellen (analog SA) oder die Inkonsistenz als Design-Entscheidung explizit dokumentieren.
+**Fix (umgesetzt):** `recompute_result_stats` nutzt jetzt das Transitions-Modell: `loc[ti][pos]` = Venue-Index an Tag-Position pos, Default = eigener Standort; summiert `dist[loc[ti][pos], loc[ti][pos+1]]` über alle aufeinanderfolgenden Spieltage.
 
 **B3-L1 (Niedrig): `tt_scheduler.py` Z.324–325: `int(s)` ohne try-except auf rohen Slot-Strings**
 `raw_slots` kommt aus `tt_settings['slots']` (Nutzereingabe). `int(s)` wirft `ValueError` wenn ein nicht-numerischer String übergeben wird → unbehandelter Absturz in der Nachbearbeitung.
 Fix: `try: slots = [int(s) for s in raw_slots] except ValueError: warn(...); slots = []`.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -611,7 +611,7 @@ Fix: `try: slots = [int(s) for s in raw_slots] except ValueError: warn(...); slo
 Fix: `>= 1` statt `== 1`.
 
 `calendar_parser.py`: keine Befunde.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -641,7 +641,7 @@ n_md = total_matches // games_per_day
 ```
 
 `main.py`, `launcher.py`: keine Befunde.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -662,7 +662,7 @@ Die Funktion `_solver_thread` (Thread-basierter Solver-Start) ist seit der Subpr
 Fix: `_solver_thread` entfernen.
 
 Restliche app.py (Schritte 0–8, Serialisierung, Ergebnisanzeige, Spielplan-Nachbearbeitung): keine weiteren Befunde.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -677,7 +677,7 @@ Restliche app.py (Schritte 0–8, Serialisierung, Ergebnisanzeige, Spielplan-Nac
 Vollständig gereviewed zusammen mit Block 6 (app.py in einem Durchgang). Abgedeckte Bereiche: `_step3` (Gewichte, Co-Home), `_step4` (Pflichtspiele), `_step5` (Sperrtage/Pflichttage), `_step6` (Co-Home-Erkennung), `_step7` (Solver-Konfiguration), `_session_to_json` / `_session_from_json`, `_build_league_configs`, `_solver_thread` (als toter Code identifiziert → B6-L1), Beginn `_step8`.
 
 Keine eigenen neuen Befunde – gefundene Bugs sind unter Block 6 (B6-M1, B6-L1) dokumentiert.
-**Status:** Offen
+**Status:** Erledigt
 
 ---
 
@@ -692,4 +692,4 @@ Keine eigenen neuen Befunde – gefundene Bugs sind unter Block 6 (B6-M1, B6-L1)
 Vollständig gereviewed zusammen mit Block 6. Abgedeckte Bereiche: `_step8` Ergebnisanzeige (Kennzahlen, Warnungen, Fairness-Tabelle, Spielpläne, Downloads), Spielzeiten-Zuweisung, Spielplan manuell anpassen (Heim/Auswärts-Tausch), Spiel verschieben / absagen / Nachholtermin, Spielplan-Vergleich, `_step_intro`, Haupt-Rendering, `_inject_floorball_css`.
 
 Keine eigenen neuen Befunde.
-**Status:** Offen
+**Status:** Erledigt
