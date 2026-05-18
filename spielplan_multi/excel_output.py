@@ -976,7 +976,8 @@ def build_overview_excel(
 ) -> Workbook:
     """Gesamtübersicht aller Spielpläne nebeneinander (Rahmenterminplan-Struktur).
 
-    Blatt 1 – 'Spielplan-Uebersicht': eine Zeile pro KW und Spieltag (DST = 2 Zeilen).
+    Blatt 1 – 'Spielplan-Uebersicht': je Spiel eine Zeile, je Team eine Spalte (farbig).
+    Sortiert nach realem Datum (jahresübergreifend korrekt).
     Blatt 2 – 'Co-Home' (optional): Co-Home-Realisierung fuer Mehrsparten-Vereine.
     """
     import datetime as _dt
@@ -993,32 +994,38 @@ def build_overview_excel(
 
     lids   = list(valid.keys())
     n_ligs = len(lids)
-    n_cols = max(2 + n_ligs, 3)
+    n_cols = max(2 + 2 * n_ligs, 3)
 
     # ── Hilfsfunktionen ───────────────────────────────────────────────────────
 
-    def _fmt_date(s: str) -> str:
+    def _parse_date(s) -> Optional[_dt.date]:
         if not s or str(s).strip() in ('', 'nan'):
-            return ''
+            return None
         s = str(s).strip()
         try:
-            d = _dt.date.fromisoformat(s) if '-' in s else _dt.date(
-                int(s.split('.')[2]), int(s.split('.')[1]), int(s.split('.')[0]))
-            wd = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][d.weekday()]
-            return f'{wd} {d.day:02d}.{d.month:02d}.'
+            if '-' in s:
+                return _dt.date.fromisoformat(s)
+            parts = s.split('.')
+            if len(parts) >= 3:
+                return _dt.date(int(parts[2]), int(parts[1]), int(parts[0]))
         except Exception:
-            return s
+            pass
+        return None
 
-    def _games_cell(lid: str, d: int) -> str:
-        games = valid[lid].schedule.get(d, [])
-        return '\n'.join(f'{ht} – {at}' for ht, at in games) if games else ''
+    def _fmt_date(s) -> str:
+        d = _parse_date(s)
+        if d is None:
+            return str(s).strip() if s else ''
+        wd = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][d.weekday()]
+        return f'{wd} {d.day:02d}.{d.month:02d}.'
 
     def _finish_cols():
         ws.column_dimensions['A'].width = 8
         ws.column_dimensions['B'].width = 13
         for i in range(n_ligs):
-            ws.column_dimensions[get_column_letter(3 + i)].width = 38
-        ws.freeze_panes = 'A3'
+            ws.column_dimensions[get_column_letter(3 + 2 * i)].width = 22
+            ws.column_dimensions[get_column_letter(4 + 2 * i)].width = 22
+        ws.freeze_panes = 'A4'
 
     def _add_cohome():
         if not clubs or not kw_compat:
@@ -1072,6 +1079,25 @@ def build_overview_excel(
         for col, w in zip(range(1, 7), [24, 8, 12, 12, 60, 10]):
             ws_c.column_dimensions[get_column_letter(col)].width = w
 
+    # ── Team-Farben (Club-aware) ───────────────────────────────────────────────
+    # Teams desselben Mehrsparten-Vereins erhalten dieselbe Farbe über Ligen hinweg.
+    club_names_sorted = sorted(clubs.keys()) if clubs else []
+    club_color: Dict[str, str] = {
+        c: get_team_color(i) for i, c in enumerate(club_names_sorted)
+    }
+    team_to_club: Dict[Tuple[str, str], str] = {}
+    if clubs:
+        for club_name, liga_team_map in clubs.items():
+            for lid, tname in liga_team_map.items():
+                team_to_club[(lid, tname)] = club_name
+
+    team_fill: Dict[Tuple[str, str], PatternFill] = {}
+    for lid, res in valid.items():
+        for ti, team in enumerate(res.cfg.teams):
+            club  = team_to_club.get((lid, team))
+            color = club_color[club] if club else get_team_color(ti)
+            team_fill[(lid, team)] = _fill(color)
+
     # ── Titelzeile ────────────────────────────────────────────────────────────
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
     c = ws.cell(1, 1, 'GESAMTÜBERSICHT SPIELPLÄNE')
@@ -1079,26 +1105,41 @@ def build_overview_excel(
     c.alignment = Alignment(horizontal='center', vertical='center')
     ws.row_dimensions[1].height = 20
 
-    # ── Header ────────────────────────────────────────────────────────────────
+    # ── Header Zeile 2: Fixspalten + Liga-Namen (je 2 Spalten gemergt) ────────
     for col, txt in enumerate(['KW', 'Datum'], 1):
         c = ws.cell(2, col, txt)
         c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
         c.alignment = Alignment(horizontal='center', vertical='center')
-    for col_idx, lid in enumerate(lids, 3):
-        c = ws.cell(2, col_idx, valid[lid].cfg.name)
+    for i, lid in enumerate(lids):
+        col_h = 3 + 2 * i
+        col_g = 4 + 2 * i
+        ws.merge_cells(start_row=2, start_column=col_h,
+                       end_row=2, end_column=col_g)
+        c = ws.cell(2, col_h, valid[lid].cfg.name)
         c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
         c.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     ws.row_dimensions[2].height = 28
 
+    # ── Header Zeile 3: "Heim" / "Gast" pro Liga ─────────────────────────────
+    for i in range(n_ligs):
+        col_h = 3 + 2 * i
+        col_g = 4 + 2 * i
+        c = ws.cell(3, col_h, 'Heim')
+        c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
+        c.alignment = Alignment(horizontal='center', vertical='center')
+        c = ws.cell(3, col_g, 'Gast')
+        c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
+        c.alignment = Alignment(horizontal='center', vertical='center')
+    ws.row_dimensions[3].height = 18
+
     if not valid:
-        ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=n_cols)
-        c = ws.cell(3, 1, 'Keine Ergebnisse verfügbar.')
+        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=n_cols)
+        c = ws.cell(4, 1, 'Keine Ergebnisse verfügbar.')
         c.font = Font(italic=True, color='888888')
         _finish_cols()
         return wb
 
     # ── KW-Struktur ───────────────────────────────────────────────────────────
-    # kw_league_days[kw][lid] = sortierte Liste der Spieltage in dieser KW
     kw_league_days: Dict[int, Dict[str, list]] = {}
     for lid, res in valid.items():
         for d in res.cfg.days:
@@ -1115,8 +1156,8 @@ def build_overview_excel(
             lst.sort()
 
     if not kw_league_days:
-        ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=n_cols)
-        c = ws.cell(3, 1,
+        ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=n_cols)
+        c = ws.cell(4, 1,
                     'Kein Rahmenterminplan geladen – Gesamtübersicht nicht verfügbar.')
         c.font = Font(italic=True, color='888888')
         c.alignment = Alignment(horizontal='center', vertical='center')
@@ -1124,67 +1165,110 @@ def build_overview_excel(
         _add_cohome()
         return wb
 
-    # ── Rows aufbauen ─────────────────────────────────────────────────────────
-    # Eine Zeile pro (KW, Position-im-KW); DST-Wochen = 2 Zeilen
-    rows = []
-    for kw in sorted(kw_league_days.keys()):
-        kw_data   = kw_league_days[kw]
-        max_rows  = max((len(v) for v in kw_data.values()), default=1)
-        is_dst_wk = max_rows > 1
-        for row_idx in range(max_rows):
-            date_str = ''
-            row_data: Dict[str, Optional[int]] = {}
+    # ── Day-Blocks aufbauen und nach realem Datum sortieren ───────────────────
+    # Jeder Block = ein Spieltag-Slot einer KW (DST → 2 Slots pro KW).
+    # Sortierung nach Datum statt KW-Nummer → jahresübergreifend korrekt.
+    day_blocks = []
+    for kw, kw_data in kw_league_days.items():
+        max_slots = max(len(v) for v in kw_data.values())
+        is_dst_wk = max_slots > 1
+        for slot_idx in range(max_slots):
+            games_per_lid: Dict[str, list] = {}
+            date_str_block = ''
+            sort_key: Optional[_dt.date] = None
             for lid in lids:
                 days_in_kw = kw_data.get(lid, [])
-                d = days_in_kw[row_idx] if row_idx < len(days_in_kw) else None
-                row_data[lid] = d
-                if d is not None and not date_str:
-                    cal = valid[lid].cfg.calendar.get(d, {})
-                    raw = cal.get('week_start' if row_idx == 0 else 'week_end', '')
-                    if not raw:
-                        raw = cal.get('week_end' if row_idx == 0 else 'week_start', '')
-                    date_str = _fmt_date(str(raw))
-            rows.append((kw, row_idx, date_str, is_dst_wk, row_data))
+                if slot_idx < len(days_in_kw):
+                    d = days_in_kw[slot_idx]
+                    games_per_lid[lid] = list(valid[lid].schedule.get(d, []))
+                    if not date_str_block:
+                        cal     = valid[lid].cfg.calendar.get(d, {})
+                        raw_key = 'week_start' if slot_idx == 0 else 'week_end'
+                        raw     = cal.get(raw_key, '') or cal.get('week_start', '')
+                        date_str_block = _fmt_date(raw)
+                        sort_key       = _parse_date(raw)
+                else:
+                    games_per_lid[lid] = []
+
+            max_games = max((len(g) for g in games_per_lid.values()), default=0)
+            if max_games == 0:
+                max_games = 1
+
+            if sort_key is None:
+                # Heuristik für jahresübergreifende Saisons (Herbst→Frühjahr):
+                # KW > 26 → erstes Halbjahr (Herbst), KW ≤ 26 → zweites (Frühjahr/+1J)
+                year_adj = 0 if kw > 26 else 1
+                sort_key = _dt.date(2000 + year_adj, 1, 1) + _dt.timedelta(weeks=kw)
+
+            day_blocks.append({
+                'kw': kw, 'slot_idx': slot_idx,
+                'date_str': date_str_block, 'sort_key': sort_key,
+                'games_per_lid': games_per_lid, 'max_games': max_games,
+                'is_dst': is_dst_wk,
+            })
+
+    day_blocks.sort(key=lambda b: b['sort_key'])
 
     # ── Datenzeilen schreiben ─────────────────────────────────────────────────
     kw_start_er: Dict[int, int] = {}
     kw_row_cnt:  Dict[int, int] = {}
+    er      = 4
     prev_kw = None
 
-    for offset, (kw, row_idx, date_str, is_dst_wk, row_data) in enumerate(rows):
-        er = 3 + offset
-        if kw != prev_kw:
-            kw_start_er[kw] = er
-            kw_row_cnt[kw]  = 0
-            prev_kw = kw
-        kw_row_cnt[kw] += 1
+    for block in day_blocks:
+        kw             = block['kw']
+        is_dst         = block['is_dst']
+        bg             = DST_FILL if is_dst else None
+        max_games      = block['max_games']
+        block_start_er = er
 
-        bg = DST_FILL if is_dst_wk else None
-        c  = ws.cell(er, 2, date_str)
+        for game_slot in range(max_games):
+            if kw != prev_kw:
+                kw_start_er[kw] = er
+                kw_row_cnt[kw]  = 0
+                prev_kw = kw
+            kw_row_cnt[kw] += 1
+
+            for i, lid in enumerate(lids):
+                col_h = 3 + 2 * i
+                col_g = 4 + 2 * i
+                games = block['games_per_lid'].get(lid, [])
+                if game_slot < len(games):
+                    ht, at = games[game_slot]
+                    c = ws.cell(er, col_h, ht)
+                    c.fill      = team_fill.get((lid, ht), _fill('FFFFFF'))
+                    c.alignment = Alignment(horizontal='center', vertical='center')
+                    c = ws.cell(er, col_g, at)
+                    c.fill      = team_fill.get((lid, at), _fill('FFFFFF'))
+                    c.alignment = Alignment(horizontal='center', vertical='center')
+                elif bg:
+                    ws.cell(er, col_h).fill = bg
+                    ws.cell(er, col_g).fill = bg
+
+            if bg:
+                for col in (1, 2):
+                    ws.cell(er, col).fill = bg
+
+            ws.row_dimensions[er].height = 16
+            er += 1
+
+        # Datum-Spalte: gemergt über alle game_slot-Zeilen dieses Blocks
+        block_end_er = er - 1
+        if block_end_er > block_start_er:
+            ws.merge_cells(start_row=block_start_er, start_column=2,
+                           end_row=block_end_er, end_column=2)
+        c = ws.cell(block_start_er, 2, block['date_str'])
         c.alignment = Alignment(horizontal='center', vertical='center')
         if bg:
             c.fill = bg
 
-        max_games = 0
-        for col_idx, lid in enumerate(lids, 3):
-            d   = row_data.get(lid)
-            txt = _games_cell(lid, d) if d is not None else ''
-            n_g = len(valid[lid].schedule.get(d, [])) if d is not None else 0
-            max_games = max(max_games, n_g)
-            c = ws.cell(er, col_idx, txt)
-            c.alignment = Alignment(vertical='center', wrap_text=True)
-            if bg:
-                c.fill = bg
-
-        ws.row_dimensions[er].height = max(16, 6 + max(1, max_games) * 13)
-
-    # ── KW-Spalte: füllen und mergen ─────────────────────────────────────────
+    # ── KW-Spalte: füllen, mergen, Trennlinie ────────────────────────────────
     for kw, start in kw_start_er.items():
         count   = kw_row_cnt[kw]
         end_row = start + count - 1
         if count > 1:
             ws.merge_cells(start_row=start, start_column=1,
-                           end_row=end_row,    end_column=1)
+                           end_row=end_row, end_column=1)
         c = ws.cell(start, 1, f'KW {kw}')
         c.font = Font(bold=True)
         c.alignment = Alignment(horizontal='center', vertical='center')
