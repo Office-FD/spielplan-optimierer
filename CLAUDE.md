@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.2.2 · Stand Mai 2026 · Status: Produktionsbereit, drei vollständige Code-Reviews + Runde 4 abgeschlossen, keine bekannten Bugs**
+> **Version 1.2.3 · Stand Mai 2026 · Status: Produktionsbereit, Code-Review Runde 5 abgeschlossen, keine bekannten Bugs**
 
 ---
 
@@ -337,6 +337,20 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `config_validator.py` | Ungerade Teamzahl wurde als Fehler (INFEASIBLE-Signal) behandelt | Downgrade zu Warnung mit Hinweis auf Spielfrei-Modus |
 | `app.py` | Streamlit-Ladeindikator (Laufmännchin) ohne FBD-Branding | `_inject_floorball_css()`: hüpfender weißer Ball (`::before`-Pseudo-Element, Bounce-Animation) ersetzt Standard-SVG |
 | `_worker.py` | Subprocess reimportiert Streamlit → hunderte „missing ScriptRunContext"-Warnungen | `logging.getLogger('streamlit').setLevel(logging.ERROR)` auf Modulebene |
+
+**Code-Review Runde 5 (v1.2.2 → v1.2.3):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `sa_refine.py` | `loc`-Array mit `[[0]*…]` initialisiert → SA berechnet Bye-Tag-Reisekosten immer von Team-0-Standort | `[[ti]*…]` – jedes Team startet an eigenem Standort |
+| `wizard.py` | Spieltagzahl-Formel `n_rounds*(n-1)` an 5 Stellen nicht auf Stand v1.2.2 → CLI-Solver INFEASIBLE für ungerades n | Korrekte Formel `n_rounds*n*(n-1)//2//games_per_day` an allen Stellen |
+| `app.py` | `s = parsed['settings']` nur im `if 'settings' in parsed:`-Block definiert, aber danach in `if _has_loaded_matrices:` verwendet → `NameError` | `s = parsed.get('settings', {})` immer setzen |
+| `solver.py` | `needs_bye`-Berechnung doppelt (Z.178 und Z.244) | Zweite Zeile entfernt |
+| `solver.py` | `home_team` in Pflichtspiel-Constraint ohne Validierung → falsches Heimrecht bei Tippfehler, stilles Ignorieren | Warnung + `continue` wenn `home_team not in (can_a, can_b)` |
+| `multi_solver.py` | `rel_gap` wurde nur an `run_phase2` übergeben, `run_phase1` nutzte stets hardcodierten Default `0.05` | `rel_gap`-Parameter in `run_phase1` und `_phase1_worker` ergänzt |
+| `tt_scheduler.py` | `int(s)` auf rohen Slot-Strings ohne try-except → `ValueError`-Absturz bei nicht-numerischen Werten | In try-except mit Fallback auf `[]` gekapselt |
+| `excel_output.py` | `home_vals.get(…) == 1` statt `>= 1` in Co-Home-Zusammenfassung → Turniertag-Teams immer als „nicht zuhause" gewertet | `>= 1` |
+| `app.py` | `_solver_thread` (Thread-basierter Solver-Start) seit Subprocess-Migration toter Code | Funktion entfernt |
 
 ---
 
