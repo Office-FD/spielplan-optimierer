@@ -1,6 +1,5 @@
 """Solver-Konstanten. Ligaspezifische Daten werden per Wizard eingegeben."""
 
-from collections import defaultdict
 from typing import Dict
 
 # ── Solver-Gewichte ───────────────────────────────────────────────────────────

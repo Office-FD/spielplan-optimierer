@@ -72,8 +72,12 @@ def validate(
                 err(lid, f'**{name}**: DST-Block ST{d1}+ST{d2} liegt außerhalb des gültigen '
                           f'Bereichs (1–{n_md}). DST-Blöcke im Kalender-Schritt korrigieren.')
 
-        # Sperrtage: Team mit allen oder mehr als der Hälfte der Tage gesperrt
+        # Sperrtage: Team in Teamliste? + Häufigkeit
+        _teams_set = set(teams)
         for team, bdays in blk.items():
+            if team not in _teams_set:
+                warn(lid, f'**{name}**: Sperrtag-Team «{team}» nicht in der Teamliste – wird ignoriert.')
+                continue
             blocked_set = set(bdays)
             overlap = blocked_set & days
             if days and days.issubset(blocked_set):
@@ -84,8 +88,15 @@ def validate(
                            f'Spieltage ({len(overlap)} von {n_md}) ist gesperrt. '
                            'Der Solver könnte keine gültige Lösung finden.')
 
-        # Pflichtspiele außerhalb gültiger Spieltage
+        # Pflichtspiele: Teamnamen, Selbst-Spiele, ungültige Spieltage
         for pm in pins:
+            ta, tb = pm.get('teamA'), pm.get('teamB')
+            if ta and ta not in _teams_set:
+                err(lid, f'**{name}**: Pflichtspiel-Team «{ta}» nicht in der Teamliste.')
+            if tb and tb not in _teams_set:
+                err(lid, f'**{name}**: Pflichtspiel-Team «{tb}» nicht in der Teamliste.')
+            if ta and tb and ta == tb:
+                err(lid, f'**{name}**: Pflichtspiel «{ta}» gegen sich selbst – kein gültiges Spiel.')
             pd = pm.get('day')
             if pd is not None:
                 try:
@@ -115,6 +126,19 @@ def validate(
         # Viele Pflichtspiele
         n_rounds, gpd = get_n_rounds_gpd(ld)
         total_games = n * (n - 1) // 2 * n_rounds
+
+        # Einfachrunde: doppelte Pflichtspiel-Paarung → INFEASIBLE
+        if n_rounds == 1:
+            _seen_pairs: set = set()
+            for pm in pins:
+                ta, tb = pm.get('teamA'), pm.get('teamB')
+                if not ta or not tb:
+                    continue
+                pair = frozenset([ta, tb])
+                if pair in _seen_pairs:
+                    err(lid, f'**{name}**: Einfachrunde – Paarung {ta} – {tb} als Pflichtspiel '
+                              'mehrfach eingetragen. Jede Paarung darf nur einmal vorkommen → unlösbar.')
+                _seen_pairs.add(pair)
 
         # Ungerade Team-Anzahl → automatisch ein Spielfrei-Tag pro Runde (kein Fehler, nur Hinweis)
         n_active = ld.get('n_active_per_day', 0)
@@ -263,7 +287,11 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
                 err(lid, f'{name}: DST-Block ST{d1}+ST{d2} liegt außerhalb des gültigen '
                           f'Bereichs (1–{n_md}).')
 
+        _teams_set_c = set(cfg.teams)
         for team, bdays in cfg.blocked.items():
+            if team not in _teams_set_c:
+                warn(lid, f'{name}: Sperrtag-Team «{team}» nicht in der Teamliste – wird ignoriert.')
+                continue
             blocked_set = set(bdays)
             overlap = blocked_set & days
             if days and days.issubset(blocked_set):
@@ -273,6 +301,13 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
                            f'({len(overlap)} von {n_md}) ist gesperrt.')
 
         for pm in cfg.pinned:
+            ta, tb = pm.get('teamA'), pm.get('teamB')
+            if ta and ta not in _teams_set_c:
+                err(lid, f'{name}: Pflichtspiel-Team «{ta}» nicht in der Teamliste.')
+            if tb and tb not in _teams_set_c:
+                err(lid, f'{name}: Pflichtspiel-Team «{tb}» nicht in der Teamliste.')
+            if ta and tb and ta == tb:
+                err(lid, f'{name}: Pflichtspiel «{ta}» gegen sich selbst – kein gültiges Spiel.')
             pd = pm.get('day')
             if pd is not None:
                 try:
@@ -328,6 +363,19 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
                               f'erzwingt Auswärtsspiel → unlösbar.')
 
         total_games = n * (n - 1) // 2 * cfg.n_rounds
+
+        # Einfachrunde: doppelte Pflichtspiel-Paarung → INFEASIBLE
+        if cfg.n_rounds == 1:
+            _seen_pairs_c: set = set()
+            for pm in cfg.pinned:
+                ta, tb = pm.get('teamA'), pm.get('teamB')
+                if not ta or not tb:
+                    continue
+                pair = frozenset([ta, tb])
+                if pair in _seen_pairs_c:
+                    err(lid, f'{name}: Einfachrunde – Paarung {ta} – {tb} als Pflichtspiel '
+                              'mehrfach eingetragen. Jede Paarung darf nur einmal vorkommen → unlösbar.')
+                _seen_pairs_c.add(pair)
 
         # Ungerade Team-Anzahl → automatisch ein Spielfrei-Tag pro Runde
         if cfg.games_per_team_per_day == 1 and cfg.n_active_per_day == 0 and n % 2 == 1:

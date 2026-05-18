@@ -209,7 +209,11 @@ def load_distances_from_file(path: str, teams: List[str]) -> Optional[np.ndarray
                                  == team_i.strip().lower(),
                                  col_key].values
                     if len(val) > 0:
-                        dist[i, j] = int(float(val[0]))
+                        _km = int(float(val[0]))
+                        if _km < 0:
+                            warn(f'Negative Distanz {_km} km für {team_i} → {team_j} – ignoriert.')
+                        else:
+                            dist[i, j] = _km
             dist = np.maximum(dist, dist.T)
             ok(f'Matrix-Format erkannt, {n}x{n} geladen.')
             return dist
@@ -231,6 +235,9 @@ def load_distances_from_file(path: str, teams: List[str]) -> Optional[np.ndarray
             try:
                 km = int(float(row[km_col]))
             except (ValueError, TypeError):
+                continue
+            if km < 0:
+                warn(f'Negative Distanz {km} km für {row[from_col]} → {row[to_col]} – ignoriert.')
                 continue
             ai = t_idx.get(a)
             bi = t_idx.get(b)
