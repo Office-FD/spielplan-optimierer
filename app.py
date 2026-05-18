@@ -1527,8 +1527,10 @@ def _step0():
                     index=FMT_OPTIONS.index(cur_fmt), key=f'fmt_{i}',
                     help='Einfachrunde: jeder gegen jeden einmal · Hin-/Rückrunde: zweimal (Hin- und Rückspiel) · Dreifachrunde: dreimal · Turniertag: alle Teams spielen gemeinsam an einem Ort')
             if n > 1:
+                if f'hw_{i}' not in st.session_state:
+                    st.session_state[f'hw_{i}'] = float(ld.get('hw', 1.0))
                 ld['hw'] = st.slider('Priorität bei Heimspiel-Koordination', 0.1, 5.0,
-                    float(ld.get('hw', 1.0)), 0.1, key=f'hw_{i}',
+                    step=0.1, key=f'hw_{i}',
                     help='Wenn Heimspiele mehrerer Ligen nicht alle in dieselbe Woche passen, wird die Liga mit dem höheren Wert bevorzugt.')
 
             # ── Turniertag-Optionen ───────────────────────────────────────────
