@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.1.2 · Stand Mai 2026 · Status: Produktionsbereit, drei vollständige Code-Reviews abgeschlossen, keine bekannten Bugs**
+> **Version 1.2.2 · Stand Mai 2026 · Status: Produktionsbereit, drei vollständige Code-Reviews + Runde 4 abgeschlossen, keine bekannten Bugs**
 
 ---
 
@@ -228,6 +228,7 @@ Zielfunktion: `sum(switch·scale·sw) - sum(sw_fair·scale·(max_sw-min_sw)) - s
 - DST: beide Tage haben identisches Heimrecht
 - **DST-Nachbarschaft (Constraints A/B/C):** Rund um jeden DST-Block max 3 Spiele in Folge mit gleicher Heim-/Auswärtszuteilung. A: `home[pre1]+home[post1] ≤ 1` (DST=H) / `≥ 1` (DST=A). B: `home[post1]+home[post2]` analog. C: `home[pre2]+home[pre1]` analog. Nur gpd==1, via `OnlyEnforceIf`. ≥1-Constraints werden bei Sperrtagen übersprungen.
 - DST-Routing: Reiseweg zwischen DST-Tag 1 → Tag 2 ≤ (1 + f_num/f_den) × Direktweg
+- **Spielfrei-Modus (ungerade Teamzahl):** `needs_bye = (n * gpd) % 2 == 1`. Wenn True: Pro-Team-Constraint `cstr <= gpd` statt `== gpd` (Spielfrei-Tage). Locations-Constraint: `sum(loc[ti,d,i]) <= 1` statt `== 1`. Sliding-Window-Minima konditionalisiert: `sum(seg) >= plays_in_window - k` (k=2 für 3er, k=3 für 4er). `n_matchdays` = `n_rounds * n * (n-1) / 2 / (n * gpd // 2)` → für ungerades n: `n_rounds * n` Spieltage (statt `n_rounds * (n-1)`).
 - Sperrtage und Pflichtspiele: Hard Constraints
 
 ---
@@ -324,6 +325,19 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `app.py` | `pd.DataFrame(mat, …)` mit int-Array → `ArrowTypeError` in `st.data_editor` | `mat.astype(float)` beim DataFrame-Bau |
 | `app.py` | `st.text_input('Ligabezeichnung', ld['name'], key='lnm_{i}')` erzeugt Streamlit-Warnung nach Konfig-Upload (Session State + value= gleichzeitig gesetzt) | Session State initialisieren wenn nicht vorhanden, kein `value=`-Parameter |
 
+**Sitzung Mai 2026 – Spielfrei-Modus, Floorball-Icon, Log-Cleanup (v1.2.1 → v1.2.2):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `league_types.py` | `n_matchdays` für ungerades n falsch (lieferte `n_rounds*(n-1)` statt `n_rounds*n`) | Allgemeine Formel: `n_rounds * n * (n-1) // 2 // games_per_day` |
+| `solver.py` | Per-Team-Constraint `== gpd` → INFEASIBLE bei ungerader Teamzahl (Spielfrei-Tage) | `needs_bye = (n * gpd) % 2 == 1`; Guard `<= gpd` statt `== gpd` |
+| `solver.py` | Sliding-Window-Minima zwingen Spielfrei-Teams zu Heimspielen → INFEASIBLE | Konditionalisiert: `>= plays_in_window - k` bei `needs_bye` |
+| `solver.py` | `sum(loc[ti,d,i]) == 1` → INFEASIBLE für Teams ohne Location (Spielfrei) | `<= 1` statt `== 1` |
+| `app.py` | `_calc_n_matchdays()` im Wizard lieferte falsche Spieltagzahl für ungerades n | Gleiche Formel wie `league_types.py` |
+| `config_validator.py` | Ungerade Teamzahl wurde als Fehler (INFEASIBLE-Signal) behandelt | Downgrade zu Warnung mit Hinweis auf Spielfrei-Modus |
+| `app.py` | Streamlit-Ladeindikator (Laufmännchin) ohne FBD-Branding | `_inject_floorball_css()`: hüpfender weißer Ball (`::before`-Pseudo-Element, Bounce-Animation) ersetzt Standard-SVG |
+| `_worker.py` | Subprocess reimportiert Streamlit → hunderte „missing ScriptRunContext"-Warnungen | `logging.getLogger('streamlit').setLevel(logging.ERROR)` auf Modulebene |
+
 ---
 
 ## 10. Nutzer-Feedback
@@ -365,9 +379,9 @@ Details im BACKLOG.md. Offene Punkte nach Priorität:
 
 | Format | n_rounds | gpd | n_teams_per_group | Beschreibung |
 |---|---|---|---|---|
-| Einfachrunde | 1 | 1 | 0 | Jede Paarung 1×, n-1 Spieltage |
-| Hin-Rückrunde | 2 | 1 | 0 | Jede Paarung 2×, 2(n-1) Spieltage |
-| Dreifachrunde | 3 | 1 | 0 | Jede Paarung 3×, 3(n-1) Spieltage |
+| Einfachrunde | 1 | 1 | 0 | Jede Paarung 1×; n-1 ST (gerades n) / n ST (ungerades n, 1 Spielfrei/Tag) |
+| Hin-Rückrunde | 2 | 1 | 0 | Jede Paarung 2×; 2(n-1) ST (gerades n) / 2n ST (ungerades n) |
+| Dreifachrunde | 3 | 1 | 0 | Jede Paarung 3×; 3(n-1) ST (gerades n) / 3n ST (ungerades n) |
 | Turniertag Stufe 1 | 2 | 2+ | 0 | Alle Teams an einem Ort, gpd Spiele/Team/Tag |
 | Turniertag Stufe 2 | 2 | 2+ | K>0 | Wie Stufe 1, aber aufgeteilt in Gruppen à K Teams |
 

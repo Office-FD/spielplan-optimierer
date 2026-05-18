@@ -52,6 +52,7 @@ Hier legen Sie fest, für welche Ligen Sie einen Spielplan erstellen möchten.
 **Teams eingeben:**
 - Geben Sie jeden Teamnamen ein (Vereinssuche in der Datenbank möglich)
 - Jedes Team benötigt einen eindeutigen **Spielort** (Hallennamen oder Ort)
+- **Ungerade Teamzahl** (z. B. 5 oder 7 Teams) ist möglich: an jedem Spieltag hat dann ein Team spielfrei. Die Anzahl der Spieltage erhöht sich entsprechend (bei 5 Teams: 10 statt 8 Spieltage bei Hin- und Rückrunde).
 
 **Konfiguration speichern / laden:**
 - **Download Vorlage:** Leere Excel-Vorlage zum Ausfüllen
