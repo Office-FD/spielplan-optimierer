@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.2.3 · Stand Mai 2026 · Status: Produktionsbereit, Code-Review Runde 5 abgeschlossen, keine bekannten Bugs**
+> **Version 1.2.4 · Stand Mai 2026 · Status: Produktionsbereit, Code-Review Runde 5 vollständig abgeschlossen, keine bekannten Bugs**
 
 ---
 
@@ -338,7 +338,7 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `app.py` | Streamlit-Ladeindikator (Laufmännchin) ohne FBD-Branding | `_inject_floorball_css()`: hüpfender weißer Ball (`::before`-Pseudo-Element, Bounce-Animation) ersetzt Standard-SVG |
 | `_worker.py` | Subprocess reimportiert Streamlit → hunderte „missing ScriptRunContext"-Warnungen | `logging.getLogger('streamlit').setLevel(logging.ERROR)` auf Modulebene |
 
-**Code-Review Runde 5 (v1.2.2 → v1.2.3):**
+**Code-Review Runde 5 – Teil 1 (v1.2.2 → v1.2.3):**
 
 | Datei | Problem | Fix |
 |---|---|---|
@@ -351,6 +351,16 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `tt_scheduler.py` | `int(s)` auf rohen Slot-Strings ohne try-except → `ValueError`-Absturz bei nicht-numerischen Werten | In try-except mit Fallback auf `[]` gekapselt |
 | `excel_output.py` | `home_vals.get(…) == 1` statt `>= 1` in Co-Home-Zusammenfassung → Turniertag-Teams immer als „nicht zuhause" gewertet | `>= 1` |
 | `app.py` | `_solver_thread` (Thread-basierter Solver-Start) seit Subprocess-Migration toter Code | Funktion entfernt |
+
+**Code-Review Runde 5 – Teil 2 (v1.2.3 → v1.2.4):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `config_validator.py` | Blocked-Loop prüft Teamnamen nicht → unbekannte Teams werden stillschweigend ignoriert | `_teams_set`-Guard: unbekannter Team-Name → Warnung + `continue` |
+| `config_validator.py` | Pinned-Loop prüft Teamnamen und Self-Play nicht → `ta == tb` oder Tippfehler erzeugen falsche Constraints | Fehler bei unbekanntem Team-Namen oder `ta == tb` |
+| `config_validator.py` | Doppelt gepinnte Paarung bei n_rounds=1 nicht erkannt → zwei identische Pflichtspiele ohne Warnung | Duplikat-Check per `frozenset` nach Gesamtspielzahl-Prüfung |
+| `config.py` | `from collections import defaultdict` ungenutzter Import (seit `_TeamColorDict` in Runde 3) | Import entfernt |
+| `distances.py` | Negative km-Werte in CSV/Excel-Matrix werden gespeichert statt verworfen | Warnung + Zeile überspringen bei `km < 0` in Matrix- und Paarlisten-Format |
 
 ---
 

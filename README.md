@@ -4,7 +4,7 @@ Automatische Spielplanerstellung für Floorball-Ligen des **FLOORBALL VERBAND DE
 
 Das Tool erstellt optimierte Spielpläne für eine oder mehrere Ligen gleichzeitig – mit minimalen Reisewegen, ausgeglichenem Heimrecht und Berücksichtigung von Doppelspieltagen, Pflicht- und Sperrtagen sowie Co-Home-Vereinen.
 
-**Aktuelle Version:** 1.2.3
+**Aktuelle Version:** 1.2.4
 
 ---
 
