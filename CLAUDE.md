@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.2.5 · Stand Mai 2026 · Status: Produktionsbereit, Code-Review Runde 5 vollständig abgeschlossen, keine bekannten Bugs**
+> **Version 1.2.6 · Stand Mai 2026 · Status: Produktionsbereit, Code-Review Runde 5 vollständig abgeschlossen, keine bekannten Bugs**
 
 ---
 
@@ -367,6 +367,13 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | Datei | Problem | Fix |
 |---|---|---|
 | `schedule_utils.py` | `recompute_result_stats()` summierte Einzel-Fahrten (Heimort Auswärtsteam → Spielort), Solver/SA nutzen Transitions-Modell → km-Anzeige nach manuellen Änderungen systematisch falsch | Transitions-Modell: `loc[ti][pos]` = Venue-Index, summiert `dist[loc[ti][pos], loc[ti][pos+1]]` über aufeinanderfolgende Spieltage |
+
+**Neue Features (v1.2.5 → v1.2.6):**
+
+| Datei | Feature |
+|---|---|
+| `excel_output.py` | `build_overview_excel`: Gesamtübersicht komplett überarbeitet – je Spiel eine Excel-Zeile, Heimteam und Gastteam je in eigener Spalte (Hintergrundfarbe wie Einzelliga-Excel), Club-aware Farben (Teams desselben Mehrspartenvereins gleiche Farbe über Ligen hinweg), Sortierung nach realem Kalenderdatum statt KW-Nummer (jahresübergreifende Saisons korrekt), drei Header-Zeilen (Titel / Liga-Namen 2-spaltig gemergt / Heim+Gast) |
+| `app.py` | `_result_fname_suffix(lid)`: alle Download-Dateinamen enthalten Gewichte und Solver-Laufzeit – Format `sw{n}-sf{n}-km{km}-kf{n}[-de{n}]-co{n}_p1-{t}_p2-{t}_sa-{t}` (Beispiel: `sw8-sf5-km7-kf3-co5_p1-15m_p2-90m_sa-2m`); betrifft Liga-Excel, CoHome, Gesamtübersicht, iCal, HTML-Druck, Konfigurationsdatei |
 
 ---
 
