@@ -190,7 +190,7 @@ Python-Installation) testen:
 3. Auto-Updater: zweiten Tag v1.1.1 anlegen + app-files.zip hochladen,
    dann prüfen ob der Launcher die Update-Meldung zeigt und das Update korrekt anwendet.
 4. Deinstallation über Windows-Einstellungen funktioniert sauber?
-**Status:** Offen
+**Status:** Erledigt (Mai 2026 – Installer auf frischem Windows-System getestet, funktioniert)
 
 ---
 
