@@ -559,7 +559,7 @@ def _nav(back=True, fwd_label='Weiter →', fwd_disabled=False):
             st.download_button(
                 '⬇ Konfiguration speichern',
                 data=_xl,
-                file_name='Spielplan_Konfiguration.xlsx',
+                file_name=f'Spielplan_Konfiguration{_result_fname_suffix()}.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 key=f'dl_cfg_{S.step}',
                 width='stretch',
@@ -4081,6 +4081,47 @@ def _diagnose_infeasible_league(lid: str) -> None:
                 st.info(f'💡 {msg}')
 
 
+def _result_fname_suffix(lid: Optional[str] = None) -> str:
+    """Kompakter Dateiname-Suffix: Gewichte + Solver-Laufzeit.
+
+    Format: _sw8-sf5-km7-kf3-co5_p1-15m_p2-90m_sa-2m
+    lid: Liga-ID für liga-spezifische Gewichte; None = gemeinsame Gewichte falls gleich.
+    """
+    sol = S.solver
+    raw: dict = {}
+    if lid and lid in S.leagues:
+        raw = S.leagues[lid].get('raw_weights', {})
+    elif S.same_weights and S.league_order:
+        raw = S.leagues.get(S.league_order[0], {}).get('raw_weights', {})
+
+    if raw:
+        sw = int(round(raw.get('switch',    5.0)))
+        sf = int(round(raw.get('sw_fair',   5.0)))
+        km = int(round(raw.get('travel',    5.0)))
+        kf = int(round(raw.get('trav_fair', 5.0)))
+        de = int(round(raw.get('dst_eff',   0.0)))
+        co = int(round(float(S.w_cohome)))
+        w_tag = f'sw{sw}-sf{sf}-km{km}-kf{kf}'
+        if de > 0:
+            w_tag += f'-de{de}'
+        w_tag += f'-co{co}'
+    else:
+        w_tag = ''
+
+    p1   = sol.get('p1', 900)
+    p2   = sol.get('p2', 5400)
+    sa   = sol.get('sa', 120)
+    p1_s = f'{p1 // 60}m' if p1 >= 60 else f'{p1}s'
+    if p2 >= 28800:   p2_s = '8h'
+    elif p2 >= 10800: p2_s = '3h'
+    elif p2 >= 5400:  p2_s = '90m'
+    else:             p2_s = f'{p2 // 60}m'
+    sa_s = f'{sa // 60}m' if sa >= 60 else f'{sa}s'
+
+    t_tag = f'p1-{p1_s}_p2-{p2_s}_sa-{sa_s}'
+    return f'_{w_tag}_{t_tag}' if w_tag else f'_{t_tag}'
+
+
 def _show_results():
     st.success('✅ Optimierung abgeschlossen!')
 
@@ -4221,7 +4262,7 @@ def _show_results():
             st.download_button(
                 f'⬇ {name}',
                 data=S.excel_bytes[lid],
-                file_name=f'Spielplan_{lid}.xlsx',
+                file_name=f'Spielplan_{lid}{_result_fname_suffix(lid)}.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 width='stretch',
                 key=f'dl_{lid}',
@@ -4232,7 +4273,7 @@ def _show_results():
             st.download_button(
                 '⬇ Co-Home-Übersicht',
                 data=S.cohome_bytes,
-                file_name='CoHome_Uebersicht.xlsx',
+                file_name=f'CoHome_Uebersicht{_result_fname_suffix()}.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 width='stretch',
                 key='dl_cohome',
@@ -4254,7 +4295,7 @@ def _show_results():
             st.download_button(
                 '⬇ Gesamtübersicht',
                 data=S.overview_bytes,
-                file_name='Gesamtuebersicht.xlsx',
+                file_name=f'Gesamtuebersicht{_result_fname_suffix()}.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 width='stretch',
                 key='dl_overview',
@@ -4284,7 +4325,7 @@ def _show_results():
                 st.download_button(
                     f'📅 {_res.cfg.name if _res.cfg else _lid}',
                     data=_build_ics_bytes(_res, int(_ics_year)),
-                    file_name=f'Spielplan_{_lid}.ics',
+                    file_name=f'Spielplan_{_lid}{_result_fname_suffix(_lid)}.ics',
                     mime='text/calendar',
                     width='stretch',
                     key=f'dl_ics_{_lid}',
@@ -4307,7 +4348,7 @@ def _show_results():
                 st.download_button(
                     f'🖨 {_res.cfg.name}',
                     data=_html_bytes,
-                    file_name=f'Spielplan_{_lid}_druckbar.html',
+                    file_name=f'Spielplan_{_lid}{_result_fname_suffix(_lid)}_druckbar.html',
                     mime='text/html',
                     width='stretch',
                     key=f'dl_print_{_lid}',
