@@ -1,4 +1,4 @@
-ortools>=9.14,<10
+ortools>=9.15.6755,<10
 numpy>=2.0
 pandas>=2.0
 openpyxl>=3.1
