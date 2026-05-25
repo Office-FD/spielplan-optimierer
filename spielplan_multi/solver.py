@@ -125,9 +125,16 @@ def build_league_vars(model: cp_model.CpModel,
     switch = {(ti, d): model.NewBoolVar(f'{p}sw_{ti}_{d}')
               for ti in range(n) for d in range(1, N)}
 
-    sw_count = {ti: model.NewIntVar(0, n_transitions, f'{p}swc_{ti}') for ti in range(n)}
-    max_sw   = model.NewIntVar(0, n_transitions, f'{p}max_sw')
-    min_sw   = model.NewIntVar(0, n_transitions, f'{p}min_sw')
+    # H3 (F1): Switch-Term-Obergrenze pro Team — verbessert LP-Untergrenze.
+    # Konsekutive DST-Blöcke (d2 = d1+1) erzwingen home[ti,d1] == home[ti,d2],
+    # also switch[ti, d1] = 0 (1 erzwungener Nicht-Wechsel pro konsekutivem Block).
+    # Nicht-konsekutive Blöcke (d2 > d1+1) constraint switch nicht direkt.
+    _consecutive_dst = sum(1 for d1, d2 in cfg.dst_blocks if d2 == d1 + 1)
+    _max_sw_per_team = max(0, n_transitions - _consecutive_dst)
+
+    sw_count = {ti: model.NewIntVar(0, _max_sw_per_team, f'{p}swc_{ti}') for ti in range(n)}
+    max_sw   = model.NewIntVar(0, _max_sw_per_team, f'{p}max_sw')
+    min_sw   = model.NewIntVar(0, _max_sw_per_team, f'{p}min_sw')
 
     # loc-Variablen nur im Standard-Format (gpd=1, kein Gruppenmodell)
     if not is_turniertag:
@@ -814,7 +821,9 @@ def solve_league_phase1(cfg: LeagueConfig,
     solver.parameters.num_search_workers   = num_workers if num_workers > 0 else min(8, os.cpu_count() or 1)
     solver.parameters.log_search_progress  = False
     solver.parameters.random_seed          = seed
-    solver.parameters.symmetry_level       = 1
+    # H1 (F1): symmetry_level=2 generiert zusätzliche Symmetry-Breaking-Constraints.
+    # max_memory_in_mb=4096 schützt vor dem bool_core-Klausel-Kaskaden-OOM-Bug aus v1.2.x.
+    solver.parameters.symmetry_level       = 2
     solver.parameters.max_memory_in_mb     = 4096
     if rel_gap > 0:
         solver.parameters.relative_gap_limit = rel_gap

@@ -1288,4 +1288,4 @@ Mit aktuellem Modell wird selbst ein 24h-Lauf wahrscheinlich nicht unter 17-18% 
 Zusätzliche Zwischen-Phase: erst nur KW-Zuteilung lösen (welcher Spieltag in welche KW), dann mit fixierter KW-Zuteilung den Heimrecht-Plan im 2. Schritt. ~2-3 Wochen Entwicklungsaufwand, Risiko dass Lösungsqualität sinkt, da Phasen nicht mehr gemeinsam optimiert werden. Erwartete Gap-Reduktion: 5-10%.
 
 **Empfehlung:** Mit H3 + H1 beginnen (kombiniert ~10% Gap erreichbar), H2 als Ergänzung wenn nötig.
-**Status:** Offen
+**Status:** Erledigt – H1 (symmetry_level=2) + H3 (Switch-Term-Obergrenze pro Team) in v1.8.0 implementiert. H2 als Future-Work zurückgestellt; gewünschtenfalls als separater Sprint angreifbar.

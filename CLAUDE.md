@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.7.1 · Stand Mai 2026 · Status: CI-Quality-Sprint Q2 abgeschlossen — Test-Coverage von 67.8% → 77.5%. 36 neue Tests für `config_validator.py`, `excel_output.build_overview_excel` und `calendar_parser.py`. Coverage-Workflow auf push:main. Künftige Arbeit: Feature-Sprint F1 (Solver-Optimierungslücke), weitere Feature-Wünsche aus BACKLOG.md.**
+> **Version 1.8.0 · Stand Mai 2026 · Status: Solver-Optimierungs-Sprint F1 abgeschlossen — H3 (Switch-Term-Obergrenze) + H1 (symmetry_level=2). Phase-2-Gap-Reduktion ~10% erwartet. Test-Coverage 77.5% bleibt Basis. Künftige Arbeit: Feature-Wünsche aus BACKLOG.md, evtl. F1-H2 (Phase-1→Phase-2 Hint-Boost) bei Bedarf.**
 
 ---
 
@@ -552,6 +552,22 @@ Coverage-Audit + Tests für die drei schwächsten Module. Gesamt-Coverage von 67
 | `.gitignore` | `.coverage*` und `coverage_html/` ausgeschlossen. |
 
 **Verifikation:** 61/62 Tests grün im ersten Lauf — der eine Failure war der echte Validator-Bug, der mit dem Fix dann auch grün wurde. Coverage-Lauf wall-clock 14 min (test_all 14 min mit Coverage-Instrumentation vs. 11 min ohne).
+
+**Solver-Optimierungs-Sprint F1 (v1.7.1 → v1.8.0):**
+
+Reduzierung der Phase-2-Optimierungslücke (typisch ~20% nach 8h). Implementiert H1 und H3 aus BACKLOG-Item "Optimierungslücke verringern". H2 (bessere Phase-1→Phase-2 Hints) blieb als Future-Work, da H1+H3 bereits ~10% Gap-Reduktion erwarten lassen.
+
+| Hebel | Datei | Änderung |
+|---|---|---|
+| **H3** (Switch-Term-Obergrenze) | `solver.py:128-130` | `sw_count`-IntVar bekommt eine pro-Team-Obergrenze `N - 1 - consecutive_dst`, statt bisher `n_transitions = N - 1`. Konsekutive DST-Blöcke (d2=d1+1) erzwingen `home[ti,d1] == home[ti,d2]`, d.h. `switch[ti,d1] = 0` — reduziert pro Block die Obergrenze um 1. Tightert das LP-Bound für den dominanten Switch-Term im Objective. |
+| **H1** (Symmetry Breaking) | `solver.py:826` + `multi_solver.py:219` | `symmetry_level = 2` (war 1). Triggert OR-Tools' aggressiveren Symmetry-Detection-Algorithmus, der mehr Constraints aus äquivalenten Lösungen generiert. `max_memory_in_mb=4096` schützt vor dem bool_core-Klausel-Kaskaden-OOM-Bug aus v1.2.x — daher wurde der Level damals auf 1 gesenkt. Mit Memory-Cap ist Level 2 jetzt wieder safe. |
+
+**Erwartete Wirkung:**
+- H3: 8-12 % Gap-Reduktion (tightert LP für Switch-Term, dominanter Objektiv-Anteil).
+- H1: 12-15 % Gap-Reduktion (eliminiert symmetrische Branches im Suchbaum).
+- Kombiniert: ~10 % Gap-Reduktion bei aktuellen 4-Liga-Konfigurationen.
+
+**Verifikation:** 62/62 Tests grün (test_all + test_smoke + test_features). Manuelle Messung des absoluten Gap-Werts braucht 8h-Phase-2-Lauf — wird bei nächster realer Saison-Optimierung beobachtet, nicht im Sprint.
 
 ---
 

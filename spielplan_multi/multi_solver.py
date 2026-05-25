@@ -214,7 +214,9 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
     solver.parameters.num_search_workers   = min(8, os.cpu_count() or 1)
     solver.parameters.log_search_progress  = True
     solver.parameters.random_seed          = seed
-    solver.parameters.symmetry_level       = 1
+    # H1 (F1): symmetry_level=2 generiert zusätzliche Symmetry-Breaking-Constraints.
+    # max_memory_in_mb=4096 schützt vor dem bool_core-Klausel-Kaskaden-OOM-Bug aus v1.2.x.
+    solver.parameters.symmetry_level       = 2
     solver.parameters.max_memory_in_mb     = 4096
     if rel_gap > 0:
         solver.parameters.relative_gap_limit = rel_gap
