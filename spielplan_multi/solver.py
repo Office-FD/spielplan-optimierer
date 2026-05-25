@@ -751,7 +751,14 @@ def extract_hints(solver: cp_model.CpSolver,
 def set_hints(model: cp_model.CpModel,
               lv: LeagueVars,
               result: 'LeagueResult') -> None:
-    """Setzt Phase-1-Loesungswerte als Hints in Phase-2-Modell."""
+    """Setzt Phase-1-Loesungswerte als Hints in Phase-2-Modell.
+
+    F1-H2 (v1.8.1): Zusaetzlich zu den primaeren Boolvars (home/h/x) werden
+    abgeleitete Vars (switch/sw_count/travel/min-max) als Hints gesetzt.
+    Wirkung: Solver findet schneller eine gute Erstloesung, mehr Zeit fuer
+    Bound-Beweis. Aus BACKLOG "Optimierungsluecke verringern" — Hebel H2.
+    """
+    # Primaere Phase-1-Werte
     for k, val in result.home_vals.items():
         if k in lv.home:
             model.AddHint(lv.home[k], val)
@@ -761,6 +768,42 @@ def set_hints(model: cp_model.CpModel,
     for k, val in result.x_vals.items():
         if k in lv.x:
             model.AddHint(lv.x[k], val)
+
+    # Abgeleitete switch-Variablen (aus home_vals errechnet)
+    # switch[ti, d] = 1 wenn home_vals[ti,d] != home_vals[ti,d+1], sonst 0
+    if result.home_vals and lv.switch:
+        for (ti, d), sw_var in lv.switch.items():
+            v1 = result.home_vals.get((ti, d))
+            v2 = result.home_vals.get((ti, d + 1))
+            if v1 is None or v2 is None:
+                continue
+            model.AddHint(sw_var, 1 if v1 != v2 else 0)
+
+    # Abgeleitete sw_count-Variablen (aus result.sw_counts)
+    if result.sw_counts and lv.sw_count:
+        for ti, sc_var in lv.sw_count.items():
+            if 0 <= ti < len(result.sw_counts):
+                model.AddHint(sc_var, int(result.sw_counts[ti]))
+
+    # Abgeleitete travel-Variablen (aus result.travels)
+    if result.travels and lv.travel:
+        for ti, tr_var in lv.travel.items():
+            if 0 <= ti < len(result.travels):
+                model.AddHint(tr_var, int(result.travels[ti]))
+
+    # Min/Max-Aggregate
+    if result.sw_counts:
+        try:
+            model.AddHint(lv.max_sw, int(max(result.sw_counts)))
+            model.AddHint(lv.min_sw, int(min(result.sw_counts)))
+        except (TypeError, ValueError):
+            pass
+    if result.travels:
+        try:
+            model.AddHint(lv.max_travel, int(max(result.travels)))
+            model.AddHint(lv.min_travel, int(min(result.travels)))
+        except (TypeError, ValueError):
+            pass
 
 
 # ── Fortschritts-Callback ────────────────────────────────────────────────────

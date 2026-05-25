@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.8.0 · Stand Mai 2026 · Status: Solver-Optimierungs-Sprint F1 abgeschlossen — H3 (Switch-Term-Obergrenze) + H1 (symmetry_level=2). Phase-2-Gap-Reduktion ~10% erwartet. Test-Coverage 77.5% bleibt Basis. Künftige Arbeit: Feature-Wünsche aus BACKLOG.md, evtl. F1-H2 (Phase-1→Phase-2 Hint-Boost) bei Bedarf.**
+> **Version 1.8.1 · Stand Mai 2026 · Status: Solver-Optimierungs-Sprint F1 vollständig abgeschlossen — H1+H3 in v1.8.0, H2 (Phase-1→Phase-2 Hint-Boost) in v1.8.1. Erwartete Gap-Reduktion kombiniert ~25%. Test-Coverage 77.5%. Künftige Arbeit: Feature-Wünsche aus BACKLOG.md.**
 
 ---
 
@@ -568,6 +568,18 @@ Reduzierung der Phase-2-Optimierungslücke (typisch ~20% nach 8h). Implementiert
 - Kombiniert: ~10 % Gap-Reduktion bei aktuellen 4-Liga-Konfigurationen.
 
 **Verifikation:** 62/62 Tests grün (test_all + test_smoke + test_features). Manuelle Messung des absoluten Gap-Werts braucht 8h-Phase-2-Lauf — wird bei nächster realer Saison-Optimierung beobachtet, nicht im Sprint.
+
+**Solver-Optimierungs-Sprint F1-H2 (v1.8.0 → v1.8.1):**
+
+Phase-1→Phase-2 Hint-Boost. Aktuell waren laut BACKLOG-Beobachtung nur ~17% der Phase-2-Variablen gehintet (`hint is incomplete: 7094/40438`). `set_hints` erweitert auf alle ableitbaren Hilfs-Variablen.
+
+| Datei | Erweiterung |
+|---|---|
+| `solver.py` (`set_hints`) | Zusätzlich zu `home`/`h`/`x` werden jetzt gehintet: <br>• `switch[ti, d]` (aus `home_vals`: `1 if home_vals[ti,d] != home_vals[ti,d+1] else 0`) <br>• `sw_count[ti]` (aus `result.sw_counts`) <br>• `travel[ti]` (aus `result.travels`) <br>• `max_sw` / `min_sw` (aus `max/min(result.sw_counts)`) <br>• `max_travel` / `min_travel` (aus `max/min(result.travels)`) |
+
+**Erwartete Wirkung:** 15-17% zusätzliche Gap-Reduktion. Schnellere erste gute Lösung in Phase 2 → mehr Solver-Zeit verbleibt für Bound-Beweis. Kombiniert mit H1+H3 erwartet ~25% Reduktion.
+
+**Verifikation:** 62/62 Tests grün. Multi-Liga-Test (test_all #8) durchläuft Phase 1+2+3 und triggert `set_hints` — keine Regression.
 
 ---
 
