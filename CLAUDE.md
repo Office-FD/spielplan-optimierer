@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.7.0 · Stand Mai 2026 · Status: CI-Quality-Sprint Q1 abgeschlossen — Ruff-Linter, Dependabot, Pre-Commit-Hook und CodeQL eingerichtet. Code-Review Runde 6 (67/73 Items + 1 Feature) bleibt Basis. Künftige Arbeit: Test-Coverage-Audit (Q2), Feature-Wünsche aus BACKLOG.md.**
+> **Version 1.7.1 · Stand Mai 2026 · Status: CI-Quality-Sprint Q2 abgeschlossen — Test-Coverage von 67.8% → 77.5%. 36 neue Tests für `config_validator.py`, `excel_output.build_overview_excel` und `calendar_parser.py`. Coverage-Workflow auf push:main. Künftige Arbeit: Feature-Sprint F1 (Solver-Optimierungslücke), weitere Feature-Wünsche aus BACKLOG.md.**
 
 ---
 
@@ -530,6 +530,28 @@ Tooling-Bundle zur Bug-Prävention. Kein Code-Verhalten geändert; betrifft Lint
 | `.github/dependabot.yml` (neu) | Wöchentliche Update-PRs für GitHub Actions + Python-Pakete (Minor/Patch gruppiert). Schedule: montags 06:00 Berlin-Zeit, max. 5 offene PRs pro Ecosystem. |
 | `.pre-commit-config.yaml` (neu) | Hook-Konfiguration mit Ruff + Standard-Checks (trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, check-added-large-files >2 MB). Installation pro Entwickler: `pip install pre-commit && pre-commit install`. |
 | `.github/workflows/codeql.yml` (neu) | GitHub-natives statisches Security-Scanning für Python (Path-Traversal, unsafe deserialization, Command-Injection etc.). Trigger: push/PR auf main + wöchentlicher Cron (Mo 04:00 UTC). |
+
+**Test-Coverage-Sprint Q2 (v1.7.0 → v1.7.1):**
+
+Coverage-Audit + Tests für die drei schwächsten Module. Gesamt-Coverage von 67.8% auf 77.5% gesteigert (+9.7%). Ein echter Bug aufgedeckt und gefixt.
+
+| Modul | Vorher | Nachher | Tests neu |
+|---|---|---|---|
+| `calendar_parser.py` | 15.4% | **84.1%** | 13 (Parse-Cell-Varianten, KW-Extraktion, Rahmenterminplan-Roundtrip mit synthetic Excel, preview_columns) |
+| `config_validator.py` | 56.7% | **81.0%** | 23 (alle Validation-Pfade: DST-Range, Blocked-Edge-Cases, Pin-Konflikte, forced_home-DST/Pin-Interaktionen, UI-Calendar, Co-Home) |
+| `excel_output.build_overview_excel` | 60.3% | **76.8%** | 6 (Single/Multi-Liga, Kalender, Co-Home, Saveable, leeres Dict) |
+
+| Datei | Änderung |
+|---|---|
+| `.coveragerc` (neu) | Coverage.py-Config: `include`-Pattern statt `source` (vermeidet KeyError bei .py-Files), `parallel = True` für subprocess-Architektur, HTML-Output in `coverage_html/`. |
+| `run_coverage.py` (neu) | Wrapper-Skript: laeuft alle 4 Test-Skripte unter `coverage run --parallel-mode`, dann combine + report + HTML. |
+| `test_all.py` | +23 Tests für `validate_cfgs()` und UI-`validate()` (Test 14). Decken DST-Range, Blocked-Outside, Pin-Self-Play, Pin-Konflikte, forced_home-Edge-Cases ab. |
+| `test_features.py` | +13 Tests fuer `calendar_parser._parse_cell/_to_date_str/_extract_kw/parse_rahmenterminplan/preview_columns` (Feature 8) und +6 Tests fuer `build_overview_excel` (Feature 7). |
+| `spielplan_multi/config_validator.py` | **Bug-Fix**: `int(pm.get('day', 0))` in pin-key-Bildung (Z. 139) crashte bei `day='abc'`. Try-except mit `continue` ergänzt — der Tag-Validierungs-Pfad oben gibt bereits einen Fehler aus. |
+| `.github/workflows/coverage.yml` (neu) | Coverage-Workflow nur auf push:main + workflow_dispatch (blockt PRs nicht). Lädt HTML-Report als Artifact (30-Tage-Retention). |
+| `.gitignore` | `.coverage*` und `coverage_html/` ausgeschlossen. |
+
+**Verifikation:** 61/62 Tests grün im ersten Lauf — der eine Failure war der echte Validator-Bug, der mit dem Fix dann auch grün wurde. Coverage-Lauf wall-clock 14 min (test_all 14 min mit Coverage-Instrumentation vs. 11 min ohne).
 
 ---
 

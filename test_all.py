@@ -945,6 +945,304 @@ def main():
     check('Heim-Balance pro Runde: Default (=0) deaktiviert das Feature', t13_round_balance_aus_default)
 
     # =========================================================================
+    print('\n--- Test 14: Constraint-Validator (validate_cfgs) ---')
+
+    from spielplan_multi.config_validator import (
+        validate as _validate_ui, validate_cfgs as _validate_cli
+    )
+
+    def _has_err(issues, fragment=None):
+        for i in issues:
+            if i['level'] == 'error' and (fragment is None or fragment in i['msg']):
+                return True
+        return False
+
+    def _has_warn(issues, fragment=None):
+        for i in issues:
+            if i['level'] == 'warning' and (fragment is None or fragment in i['msg']):
+                return True
+        return False
+
+    def t14_validator_dst_outside_range():
+        """DST-Block ausserhalb gueltiger Spieltage -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, dst_blocks=[(999, 1000)])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'DST-Block'), f'erwartet DST-Error, got {issues}'
+        return 'DST-Block ST 999/1000 wird als Fehler gemeldet'
+    check('Validator: DST-Block ausserhalb Spieltage -> error', t14_validator_dst_outside_range)
+
+    def t14_validator_blocked_unknown_team():
+        """Sperrtag fuer unbekanntes Team -> warning."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, blocked={'Phantom': [1, 2]})
+        issues = _validate_cli({'VX': cfg})
+        assert _has_warn(issues, 'Phantom'), f'erwartet Phantom-Warning, got {issues}'
+        return 'Sperrtag fuer unbekanntes Team -> Warnung'
+    check('Validator: Sperrtag-Team unbekannt -> warning', t14_validator_blocked_unknown_team)
+
+    def t14_validator_blocked_outside_range():
+        """Sperrtag-Spieltag ausserhalb Range -> warning."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, blocked={'Hamburg': [1, 99]})
+        issues = _validate_cli({'VX': cfg})
+        assert _has_warn(issues, 'liegen außerhalb'), f'erwartet outside-Warning, got {issues}'
+        return 'Sperrtag-Spieltag 99 erkannt als ausserhalb'
+    check('Validator: Sperrtag-Tag ausserhalb Range -> warning', t14_validator_blocked_outside_range)
+
+    def t14_validator_blocked_all_days():
+        """Alle Spieltage gesperrt fuer ein Team -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6,
+                       blocked={'Hamburg': list(range(1, 11))})
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'Alle'), f'erwartet all-blocked-Error, got {issues}'
+        return 'Alle 10 Spieltage gesperrt -> Fehler'
+    check('Validator: alle Spieltage gesperrt -> error', t14_validator_blocked_all_days)
+
+    def t14_validator_blocked_majority():
+        """>50% Spieltage gesperrt -> warning."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6,
+                       blocked={'Hamburg': [1, 2, 3, 4, 5, 6]})  # 6 von 10
+        issues = _validate_cli({'VX': cfg})
+        assert _has_warn(issues, 'Mehr als'), f'erwartet majority-Warning, got {issues}'
+        return '6/10 Spieltage gesperrt -> Warnung'
+    check('Validator: >50% gesperrt -> warning', t14_validator_blocked_majority)
+
+    def t14_validator_pin_unknown_team():
+        """Pflichtspiel mit unbekanntem Team -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6,
+                       pinned=[{'teamA': 'Phantom', 'teamB': 'Hamburg', 'day': 1, 'home': 'Hamburg'}])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'Phantom'), f'erwartet Phantom-Error, got {issues}'
+        return 'Pflichtspiel mit unbekanntem teamA -> Fehler'
+    check('Validator: Pin-Team unbekannt -> error', t14_validator_pin_unknown_team)
+
+    def t14_validator_pin_self_play():
+        """Pflichtspiel team_a == team_b -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6,
+                       pinned=[{'teamA': 'Hamburg', 'teamB': 'Hamburg', 'day': 1, 'home': 'Hamburg'}])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'sich selbst'), f'erwartet self-play-Error, got {issues}'
+        return 'Hamburg gegen sich selbst -> Fehler'
+    check('Validator: Pin Self-Play -> error', t14_validator_pin_self_play)
+
+    def t14_validator_pin_invalid_day():
+        """Pflichtspiel an Tag 99 (existiert nicht) -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6,
+                       pinned=[{'teamA': 'Hamburg', 'teamB': 'Bremen',
+                                'day': 99, 'home': 'Hamburg'}])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'ST99'), f'erwartet day-Error, got {issues}'
+        return 'Pin auf ST 99 -> Fehler'
+    check('Validator: Pin ungueltiger Spieltag -> error', t14_validator_pin_invalid_day)
+
+    def t14_validator_pin_invalid_day_type():
+        """Pflichtspiel mit nicht-numerischem Tag -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6,
+                       pinned=[{'teamA': 'Hamburg', 'teamB': 'Bremen',
+                                'day': 'abc', 'home': 'Hamburg'}])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'abc'), f'erwartet type-Error, got {issues}'
+        return 'Pin day="abc" -> Fehler'
+    check('Validator: Pin nicht-numerischer Tag -> error', t14_validator_pin_invalid_day_type)
+
+    def t14_validator_round1_duplicate_pin():
+        """n_rounds=1, gleiche Paarung 2x -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, n_rounds=1,
+                       pinned=[
+                           {'teamA': 'Hamburg', 'teamB': 'Bremen', 'day': 1, 'home': 'Hamburg'},
+                           {'teamA': 'Hamburg', 'teamB': 'Bremen', 'day': 3, 'home': 'Bremen'},
+                       ])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'mehrfach'), f'erwartet duplicate-Error, got {issues}'
+        return 'n_rounds=1 + doppelte Paarung -> Fehler'
+    check('Validator: n_rounds=1 doppelter Pin -> error', t14_validator_round1_duplicate_pin)
+
+    def t14_validator_round2_same_round_pin():
+        """n_rounds=2, gleiche Paarung 2x in SELBER Runde -> error (B-M2)."""
+        # n_md=10, round_len=5 -> ST1+ST3 sind beide in Runde 1.
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, n_rounds=2,
+                       pinned=[
+                           {'teamA': 'Hamburg', 'teamB': 'Bremen', 'day': 1, 'home': 'Hamburg'},
+                           {'teamA': 'Hamburg', 'teamB': 'Bremen', 'day': 3, 'home': 'Bremen'},
+                       ])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'mehrfach'), f'erwartet same-round-Error, got {issues}'
+        return 'n_rounds=2 + 2 Pins fuer Paarung in Runde 1 -> Fehler'
+    check('Validator: n_rounds=2 Pin in derselben Runde -> error (B-M2)', t14_validator_round2_same_round_pin)
+
+    def t14_validator_pin_too_many():
+        """Mehr Pins als Spiele in der Saison -> error."""
+        # 6 Teams, n_rounds=1 -> 15 Spiele. Wir machen 20 (fiktiv) Pins.
+        many = [
+            {'teamA': 'Hamburg', 'teamB': 'Bremen', 'day': (i % 5) + 1,
+             'home': 'Hamburg'} for i in range(20)
+        ]
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, n_rounds=1, pinned=many)
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, '20 Pflichtspiele'), f'erwartet pin-count-Error, got {issues}'
+        return '20 Pins fuer 15 mögliche Spiele -> Fehler'
+    check('Validator: zu viele Pins -> error', t14_validator_pin_too_many)
+
+    def t14_validator_pin_too_many_warning():
+        """>40% aller Spiele gepinnt -> warning."""
+        # 6 Teams, n_rounds=2 -> 30 Spiele. 13 verschiedene Paarungen pinnen (>40%).
+        pins = []
+        cnt = 0
+        for i, a in enumerate(TEAMS6):
+            for j, b in enumerate(TEAMS6):
+                if j <= i: continue
+                pins.append({'teamA': a, 'teamB': b,
+                             'day': (cnt % 9) + 1, 'home': a})
+                cnt += 1
+                if cnt >= 13: break
+            if cnt >= 13: break
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, n_rounds=2, pinned=pins)
+        issues = _validate_cli({'VX': cfg})
+        assert _has_warn(issues, '> 40'), f'erwartet >40%-Warning, got {issues}'
+        return '13/30 Pins (>40%) -> Warnung'
+    check('Validator: >40% Pins -> warning', t14_validator_pin_too_many_warning)
+
+    def t14_validator_forced_home_unknown_team():
+        """Pflichtheim fuer unbekanntes Team -> warning."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, forced_home={'Phantom': [1, 2]})
+        issues = _validate_cli({'VX': cfg})
+        assert _has_warn(issues, 'Phantom'), f'erwartet Phantom-Warning, got {issues}'
+        return 'Pflichtheim fuer unbekanntes Team -> Warnung'
+    check('Validator: Pflichtheim Team unbekannt -> warning', t14_validator_forced_home_unknown_team)
+
+    def t14_validator_forced_home_outside_range():
+        """Pflichtheim Tag ausserhalb Range -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, forced_home={'Hamburg': [99]})
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'existieren nicht'), f'erwartet outside-Error, got {issues}'
+        return 'Pflichtheim ST 99 -> Fehler'
+    check('Validator: Pflichtheim ausserhalb Range -> error', t14_validator_forced_home_outside_range)
+
+    def t14_validator_forced_home_dst_blocked():
+        """DST + ein Tag forced_home + anderer Tag blocked -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6,
+                       dst_blocks=[(3, 4)],
+                       forced_home={'Hamburg': [3]},
+                       blocked={'Hamburg': [4]})
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'DST-Block ST3/ST4'), f'erwartet dst+blocked+forced-Error, got {issues}'
+        return 'DST 3/4 + Pflichtheim 3 + Sperrtag 4 -> Fehler'
+    check('Validator: DST + forced_home + blocked -> error', t14_validator_forced_home_dst_blocked)
+
+    def t14_validator_forced_home_pin_away():
+        """Pflichtheim Tag X + Pin mit Team als Auswaerts -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6,
+                       forced_home={'Hamburg': [1]},
+                       pinned=[{'teamA': 'Hamburg', 'teamB': 'Bremen',
+                                'day': 1, 'home': 'Bremen'}])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'erzwingt Auswärtsspiel'), f'erwartet pin-away-Error, got {issues}'
+        return 'Hamburg Pflichtheim ST1 + Pin Bremen home -> Fehler'
+    check('Validator: forced_home + pin away -> error', t14_validator_forced_home_pin_away)
+
+    def t14_validator_n_md_zero():
+        """n_md=0 -> error (Pfad bei kaputter Format-Berechnung)."""
+        # Wir basteln das direkt mit ctx, weil make_cfg n_md != 0 garantiert.
+        from spielplan_multi.config_validator import _LeagueValCtx, _validate_league_common
+        issues = []
+        _err = lambda lid, msg: issues.append({'level': 'error', 'lid': lid, 'msg': msg})
+        _warn = lambda lid, msg: issues.append({'level': 'warning', 'lid': lid, 'msg': msg})
+        ctx = _LeagueValCtx(
+            lid='X', name_md='X', teams=['A', 'B'], n_md=0, n_rounds=1, gpd=1,
+            n_active=0, dst_blocks=[], blocked={}, forced_home={}, pinned=[], dist=None,
+        )
+        ok = _validate_league_common(ctx, _err, _warn)
+        assert not ok, 'erwartet Skip-Return False'
+        assert _has_err(issues, 'Spieltag-Berechnung'), f'erwartet n_md=0-Error, got {issues}'
+        return 'n_md=0 -> Fehler + return False'
+    check('Validator: n_md=0 -> error + skip', t14_validator_n_md_zero)
+
+    def t14_validator_n_too_few():
+        """n<2 -> error (Pfad bei einer-Team-Liga)."""
+        from spielplan_multi.config_validator import _LeagueValCtx, _validate_league_common
+        issues = []
+        _err = lambda lid, msg: issues.append({'level': 'error', 'lid': lid, 'msg': msg})
+        _warn = lambda lid, msg: issues.append({'level': 'warning', 'lid': lid, 'msg': msg})
+        ctx = _LeagueValCtx(
+            lid='X', name_md='X', teams=['Solo'], n_md=1, n_rounds=1, gpd=1,
+            n_active=0, dst_blocks=[], blocked={}, forced_home={}, pinned=[], dist=None,
+        )
+        ok = _validate_league_common(ctx, _err, _warn)
+        assert not ok, 'erwartet Skip-Return False'
+        assert _has_err(issues, 'Mindestens 2'), f'erwartet n<2-Error, got {issues}'
+        return 'n=1 -> Fehler + return False'
+    check('Validator: n<2 -> error + skip', t14_validator_n_too_few)
+
+    def t14_validator_dist_matrix_nan():
+        """Distanzmatrix mit NaN -> warning."""
+        dist_nan = np.array(DIST6)  # float
+        dist_nan[0, 1] = np.nan
+        cfg = make_cfg('VX', TEAMS6, dist=dist_nan)
+        issues = _validate_cli({'VX': cfg})
+        assert _has_warn(issues, 'Distanzmatrix'), f'erwartet NaN-Warning, got {issues}'
+        return 'NaN in Distanzmatrix -> Warnung'
+    check('Validator: Distanzmatrix NaN -> warning', t14_validator_dist_matrix_nan)
+
+    def t14_validator_dist_matrix_empty():
+        """Distanzmatrix mit Summe 0 -> warning."""
+        cfg = make_cfg('VX', TEAMS6, dist=np.zeros((6, 6)))
+        issues = _validate_cli({'VX': cfg})
+        assert _has_warn(issues, 'Distanzmatrix'), f'erwartet empty-Warning, got {issues}'
+        return 'Distanzmatrix Summe=0 -> Warnung'
+    check('Validator: Distanzmatrix leer -> warning', t14_validator_dist_matrix_empty)
+
+    def t14_validator_pin_conflicting_home():
+        """Zwei Pins fuer dieselbe Paarung + Tag, aber unterschiedliches Heimrecht -> error."""
+        cfg = make_cfg('VX', TEAMS6, dist=DIST6, n_rounds=2,
+                       pinned=[
+                           {'teamA': 'Hamburg', 'teamB': 'Bremen', 'day': 1, 'home': 'Hamburg'},
+                           {'teamA': 'Hamburg', 'teamB': 'Bremen', 'day': 1, 'home': 'Bremen'},
+                       ])
+        issues = _validate_cli({'VX': cfg})
+        assert _has_err(issues, 'widersprüchliches'), f'erwartet conflict-Error, got {issues}'
+        return 'Zwei Pins gleicher Tag, anderes Heimrecht -> Fehler'
+    check('Validator: Pin Heimrecht-Konflikt -> error', t14_validator_pin_conflicting_home)
+
+    def t14_validator_ui_calendar_incomplete():
+        """validate(): Kalender enthaelt weniger Spieltage als n_md -> warning."""
+        leagues = {'VX': {'name': 'Test', 'teams': [('Hamburg', 'Hamburg'),
+                                                    ('Bremen', 'Bremen'),
+                                                    ('Hannover', 'Hannover'),
+                                                    ('Dortmund', 'Dortmund')]}}
+        kw_compat = {1: {'VX': [1, 2]}}  # nur 2 Spieltage aus 6 (n=4, n_rounds=2)
+        issues = _validate_ui(
+            ['VX'], leagues, {}, {}, {}, {'VX': DIST6[:4, :4]},
+            kw_compat, {},
+            calc_n_matchdays=lambda ld: 6,
+            get_n_rounds_gpd=lambda ld: (2, 1),
+        )
+        assert _has_warn(issues, 'Kalender enthält'), f'erwartet cal-Warning, got {issues}'
+        return 'Kalender 2/6 Tage -> Warnung'
+    check('Validator (UI): Kalender unvollstaendig -> warning', t14_validator_ui_calendar_incomplete)
+
+    def t14_validator_ui_cohome_no_calendar():
+        """validate(): Co-Home-Verein, dessen Liga keinen Kalender hat -> warning."""
+        leagues = {
+            'A': {'name': 'Liga A', 'teams': [('Hamburg', 'Hamburg'),
+                                              ('Bremen', 'Bremen'),
+                                              ('Hannover', 'Hannover'),
+                                              ('Dortmund', 'Dortmund')]},
+            'B': {'name': 'Liga B', 'teams': [('Koeln', 'Koeln'),
+                                              ('Frankfurt', 'Frankfurt'),
+                                              ('Berlin', 'Berlin'),
+                                              ('Muenchen', 'Muenchen')]},
+        }
+        kw_compat = {1: {'A': [1, 2, 3, 4, 5, 6]}}  # Liga B fehlt
+        clubs = {'Verein-Multi': {'A': 'Hamburg', 'B': 'Koeln'}}
+        issues = _validate_ui(
+            ['A', 'B'], leagues, {}, {}, {}, {'A': DIST6[:4, :4], 'B': DIST6[:4, :4]},
+            kw_compat, clubs,
+            calc_n_matchdays=lambda ld: 6,
+            get_n_rounds_gpd=lambda ld: (2, 1),
+        )
+        assert _has_warn(issues, 'Co-Home'), f'erwartet cohome-Warning, got {issues}'
+        return 'Co-Home + Liga B ohne Kalender -> Warnung'
+    check('Validator (UI): Co-Home Liga ohne Kalender -> warning', t14_validator_ui_cohome_no_calendar)
+
+    # =========================================================================
     # ZUSAMMENFASSUNG
     # =========================================================================
     print('\n' + '=' * 70)

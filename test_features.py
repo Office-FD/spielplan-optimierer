@@ -551,6 +551,256 @@ def main():
         return 'Leeres Dict -> 0 Datenzeilen'
     check('build_hall_schedule mit leerem Dict stuerzt nicht ab', t_hall_empty_results)
 
+    # ── Feature 7: Gesamtuebersicht-Excel (build_overview_excel) ─────────────
+    print('\n--- Feature 7: Gesamtuebersicht-Excel (build_overview_excel) ---')
+
+    from spielplan_multi.excel_output import build_overview_excel
+
+    def t_overview_single_liga_no_calendar():
+        """build_overview_excel ohne Kalender + ohne Co-Home -> Workbook mit Spielplan-Uebersicht."""
+        wb = build_overview_excel({'TEST': result}, clubs={}, kw_compat={})
+        assert wb is not None
+        assert 'Spielplan-Uebersicht' in wb.sheetnames, f'Sheets: {wb.sheetnames}'
+        return f'Sheets: {wb.sheetnames}'
+    check('build_overview_excel: Single-Liga ohne Kalender', t_overview_single_liga_no_calendar)
+
+    def t_overview_with_calendar():
+        """build_overview_excel mit kw_compat -> Datum erscheint in Zeilen."""
+        # CAL = {1..6 -> kw 37-42}. Wir bauen eine kw_compat-Variante daraus.
+        kw_compat = {37: {'TEST': [1]}, 38: {'TEST': [2]}, 39: {'TEST': [3]},
+                     40: {'TEST': [4]}, 41: {'TEST': [5]}, 42: {'TEST': [6]}}
+        wb = build_overview_excel({'TEST': result}, clubs={}, kw_compat=kw_compat)
+        ws = wb['Spielplan-Uebersicht']
+        # Mindestens einige Datenzeilen + 3 Headerzeilen
+        rows = list(ws.iter_rows(values_only=True))
+        non_empty = [r for r in rows if any(c is not None and str(c).strip() for c in r)]
+        assert len(non_empty) > 3, f'Zu wenige Zeilen: {len(non_empty)}'
+        return f'{len(non_empty)} gefuellte Zeilen, {len(rows[0])} Spalten'
+    check('build_overview_excel: mit Kalender erzeugt Datenzeilen', t_overview_with_calendar)
+
+    def t_overview_saveable():
+        """Workbook ist speicherbar als Bytes."""
+        wb = build_overview_excel({'TEST': result}, clubs={}, kw_compat={})
+        buf = io.BytesIO()
+        wb.save(buf)
+        assert buf.tell() > 0, 'Excel-Bytes sind leer'
+        return f'{buf.tell()} Bytes'
+    check('build_overview_excel: speicherbar (kein TypeError)', t_overview_saveable)
+
+    def t_overview_multi_liga():
+        """Multi-Liga: jede Liga bekommt 2 Spalten (Heim + Gast) im Header."""
+        # Zweite Liga aufbauen
+        cfg2 = make_cfg('L2', TEAMS, dist=DIST, calendar=CAL)
+        r2 = solve_league_phase1(cfg2, time_limit=20, seed=42)
+        assert r2 is not None
+        r2.cfg = cfg2
+        wb = build_overview_excel({'TEST': result, 'L2': r2}, clubs={}, kw_compat={})
+        ws = wb['Spielplan-Uebersicht']
+        # Header-Zeile 2 (1-indexiert) sollte 2 Liga-Namen (jeweils 2 Spalten gemergt) enthalten
+        header2 = [c.value for c in ws[2]]
+        liga_count = sum(1 for v in header2 if v and isinstance(v, str) and v.startswith('Liga'))
+        assert liga_count == 2, f'erwartet 2 Liga-Header, got {liga_count}: {header2}'
+        return f'Headerzeile 2: {liga_count} Liga-Namen erkannt'
+    check('build_overview_excel: Multi-Liga (2 Ligen)', t_overview_multi_liga)
+
+    def t_overview_with_cohome():
+        """Co-Home-Sheet wird erzeugt wenn clubs gesetzt sind."""
+        clubs = {'Verein-Multi': {'TEST': 'Alpha'}}
+        wb = build_overview_excel({'TEST': result}, clubs=clubs, kw_compat={})
+        # Co-Home-Sheet existiert (oder ist als Bezeichnung im Workbook drin)
+        assert 'Spielplan-Uebersicht' in wb.sheetnames
+        # Mindestens kein Crash. Co-Home-Sheet entsteht nur fuer >=2 Ligen.
+        return f'Sheets: {wb.sheetnames}'
+    check('build_overview_excel: mit clubs-Definition (Single-Liga, kein Crash)', t_overview_with_cohome)
+
+    def t_overview_empty_results():
+        """Leeres results-Dict -> Workbook ohne Datenzeilen, kein Crash."""
+        wb = build_overview_excel({}, clubs={}, kw_compat={})
+        assert wb is not None
+        assert 'Spielplan-Uebersicht' in wb.sheetnames
+        return 'Leeres Dict -> Workbook ohne Crash'
+    check('build_overview_excel: leeres results-Dict', t_overview_empty_results)
+
+    # ── Feature 8: Rahmenterminplan-Parser (calendar_parser) ─────────────────
+    print('\n--- Feature 8: Rahmenterminplan-Parser (calendar_parser) ---')
+
+    from spielplan_multi.calendar_parser import (
+        _parse_cell, _to_date_str, _extract_kw,
+        parse_rahmenterminplan, preview_columns
+    )
+
+    def t_parse_cell_einzel():
+        assert _parse_cell(7) == [7]
+        assert _parse_cell('7') == [7]
+        assert _parse_cell(' 12 ') == [12]
+        return '7 -> [7]; "12 " -> [12]'
+    check('_parse_cell: Einzelspieltag', t_parse_cell_einzel)
+
+    def t_parse_cell_doppel():
+        assert _parse_cell('6/7') == [6, 7]
+        assert _parse_cell('6 & 7') == [6, 7]
+        assert _parse_cell('6 - 7') == [6, 7]
+        assert _parse_cell('7/6') == [6, 7], 'Sortierung min/max'
+        return 'Doppelspieltag mit /, &, - + Sortierung'
+    check('_parse_cell: Doppelspieltag mit /, &, -', t_parse_cell_doppel)
+
+    def t_parse_cell_invalid():
+        assert _parse_cell(None) == []
+        assert _parse_cell(float('nan')) == []
+        assert _parse_cell('') == []
+        assert _parse_cell('abc') == []
+        assert _parse_cell('5/5') == [5], '5/5 ist faktisch Einzelspieltag'
+        return 'None/NaN/leer/"abc" -> []; "5/5" -> [5]'
+    check('_parse_cell: Edge-Cases', t_parse_cell_invalid)
+
+    def t_to_date_str():
+        assert _to_date_str(None) == ''
+        assert _to_date_str(float('nan')) == ''
+        assert _to_date_str('07.09.2026') == '07.09.2026'
+        # date-Objekt hat .date()-Methode (datetime) — date allein nicht
+        import datetime as dt
+        d = dt.datetime(2026, 9, 7)
+        assert _to_date_str(d) == '2026-09-07'
+        return 'None/NaN -> "" ; datetime -> isoformat'
+    check('_to_date_str: Edge-Cases + datetime', t_to_date_str)
+
+    def t_extract_kw_int():
+        assert _extract_kw(37) == 37
+        assert _extract_kw('38') == 38
+        return 'int/str -> kw'
+    check('_extract_kw: int und numerischer string', t_extract_kw_int)
+
+    def t_extract_kw_text():
+        assert _extract_kw('KW 37') == 37
+        assert _extract_kw('kw 38 07.09. - 13.09.2026') == 38
+        assert _extract_kw('Vorbereitung') is None
+        assert _extract_kw(None) is None
+        assert _extract_kw(float('nan')) is None
+        return '"KW 37"/"kw 38..." -> int; sonst None'
+    check('_extract_kw: Text mit "KW ##"', t_extract_kw_text)
+
+    def _build_synth_rahmenplan(path, rows):
+        """Synthetic Rahmenterminplan-Excel: kw_col=0, date_from=1, date_to=2, liga_cols ab 3."""
+        import openpyxl as opx
+        wb = opx.Workbook()
+        ws = wb.active
+        for r_idx, row in enumerate(rows, start=1):
+            for c_idx, val in enumerate(row, start=1):
+                ws.cell(r_idx, c_idx, value=val)
+        wb.save(path)
+
+    def t_parse_rahmenterminplan_basic():
+        """Synthetic Excel mit 3 KWs, eine Liga, 1 DST-Block."""
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        try:
+            xlsx = os.path.join(tmpdir, 'cal.xlsx')
+            _build_synth_rahmenplan(xlsx, [
+                ['KW', 'von', 'bis', 'LigaA'],
+                [37, '07.09.2026', '13.09.2026', 1],
+                [38, '14.09.2026', '20.09.2026', 2],
+                [39, '21.09.2026', '27.09.2026', '3/4'],
+                [40, '28.09.2026', '04.10.2026', 5],
+            ])
+            res = parse_rahmenterminplan(xlsx, {'LigaA': 3}, kw_col=0,
+                                          date_from_col=1, date_to_col=2)
+            assert res is not None, 'parse_rahmenterminplan gab None zurueck'
+            assert 'spieltage' in res and 'dst_blocks' in res and 'kw_compat' in res
+            spieltage = res['spieltage']['LigaA']
+            assert set(spieltage.keys()) == {1, 2, 3, 4, 5}, \
+                f'Spieltage: {sorted(spieltage.keys())}'
+            assert spieltage[1]['kw'] == 37
+            assert spieltage[3]['kw'] == 39 and spieltage[4]['kw'] == 39
+            dst = res['dst_blocks']['LigaA']
+            assert (3, 4) in dst, f'erwartet (3,4), got {dst}'
+            return f'5 Spieltage, 1 DST-Block (3,4)'
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    check('parse_rahmenterminplan: 5 Spieltage + 1 DST-Block', t_parse_rahmenterminplan_basic)
+
+    def t_parse_rahmenterminplan_multi_liga():
+        """Synthetic Excel mit 2 Ligen, einzelne Spalten."""
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        try:
+            xlsx = os.path.join(tmpdir, 'cal.xlsx')
+            _build_synth_rahmenplan(xlsx, [
+                ['KW', 'von', 'bis', 'LigaA', 'LigaB'],
+                [37, '07.09.2026', '13.09.2026', 1,   None],
+                [38, '14.09.2026', '20.09.2026', 2,   1],
+                [39, '21.09.2026', '27.09.2026', '3/4', 2],
+            ])
+            res = parse_rahmenterminplan(xlsx, {'LigaA': 3, 'LigaB': 4},
+                                          kw_col=0, date_from_col=1, date_to_col=2)
+            assert set(res['spieltage']['LigaA'].keys()) == {1, 2, 3, 4}
+            assert set(res['spieltage']['LigaB'].keys()) == {1, 2}
+            assert res['dst_blocks']['LigaA'] == [(3, 4)]
+            assert res['dst_blocks']['LigaB'] == []
+            return 'LigaA: 4 ST + 1 DST, LigaB: 2 ST + 0 DST'
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    check('parse_rahmenterminplan: 2 Ligen', t_parse_rahmenterminplan_multi_liga)
+
+    def t_parse_rahmenterminplan_file_not_found():
+        """Nicht-existente Datei -> None."""
+        res = parse_rahmenterminplan('/nonexistent/path/foo.xlsx', {'A': 0})
+        assert res is None
+        return 'Nicht-existente Datei -> None'
+    check('parse_rahmenterminplan: Datei fehlt -> None', t_parse_rahmenterminplan_file_not_found)
+
+    def t_parse_rahmenterminplan_kw_compat():
+        """kw_compat-Struktur korrekt aufgebaut."""
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        try:
+            xlsx = os.path.join(tmpdir, 'cal.xlsx')
+            _build_synth_rahmenplan(xlsx, [
+                ['KW', 'von', 'bis', 'LigaA'],
+                [37, '07.09.2026', '13.09.2026', 1],
+                [38, '14.09.2026', '20.09.2026', '2/3'],
+            ])
+            res = parse_rahmenterminplan(xlsx, {'LigaA': 3}, kw_col=0,
+                                          date_from_col=1, date_to_col=2)
+            kw_compat = res['kw_compat']
+            assert 37 in kw_compat and 38 in kw_compat
+            assert kw_compat[37]['LigaA'] == [1]
+            assert kw_compat[38]['LigaA'] == [2, 3]
+            return f'KW 37: [1], KW 38: [2,3]'
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    check('parse_rahmenterminplan: kw_compat-Struktur', t_parse_rahmenterminplan_kw_compat)
+
+    def t_preview_columns():
+        """preview_columns liest die ersten n Zeilen ein."""
+        import tempfile, os
+        tmpdir = tempfile.mkdtemp()
+        try:
+            xlsx = os.path.join(tmpdir, 'cal.xlsx')
+            _build_synth_rahmenplan(xlsx, [
+                ['KW', 'von', 'bis', 'LigaA'],
+                [37, '07.09.', '13.09.', 1],
+                [38, '14.09.', '20.09.', 2],
+                [39, '21.09.', '27.09.', 3],
+            ])
+            df = preview_columns(xlsx, n_rows=3)
+            assert df is not None, 'preview_columns gab None zurueck'
+            assert len(df) >= 3, f'erwartet >= 3 Zeilen, got {len(df)}'
+            return f'{len(df)} Zeilen geladen'
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+    check('preview_columns: liest erste n Zeilen', t_preview_columns)
+
+    def t_preview_columns_nonexistent():
+        """Nicht-existente Datei -> None."""
+        df = preview_columns('/nonexistent/foo.xlsx')
+        assert df is None
+        return 'Nicht-existente Datei -> None'
+    check('preview_columns: fehlende Datei -> None', t_preview_columns_nonexistent)
+
     _summarize()
 
 

@@ -29,3 +29,9 @@ installer/Output/
 
 # Release-Zip (wird von build_release.py erzeugt, nicht einchecken)
 app-files.zip
+
+# Coverage-Artefakte
+.coverage
+.coverage.*
+coverage_html/
+coverage.xml

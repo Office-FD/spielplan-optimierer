@@ -136,7 +136,11 @@ def _validate_league_common(
     for pm in ctx.pinned:
         if not pm.get('home'):
             continue
-        key = (frozenset([pm.get('teamA'), pm.get('teamB')]), int(pm.get('day', 0)))
+        try:
+            _pin_day = int(pm.get('day', 0))
+        except (TypeError, ValueError):
+            continue  # ungueltiger day-Wert wurde bereits oben als Fehler erfasst
+        key = (frozenset([pm.get('teamA'), pm.get('teamB')]), _pin_day)
         if key in pin_key and pin_key[key] != pm.get('home'):
             _err(lid, f'{name}: Pflichtspiel '
                        f'{pm.get("teamA", "?")} – {pm.get("teamB", "?")} '

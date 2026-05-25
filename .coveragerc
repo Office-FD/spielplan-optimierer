@@ -1,0 +1,56 @@
+# Coverage-Konfiguration fuer Spielplan-Optimierer
+#
+# Da unser Test-Aufbau Subprocess-Skripte verwendet (test_pytest_runner.py
+# ruft test_smoke / test_features / test_distances / test_all via
+# subprocess.run() auf), nutzen wir `parallel = True` und kombinieren die
+# einzelnen .coverage-Files am Ende.
+#
+# Lokaler Lauf (siehe run_coverage.py):
+#   python -m coverage erase
+#   python -m coverage run --parallel-mode test_smoke.py
+#   python -m coverage run --parallel-mode test_features.py
+#   python -m coverage run --parallel-mode test_distances.py
+#   python -m coverage run --parallel-mode test_all.py
+#   python -m coverage combine
+#   python -m coverage report
+#   python -m coverage html
+
+[run]
+branch = True
+parallel = True
+# `include` filtert auf konkrete Dateien (im Gegensatz zu `source`, das nur
+# Paket-Namen / Pfade akzeptiert). Damit messen wir genau die App-Module
+# und nichts aus .venv, ortools, pandas etc.
+include =
+    spielplan_multi/*.py
+    app.py
+    launcher.py
+    build_release.py
+
+omit =
+    # Test-Skripte selbst nicht messen (sie sind die Quelle, nicht das Ziel)
+    test_*.py
+    # Auxiliary / Wrapper
+    _worker.py
+
+[report]
+# Zeige fehlende Zeilen + sortiere nach niedrigster Coverage
+show_missing = True
+sort = Cover
+skip_empty = True
+precision = 1
+
+exclude_lines =
+    # Standard-Pragmas
+    pragma: no cover
+    # Defensive Programmierung (nicht relevant fuer Coverage)
+    raise NotImplementedError
+    raise AssertionError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    # Logging-/Debug-Code (oft schwer testbar)
+    \.\.\.
+
+[html]
+directory = coverage_html
+title = Spielplan-Optimierer Test-Coverage

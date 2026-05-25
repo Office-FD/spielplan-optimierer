@@ -1,0 +1,47 @@
+name: Coverage
+
+# Misst Test-Coverage mit coverage.py.
+# Laeuft NUR auf push:main (nicht auf PRs), um die CI nicht zu verdoppeln.
+# Test-Gating macht weiterhin test.yml.
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:  # erlaubt manuelles Triggern
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install coverage
+
+      - name: Coverage messen
+        run: python run_coverage.py --html
+
+      - name: Coverage-Report (Übersicht)
+        if: always()
+        run: python -m coverage report
+
+      - name: HTML-Report als Artifact hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: coverage_html/
+          retention-days: 30
