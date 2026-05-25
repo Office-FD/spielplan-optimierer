@@ -764,7 +764,7 @@ Fix: Fallbacks entfernen, da unerreichbar. Oder mit `ValueError` ersetzen, damit
 Bei `n_seeds > 1` und parallelem Lauf produzieren mehrere Worker `[BEST] cfg.league_id obj=...`-Zeilen, die nicht unterscheidbar sind. Beim Debug ist unklar, welcher Seed welche Lösung gefunden hat.
 Fix: `_ProgressCallback`-Konstruktor um `seed` erweitern oder Liga-ID um Seed ergänzen: `f'[BEST] {lid}#s{seed} obj=...'`.
 
-**Status:** Teilweise erledigt – A-H1 + A-H2 in v1.3.0-rc1 gefixt, A-M2 in v1.3.0 gefixt, A-M1 in v1.3.1 gefixt (`needs_bye`-konditionalisierte DST-Nachbarschafts-Schranke); A-L1 … A-L5 noch offen (Sprint 5). Wichtige Erkenntnis aus dem A-H2-Fix: SA überspringt DST-Tage komplett, daher ist `dst_eff_total` während SA konstant — der Fix ergänzt den Term im `_objective` nur für Wert-Konsistenz zum Phase-2-Objective.
+**Status:** Erledigt (v1.3.0-rc1, v1.3.0, v1.3.1, v1.4.1) – alle A-Befunde behoben. Wichtige Erkenntnis aus dem A-H2-Fix: SA überspringt DST-Tage komplett, daher ist `dst_eff_total` während SA konstant — der Fix ergänzt den Term im `_objective` nur für Wert-Konsistenz zum Phase-2-Objective.
 
 ---
 
@@ -863,7 +863,7 @@ Fix: `if len(pins) > total_games: err(lid, f'**{name}**: {len(pins)} Pflichtspie
 Format-1-Erkennung: `if all(t.strip().lower() in col_names for t in teams)`. Wenn z.B. 7 von 8 Team-Namen im Header matchen (1 Tippfehler), wird `all()` False → Format 2 wird probiert. Format 2 erwartet von/nach/km – nicht vorhanden → finale „Dateiformat nicht erkannt"-Fehlermeldung. Nutzer erfährt nicht, dass nur ein Team gefehlt hat.
 Fix: Falls `>=80% Teams im Header matchen` → spezifischere Warnung: „Format 1 erkannt, aber Team-Name(n) X, Y nicht in Header gefunden – bitte Spaltennamen prüfen.".
 
-**Status:** Teilweise erledigt – B-M1 + B-M2 + B-M3 in v1.3.0 gefixt; B-L1 … B-L8 noch offen (Sprint 5).
+**Status:** Großteils erledigt – B-M1 + B-M2 + B-M3 in v1.3.0 gefixt; B-L1, B-L2, B-L3, B-L5, B-L6, B-L7, B-L8 in v1.4.1 gefixt; **B-L4 (Validator-Konsolidierung) als Refactor zurückgestellt** – größerer Umbau, nicht im Sprint 5 vorgesehen.
 
 ---
 
@@ -936,7 +936,7 @@ Z.882: nicht-numerische KWs werden mit 999 sortiert, landen am Ende. Hardcoded M
 Z.1061: `if len(entries) < 2: continue`. Wenn ein Verein in 3 Ligen konfiguriert ist, aber nur 1 Liga ein gültiges Result hat, wird ohne Hinweis übersprungen. Auch bei 2 valid + 1 ohne Result wird Co-Home angezeigt, aber ohne Erklärung warum die dritte Liga fehlt.
 Fix: Am Ende des Loops einen Hinweis ausgeben, wenn Vereine wegen fehlender Liga-Results übersprungen wurden.
 
-**Status:** Teilweise erledigt – C-M1 + C-M2 in v1.3.0-rc1 gefixt, C-H1 in v1.3.0 gefixt (Guard + UI-Disabled); C-M3, C-L1 … C-L5 noch offen (Sprint 5).
+**Status:** Erledigt – C-M1 + C-M2 in v1.3.0-rc1, C-H1 in v1.3.0, C-M3 + C-L1 … C-L5 in v1.4.1 gefixt.
 
 ---
 
@@ -1006,7 +1006,7 @@ Fix: `contextlib.redirect_stdout(_buf)` als context-manager nutzen — funktiona
 Z.3340-3342: `except Exception: pass` schluckt Excel-Build-Fehler still. Z.3371: `S.opt_done = True`. Der Nutzer landet in Step 8 mit `opt_done=True`, aber Excel-Download-Buttons funktionieren nicht (kein `excel_bytes`).
 Fix: Mindestens warnen wenn `len(S.excel_bytes) < len(S.results)`, oder Re-Generate-Button anbieten.
 
-**Status:** Teilweise erledigt – D-M4 in v1.3.0 gefixt, D-M1 + D-M2 + D-M3 in v1.3.1 gefixt (Liga-Removal/Rename-State-Cleanup, host_slots Round-Trip); D-L1 … D-L7 noch offen (Sprint 5).
+**Status:** Großteils erledigt – D-M4 in v1.3.0, D-M1 + D-M2 + D-M3 in v1.3.1, D-L2 … D-L7 in v1.4.1 gefixt; **D-L1 (Liga-ID-Rename auf Button) zurückgestellt** – bewusste UX-Verhaltensänderung, gehört in eigene Iteration.
 
 ---
 
@@ -1062,7 +1062,7 @@ Fix: Beim Befüllen Severity merken (`{'level':'error|warn', 'msg': ...}`) und i
 Z.4396-4412: `for _tl in _time_lids` → `if _slots: ...` → Excel neu bauen. Wenn nur 1 von 4 Ligen geänderte Slots hat, werden trotzdem alle 4 Excels neu gebaut.
 Fix: Vor dem `_assign_game_times_fn` prüfen ob `_slots != res.game_times.get(d, [])` (oder vergleichbarer Identitäts-Check) und nur dann regenerieren.
 
-**Status:** Teilweise erledigt – E-M3 in v1.3.1 gefixt (Overview-Stale-Schutz); E-M1, E-M2, E-L1 … E-L7 noch offen (Sprint 5).
+**Status:** Erledigt – E-M3 in v1.3.1, E-M1 + E-M2 + E-L1 … E-L7 in v1.4.1 gefixt.
 
 ---
 
@@ -1127,7 +1127,7 @@ Fix: `uses: actions/checkout@<full-sha>` mit Kommentar `# v4`. Setzt regelmäßi
 Workflow läuft `build_release.py` und published. Keine Test-Ausführung. Defektes Coding-Standard-konformer Code könnte released werden.
 Fix: Vor `build_release.py` einen `pytest` oder `python test_smoke.py`-Step ergänzen. Tests müssen vorher CI-fähig gemacht werden (siehe Block G).
 
-**Status:** Teilweise erledigt – F-M2 in v1.3.1 gefixt (Tag-Validation vor Build); F-M1, F-L1 … F-L8 noch offen (Sprints 4/5).
+**Status:** Großteils erledigt – F-M2 in v1.3.1, F-L8 in v1.4.0 (Test-Gate), F-L1, F-L3, F-L4, F-L5, F-L6, F-L7 in v1.4.1 gefixt; **F-M1 (atomarer Update mit Rollback) und F-L2 (Update-Check in Background-Thread) zurückgestellt** – größere Refactors am Launcher.
 
 ---
 
@@ -1190,7 +1190,7 @@ Fix: `raw = {k: 5.0 for k in WEIGHT_SCALES}; w_scaled = {k: v * WEIGHT_SCALES[k]
 Verknüpft mit F-L8. test_all.py, test_smoke.py, test_distances.py, test_features.py existieren, werden aber im GitHub-Actions-Workflow nicht ausgeführt. Regressionen werden erst von einem manuellen Lauf gefangen.
 Fix: `release.yml` (oder neuer `.github/workflows/test.yml` für PRs) → pytest-Step. Vorab: test_*.py auf pytest-Kompatibilität prüfen (aktuell `sys.exit(1)` als Test-Failure-Indikator — pytest erwartet AssertionError).
 
-**Status:** Offen
+**Status:** Großteils erledigt – G-M2, G-M3, G-M4 + G-L4, G-L5, G-L6 + G-M1 in v1.4.0/v1.4.1 gefixt; **G-L1, G-L2, G-L3 (wizard.py Tuple → Dict-Refactor) zurückgestellt** – ist ein größerer Umbau, der mit B-L4 (Validator-Konsolidierung) gemeinsam in einem eigenen Refactor-Sprint angegangen werden sollte.
 
 ---
 

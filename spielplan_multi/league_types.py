@@ -54,14 +54,12 @@ class LeagueConfig:
             n_active = self.n_active_per_day if self.n_active_per_day > 0 else n
             G = max(1, n_active // K)
             total_matches = self.n_rounds * n * (n - 1) // 2
-            games_per_day = G * K * gpd // 2
-            return total_matches // games_per_day if games_per_day > 0 else self.n_rounds * (n - 1) // gpd
+            games_per_day = max(1, G * K * gpd // 2)
+            return total_matches // games_per_day
         # Stufe 1 oder Standard – allgemeine Formel, funktioniert auch bei ungerader Teamzahl
         n_active = self.n_active_per_day if self.n_active_per_day > 0 else n
-        games_per_day = n_active * gpd // 2
-        if games_per_day > 0:
-            return self.n_rounds * n * (n - 1) // 2 // games_per_day
-        return self.n_rounds * (n - 1) // gpd
+        games_per_day = max(1, n_active * gpd // 2)
+        return self.n_rounds * n * (n - 1) // 2 // games_per_day
 
     @property
     def hinrunde_end(self):
@@ -69,7 +67,10 @@ class LeagueConfig:
 
     @property
     def n_games_per_day(self):
-        return len(self.teams) * max(1, self.games_per_team_per_day) // 2
+        # Bei n_active_per_day > 0 (Spielfrei-Modus) spielen weniger Teams pro Tag,
+        # daher entsprechend weniger Spiele pro Tag.
+        n_active = self.n_active_per_day if self.n_active_per_day > 0 else len(self.teams)
+        return n_active * max(1, self.games_per_team_per_day) // 2
 
     @property
     def days(self):           return list(range(1, self.n_matchdays + 1))

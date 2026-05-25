@@ -88,63 +88,63 @@
 **Aufwand:** Variabel, je Item Klein.
 
 ### UX-Konsistenz
-- [ ] **E-M1** · UI-Spielplan-Tabelle: Uhrzeit-Spalte anzeigen
-- [ ] **C-M3** · `build_print_html` km-Spalte: Transitions-Modell ODER Spaltenumbenennung „Direkt-km"
-- [ ] **E-L1** · DST-Hinweis bei Cancel/Move analog zu Swap
-- [ ] **E-L5** · Phase-Label `{1: 'Hin', 2: 'Rück', 3: 'Dritte'}` ohne `if n_rounds == 2`
-- [ ] **E-L6** · `[FEHLER]`-Zeilen als `st.error`, `[!!]` als `st.warning`
+- [x] **E-M1** · UI-Spielplan-Tabelle: Uhrzeit-Spalte anzeigen
+- [x] **C-M3** · `build_print_html` km-Spalte „Direkt-km" mit erklärendem Tooltip
+- [x] **E-L1** · DST-Hinweis bei Cancel/Move analog zu Swap
+- [x] **E-L5** · Phase-Label `{1: 'Hin', 2: 'Rück', 3: 'Dritte'}` für alle n_rounds
+- [x] **E-L6** · `[FEHLER]` als `st.error`, `[!!]` als `st.warning` (dict-Struktur mit Level)
 
 ### Performance
-- [ ] **E-M2** · Diagnose-Cache (`_diagnose_infeasible_league`)
-- [ ] **E-L2** · Polling `sleep(2)` → `sleep(0.5)`
-- [ ] **E-L7** · Excel-Regen nur bei tatsächlich geänderten Spielzeiten
+- [x] **E-M2** · Diagnose-Cache (`_diagnose_infeasible_league`) keyed an `(lid, len(opt_log))`
+- [x] **E-L2** · Polling `sleep(2)` → `sleep(0.5)`
+- [x] **E-L7** · Excel-Regen nur bei geänderten Spielzeiten
 
 ### Distribution
-- [ ] **F-M1** · Atomarer `_apply_update` mit Backup/Rollback
-- [ ] **F-L1** · `_parse_version` für non-numeric Tag-Suffixe
-- [ ] **F-L2** · Update-Check in Background-Thread
-- [ ] **F-L3** · `Spielplaene/` aus `[UninstallDelete]` ausnehmen
-- [ ] **F-L4** · `spielplan.iss` MyAppVersion-Default aktualisieren
-- [ ] **F-L5** · `build_release.py` Mindest-Dateianzahl prüfen
-- [ ] **F-L6** · Python-Embedded SHA256-Verifikation
-- [ ] **F-L7** · GitHub Actions Commit-SHA-Pinning
+- [ ] **F-M1** · Atomarer `_apply_update` mit Backup/Rollback (großer Refactor — zurückgestellt)
+- [x] **F-L1** · `_parse_version` für non-numeric Tag-Suffixe (pre-release split)
+- [ ] **F-L2** · Update-Check in Background-Thread (größerer Refactor — zurückgestellt)
+- [x] **F-L3** · `Spielplaene/` aus `[UninstallDelete]` ausnehmen (explizite Dateilisten)
+- [x] **F-L4** · `spielplan.iss` MyAppVersion-Default auf 1.4.0
+- [x] **F-L5** · `build_release.py` Mindest-Dateianzahl prüfen (10)
+- [x] **F-L6** · Python-Embedded SHA256-Verifikation in build_bootstrap.bat
+- [x] **F-L7** · GitHub Actions: Kommentar zu SHA-Pinning (Tag-Pin bleibt, Dependabot empfohlen)
 
 ### CLI
-- [ ] **G-M1** · CLI `step4_weights` dst_eff-Default auf 0.0
-- [ ] **G-L4** · `main.py` ruft `build_overview_excel`
-- [ ] **G-L1, G-L2, G-L3** · `wizard.py` Refactor (Tuple → Dict, Format-Konsistenz mit UI)
-- [ ] **G-L5** · `test_smoke.py make_config` w_scaled-Setup korrigieren
+- [x] **G-M1** · CLI `step4_weights` dst_eff-Default auf 0.0
+- [x] **G-L4** · `main.py` ruft `build_overview_excel`
+- [ ] **G-L1, G-L2, G-L3** · `wizard.py` Refactor Tuple → Dict (großer Refactor — zurückgestellt)
+- [x] **G-L5** · `test_smoke.py make_config` w_scaled-Setup korrigiert
 
 ### Solver/Validator/Sonstiges
-- [ ] **A-L1** · `multi_solver.py:85` „Prozess-Absturz" → „Worker-Absturz"
-- [ ] **A-L2** · `tt_scheduler.py:75` Hardcoded `random.Random(42)` parametrisierbar
-- [ ] **A-L3** · `sa_refine.py:199` Doku „Zeitlimit nicht maschinen-deterministisch"
-- [ ] **A-L4** · `league_types.py:58, 64` Vestigial Fallbacks entfernen
-- [ ] **A-L5** · `_ProgressCallback` Seed im Log-Output
-- [ ] **B-L1** · Sperrtag-Tage außerhalb 1..N warnen
-- [ ] **B-L2** · `_parse_cell("5/5")` als Einzelspieltag behandeln
-- [ ] **B-L3** · Doppelter Spieltag in 2 KWs warnen
-- [ ] **B-L4** · `validate()` vs `validate_cfgs()` Konsolidierung (Refactor)
-- [ ] **B-L5** · `np.isnan(int_array)` Robustheit
-- [ ] **B-L6** · `n_games_per_day` `n_active`-aware
-- [ ] **B-L7** · `len(pins) > total_games` als Fehler
-- [ ] **B-L8** · Half-matching Distanzmatrix-Header → spezifische Warnung
-- [ ] **C-L1** · `cancel_game` DST-Konsistenz-Warnung
-- [ ] **C-L2** · iCal Skip-Warning für Spiele ohne Datum
-- [ ] **C-L3** · `_parse_date` Exception spezifischer
-- [ ] **C-L4** · Magic-Number 999 → Konstante
-- [ ] **C-L5** · Co-Home Skipping-Hinweis
-- [ ] **D-L1** · Liga-ID-Rename auf expliziten Button
-- [ ] **D-L2** · `_session_from_json` clears `de_{lid}` Editor-Cache
-- [ ] **D-L3** · `S.solver`-Merge mit Defaults bei JSON-Restore
-- [ ] **D-L4** · Calendar-Import Warnung vor Overwrite manueller Datumswerte
-- [ ] **D-L5** · `team_verein_map` in JSON exportieren
-- [ ] **D-L6** · `redirect_stdout` Context-Manager statt globalem stdout-Swap
-- [ ] **D-L7** · Warning wenn `excel_bytes` nach Restore unvollständig
-- [ ] **E-L3** · `proc.start()` mit try/except
-- [ ] **E-L4** · iCal Saison-Startjahr Default = aktuelles Jahr
+- [x] **A-L1** · `multi_solver.py:85` „Prozess-Absturz" → „Worker-Absturz"
+- [x] **A-L2** · `tt_scheduler.py` `random.Random(seed)` durchgereicht
+- [x] **A-L3** · `sa_refine.py` Doku zur Zeit-Reproduzierbarkeit
+- [x] **A-L4** · `league_types.py` Vestigial Fallbacks durch `max(1, …)` ersetzt
+- [x] **A-L5** · `_ProgressCallback` mit `seed`-Tag im Log
+- [x] **B-L1** · Sperrtag-Tage außerhalb 1..N werden gewarnt
+- [x] **B-L2** · `_parse_cell("5/5")` → Einzelspieltag
+- [x] **B-L3** · Doppelter Spieltag in 2 KWs warnen
+- [ ] **B-L4** · `validate()` vs `validate_cfgs()` Konsolidierung (Refactor — zurückgestellt)
+- [x] **B-L5** · `np.isnan(int_array)` Robustheit via `_has_nan()`-Helper
+- [x] **B-L6** · `n_games_per_day` nutzt `n_active_per_day`
+- [x] **B-L7** · `len(pins) > total_games` als Fehler
+- [x] **B-L8** · Half-matching Distanzmatrix-Header → 80%-Heuristik mit spezifischer Warnung
+- [x] **C-L1** · `cancel_game` warnt bei DST-Tag (stdout-`[!!]`-Hinweis)
+- [x] **C-L2** · iCal `X-WR-CALDESC`-Hinweis bei übersprungenen Spielen
+- [x] **C-L3** · `_parse_date` Exception spezifisch
+- [x] **C-L4** · Magic-Number 999 → Modul-Konstante `_UNKNOWN_KW_SORT`
+- [x] **C-L5** · Co-Home Skipping-Hinweis im Sheet
+- [ ] **D-L1** · Liga-ID-Rename auf expliziten Button (UX-Verhaltensänderung — zurückgestellt)
+- [x] **D-L2** · `_session_from_json` clears `de_{lid}` Editor-Cache
+- [x] **D-L3** · `S.solver`-Merge mit `_DEFAULTS` bei JSON-Restore
+- [x] **D-L4** · Calendar-Import Warnung vor Overwrite manueller Datumswerte
+- [x] **D-L5** · `team_verein_map` in JSON exportieren + importieren
+- [x] **D-L6** · `contextlib.redirect_stdout()` Context-Manager
+- [x] **D-L7** · Warning wenn `excel_bytes` nach Restore unvollständig
+- [x] **E-L3** · `proc.start()` mit try/except + st.error
+- [x] **E-L4** · iCal Saison-Startjahr Default = `datetime.now()` mit Saison-Heuristik
 
-**Status:** Offen · Auswahl nach Priorität
+**Status:** Erledigt · Version: v1.4.1 · 6 große Refactor-Items zurückgestellt (siehe BACKLOG.md)
 
 ---
 
@@ -165,7 +165,7 @@
 | 2 | 6 | 6 | **Erledigt (v1.3.0)** |
 | 3 | 6 | 6 | **Erledigt (v1.3.1)** |
 | 4 | 5 | 5 | **Erledigt (v1.4.0)** |
-| 5 | 45 | 0 | Optional |
-| **Σ** | **66** | **21** | |
+| 5 | 45 | 39 | **Erledigt (v1.4.1) — 6 Refactor-Items zurückgestellt** |
+| **Σ** | **66** | **60** | |
 
 (Σ < 70 weil einige Niedrig-Befunde zusammengefasst sind.)

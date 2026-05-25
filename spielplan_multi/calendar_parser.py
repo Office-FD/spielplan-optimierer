@@ -45,6 +45,9 @@ def _parse_cell(val) -> List[int]:
     m = re.fullmatch(r'(\d+)\s*[-/&]\s*(\d+)', s)
     if m:
         d1, d2 = int(m.group(1)), int(m.group(2))
+        if d1 == d2:
+            # "5/5" o.Ä. ist faktisch ein Einzelspieltag, kein DST-Block
+            return [d1]
         return [min(d1, d2), max(d1, d2)]
     return []
 
@@ -183,6 +186,10 @@ def parse_rahmenterminplan(path: str | Path,
                 continue
 
             for st in sts:
+                # B-L3: doppelter Spieltag in unterschiedlichen KWs warnen
+                if st in spieltage[lid] and spieltage[lid][st].get('kw') != kw:
+                    warn(f'{lid}: Spieltag {st} steht in KW {spieltage[lid][st]["kw"]} '
+                         f'UND KW {kw} – zweiter Eintrag ueberschreibt ersten.')
                 spieltage[lid][st] = {
                     'kw':         kw,
                     'week_start': week_start,

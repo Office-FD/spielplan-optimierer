@@ -65,14 +65,15 @@ def _balance_home_away(
 
 def _assign_hosts(days: List[int],
                   host_counts: Dict[str, int],
-                  teams: List[str]) -> Dict[int, str]:
+                  teams: List[str],
+                  seed: int = 42) -> Dict[int, str]:
     """Verteilt Ausrichter auf Spieltage gemaess gewuenschter Anzahl pro Team."""
     pool: List[str] = []
     for team in teams:
         cnt = host_counts.get(team, 0)
         pool.extend([team] * cnt)
 
-    rng = random.Random(42)
+    rng = random.Random(seed)
     rng.shuffle(pool)
 
     assignment: Dict[int, str] = {}
@@ -302,8 +303,12 @@ def _order_day_games(games: List[Tuple[str, str]],
 # ── Haupt-Funktion ────────────────────────────────────────────────────────────
 
 def apply_tournament_ordering(result: LeagueResult,
-                               cfg: LeagueConfig) -> LeagueResult:
-    """Wendet Spielreihenfolge-Optimierung auf einen Turniertag-Spielplan an."""
+                               cfg: LeagueConfig,
+                               seed: int = 42) -> LeagueResult:
+    """Wendet Spielreihenfolge-Optimierung auf einen Turniertag-Spielplan an.
+
+    `seed` steuert die Host-Verteilung; gleicher Seed liefert reproduzierbare Auswahl.
+    """
     if cfg.games_per_team_per_day <= 1:
         return result
 
@@ -340,7 +345,7 @@ def apply_tournament_ordering(result: LeagueResult,
         host_per_day = {int(k): v for k, v in raw.items()}
     else:
         host_counts = tt.get('host_counts', {})
-        host_per_day = _assign_hosts(days, host_counts, cfg.teams) if host_counts else {}
+        host_per_day = _assign_hosts(days, host_counts, cfg.teams, seed=seed) if host_counts else {}
 
     new_schedule: Dict = {}
     infeasible_relaxed: List[Tuple[int, int]] = []   # (day, eff_max_gap)

@@ -60,8 +60,14 @@ def validate(
 
         # Distanzmatrix fehlt oder ist leer
         mat = dist_matrices.get(lid)
+        # np.isnan auf int-Arrays wirft TypeError in numpy 1.24+; float-Arrays unterstuetzt.
+        def _has_nan(arr):
+            try:
+                return bool(np.isnan(arr).any())
+            except TypeError:
+                return False
         _mat_bad = (mat is None or (isinstance(mat, np.ndarray)
-                    and (float(mat.sum()) == 0.0 or bool(np.isnan(mat).any()))))
+                    and (float(mat.sum()) == 0.0 or _has_nan(mat))))
         if _mat_bad:
             warn(lid, f'**{name}**: Distanzmatrix ist leer – Reiseminimierung nicht möglich. '
                        'Entfernungen im Schritt "Distanzen" eingeben.')
@@ -79,6 +85,11 @@ def validate(
                 warn(lid, f'**{name}**: Sperrtag-Team «{team}» nicht in der Teamliste – wird ignoriert.')
                 continue
             blocked_set = set(bdays)
+            # B-L1: Sperrtag-Tage außerhalb 1..N warnen (analog zu forced_home)
+            invalid = blocked_set - days
+            if invalid:
+                warn(lid, f'**{name}** – Team «{team}»: Sperrtag(e) {sorted(invalid)} '
+                          f'liegen außerhalb des gültigen Bereichs (1–{n_md}) und werden ignoriert.')
             overlap = blocked_set & days
             if days and days.issubset(blocked_set):
                 err(lid, f'**{name}** – Team «{team}»: Alle {n_md} Spieltage als '
@@ -182,7 +193,10 @@ def validate(
                        f'ein Team spielfrei. Der Spielplan hat {n} statt {n - 1} Spieltage '
                        f'pro Runde.')
 
-        if total_games > 0 and len(pins) > total_games * 0.4:
+        if total_games > 0 and len(pins) > total_games:
+            err(lid, f'**{name}**: {len(pins)} Pflichtspiele, aber nur {total_games} Spiele '
+                      'in der Saison – nicht alle Pins koennen stattfinden.')
+        elif total_games > 0 and len(pins) > total_games * 0.4:
             warn(lid, f'**{name}**: {len(pins)} von {total_games} Spielen sind Pflichtspiele '
                        '(> 40 %). Der Solver hat wenig Spielraum – Optimierungsqualität '
                        'kann eingeschränkt sein.')
@@ -318,7 +332,12 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
             err(lid, f'{name}: Spieltag-Berechnung ergibt 0 – Format oder Team-Anzahl prüfen.')
             continue
 
-        if cfg.dist is None or float(cfg.dist.sum()) == 0.0 or bool(np.isnan(cfg.dist).any()):
+        def _has_nan(arr):
+            try:
+                return bool(np.isnan(arr).any())
+            except TypeError:
+                return False
+        if cfg.dist is None or float(cfg.dist.sum()) == 0.0 or _has_nan(cfg.dist):
             warn(lid, f'{name}: Distanzmatrix ist leer – Reiseminimierung nicht möglich.')
 
         for d1, d2 in cfg.dst_blocks:
@@ -459,7 +478,10 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
             warn(lid, f'{name}: {n} Teams (ungerade Anzahl) – je Spieltag hat ein Team spielfrei. '
                        f'Spielplan hat {n} statt {n - 1} Spieltage pro Runde.')
 
-        if total_games > 0 and len(cfg.pinned) > total_games * 0.4:
+        if total_games > 0 and len(cfg.pinned) > total_games:
+            err(lid, f'{name}: {len(cfg.pinned)} Pflichtspiele, aber nur {total_games} Spiele '
+                      'in der Saison – nicht alle Pins koennen stattfinden.')
+        elif total_games > 0 and len(cfg.pinned) > total_games * 0.4:
             warn(lid, f'{name}: {len(cfg.pinned)} von {total_games} Spielen sind Pflichtspiele '
                        '(> 40 %). Optimierungsqualität kann eingeschränkt sein.')
 

@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.4.0 · Stand Mai 2026 · Status: Code-Review Runde 6 Sprints 1-4/5 erledigt (Datenkonsistenz, DST-Schutz, State-Management, Release-Robustheit, Test-Coverage + CI). Nur noch Sprint 5 (optionale Niedrig-Prio-Items) offen — siehe FIX_PLAN.md**
+> **Version 1.4.1 · Stand Mai 2026 · Status: Code-Review Runde 6 vollständig abgeschlossen — 60 von 66 priorisierten Befunden behoben (Sprints 1-5). 6 große Refactor-Items (Validator-Konsolidierung, Wizard Tuple→Dict, atomarer Update, Update-Background-Thread, Rename-Button) als Future-Work zurückgestellt — siehe FIX_PLAN.md**
 
 ---
 
@@ -436,6 +436,23 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `spielplan_multi/distances.py` | **(Latent)** `pd.ExcelFile(path)` hielt Windows-File-Handle bis zur GC → Datei-Lock-Probleme beim Test-Cleanup | `with pd.ExcelFile(path) as xl:` als context manager — Handle wird sofort geschlossen |
 
 **Test-Coverage neu:** 36/36 (test_all.py, +9 vs. v1.3.1), 34/34 (test_features.py), 18/18 (test_distances.py inkl. ExcelFile-Lock-Fix), Smoke ✓. Gesamt-pytest-Laufzeit ~14 min, deckt jetzt Spielfrei + forced_home + alle Mutation-Funktionen ab.
+
+**Code-Review Runde 6 – Sprint 5 / Niedrig-Prio Cleanup (v1.4.0 → v1.4.1):**
+
+39 von 45 Niedrig-Prio-Items behoben in einem grossen Sammel-Commit. Die 6 verbleibenden Items (B-L4 Validator-Konsolidierung, G-L1/L2/L3 wizard Tuple→Dict-Refactor, F-M1 atomarer Update-Mechanismus, F-L2 Update-Check im Background-Thread, D-L1 Liga-ID-Rename auf expliziten Button) sind größere Refactors und wurden als Future-Work zurückgestellt.
+
+Wichtigste Änderungen nach Bereich:
+
+| Bereich | Items |
+|---|---|
+| Solver-Module | A-L1 (Worker-Fehler-Label), A-L2 (`apply_tournament_ordering(seed=)` parametrisiert), A-L3 (Doku Zeit-Reproduzierbarkeit), A-L4 (Vestigial Fallbacks entfernt), A-L5 (`_ProgressCallback` mit Seed-Tag), B-L6 (`n_games_per_day` mit `n_active`-Support) |
+| Validator | B-L1 (Sperrtage außerhalb 1..N warnen), B-L5 (`_has_nan`-Helper für int-Array-Robustheit), B-L7 (`pins > total_games` als Fehler) |
+| Calendar/Distances | B-L2 (`_parse_cell("5/5")` → Einzelspieltag), B-L3 (doppelter Spieltag in 2 KWs warnen), B-L8 (80%-Heuristik für Half-matching Headers) |
+| Schedule/Excel | C-L1 (cancel_game stdout-Warning bei DST), C-L2 (iCal X-WR-CALDESC bei Skipped), C-L3 (`_parse_date` Exception spezifisch), C-L4 (Magic 999 → Konstante), C-L5 (Co-Home Skipping-Hinweis), C-M3 (km-Spalte umbenannt zu „Direkt-km" mit Tooltip) |
+| UI Wizard | D-L2 (`de_{lid}`-Cache-Reset bei JSON-Restore), D-L3 (`S.solver`-Merge), D-L4 (Calendar-Import Warnung), D-L5 (`team_verein_map` round-trip), D-L6 (`contextlib.redirect_stdout()`), D-L7 (`excel_bytes`-Vollständigkeits-Warning) |
+| UI Ergebnisansicht | E-M1 (Uhrzeit-Spalte in Spielplan-Tabelle), E-M2 (Diagnose-Cache via `_diag_cache`), E-L1 (DST-Hinweis bei Cancel/Move), E-L2 (`sleep(2)` → `sleep(0.5)`), E-L3 (`proc.start()` mit try/except), E-L4 (iCal Default-Jahr aus `datetime.now()`), E-L5 (Phase-Label für alle n_rounds), E-L6 (severity dict mit `level`/`msg`), E-L7 (Spielzeit-Excel-Regen nur bei Änderung) |
+| Distribution | F-L1 (`_parse_version` für Pre-Release-Suffixe), F-L3 (`Spielplaene/` aus `[UninstallDelete]` ausgenommen), F-L4 (ISS-Default 1.4.0), F-L5 (`build_release.py` min 10 Dateien), F-L6 (Python-Embedded SHA256-Verifikation in `build_bootstrap.bat`), F-L7 (Kommentar zu SHA-Pinning) |
+| CLI | G-M1 (CLI dst_eff-Default 0.0 konsistent zur UI), G-L4 (CLI ruft jetzt `build_overview_excel`), G-L5 (`test_smoke.py` w_scaled-Setup korrigiert) |
 
 ---
 

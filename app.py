@@ -2072,17 +2072,16 @@ def _step1():
                         for t, loc in zip(teams, locs):
                             st.caption(f'**{t}** → {loc}')
                     if st.button(f'Distanzen berechnen (Google Maps)', key=f'calc_{lid}', type='primary'):
+                        # D-L6: contextlib.redirect_stdout ist scope-begrenzt und thread-sicher
+                        # gegenueber dem alten globalen sys.stdout-Swap.
+                        import contextlib as _contextlib
                         _buf = io.StringIO()
-                        _old_stdout = sys.stdout
-                        sys.stdout = _buf
                         mat = None
-                        try:
+                        with _contextlib.redirect_stdout(_buf):
                             from spielplan_multi.distances import calculate_distance_matrix
                             with st.spinner('Google Maps API wird abgefragt…'):
                                 mat = calculate_distance_matrix(locs, S.api_key,
                                     cache_dir / f'dist_{lid}.json')
-                        finally:
-                            sys.stdout = _old_stdout
                         _output = _buf.getvalue()
                         if mat is not None:
                             S.dist_matrices[lid] = mat
@@ -2392,6 +2391,17 @@ def _step2():
                     key='kw_col',
                     help='Spalte A = 0, B = 1, C = 2 usw. Meistens Spalte B (= 1)'))
 
+                # D-L4: Warnung wenn manuelle Datumswerte vorhanden sind
+                _manual_date_count = sum(
+                    1 for _lid in S.league_order
+                    for _row in (S.cal_table.get(_lid, []) or [])
+                    if _row.get('date', '').strip()
+                )
+                if _manual_date_count > 0:
+                    st.warning(
+                        f'Hinweis: {_manual_date_count} Spieltage haben manuelle Datumswerte. '
+                        'Der Kalender-Import überschreibt diese mit den Datumswerten aus der Excel-Datei.'
+                    )
                 if st.button('Kalender laden', type='primary', key='load_cal'):
                     from spielplan_multi.calendar_parser import parse_rahmenterminplan
                     cal = parse_rahmenterminplan(S.cal_path, col_mapping,
@@ -3209,6 +3219,7 @@ def _session_to_json() -> bytes:
             'dist_matrices': dist_mat_data,
             'weights':      S.weights,
             'solver':       S.solver,
+            'team_verein_map': dict(S.team_verein_map or {}),  # D-L5: Co-Home-Auto-Detection
         },
         'results': results_data,
     }
@@ -3265,11 +3276,19 @@ def _session_from_json(raw: bytes) -> str:
     if 'weights' in cfg_data:
         S.weights = cfg_data['weights']
     if 'solver' in cfg_data:
-        S.solver = cfg_data['solver']
+        # D-L3: Merge mit Defaults, damit fehlende Keys (z.B. 'sa', 'nm' in alten Sessions)
+        # nicht zu KeyError oder unbeabsichtigtem Verhalten fuehren.
+        S.solver = {**_DEFAULTS['solver'], **(cfg_data.get('solver') or {})}
+    if 'team_verein_map' in cfg_data:
+        # D-L5: Co-Home-Auto-Detection nutzt diese Map fuer manuell DB-getroffene Teams
+        S.team_verein_map = dict(cfg_data['team_verein_map'] or {})
     if 'dist_matrices' in cfg_data:
         S.dist_matrices = {
             lid: np.array(mat) for lid, mat in cfg_data['dist_matrices'].items()
         }
+        # D-L2: Editor-Cache löschen, sonst zeigt der data_editor alten Stand
+        for _lid in S.dist_matrices:
+            st.session_state.pop(f'de_{_lid}', None)
 
     if not results_data:
         return ''  # Nur Konfiguration geladen
@@ -3388,6 +3407,12 @@ def _session_from_json(raw: bytes) -> str:
 
     S.opt_done        = True
     S._wizard_started = True
+    # D-L7: Warnung wenn nicht alle Liga-Excels generiert werden konnten
+    _n_results = sum(1 for r in S.results.values() if r is not None)
+    if _n_results > 0 and len(S.excel_bytes) < _n_results:
+        _missing = _n_results - len(S.excel_bytes)
+        return (f'Warnung: {_missing} von {_n_results} Liga-Excels konnten nicht '
+                f'erzeugt werden – Downloads moeglicherweise unvollstaendig.')
     return ''
 
 
@@ -3747,12 +3772,16 @@ def _step8():
             S.opt_running = False
             S.opt_done    = True
             S.results     = S.opt_result_holder.get('results', {})
+            # E-L6: Severity erhalten (dict statt str), damit _show_results st.error
+            # vs st.warning unterscheiden kann.
             S.opt_warnings = []
             for _wl in S.opt_log:
-                if '[!!]' in _wl:
-                    S.opt_warnings.append(_wl.replace('[!!]', '').strip())
-                elif '[FEHLER]' in _wl:
-                    S.opt_warnings.append(f'Fehler: {_wl.replace("[FEHLER]", "").strip()}')
+                if '[FEHLER]' in _wl:
+                    S.opt_warnings.append({'level': 'error',
+                                            'msg': _wl.replace('[FEHLER]', '').strip()})
+                elif '[!!]' in _wl:
+                    S.opt_warnings.append({'level': 'warn',
+                                            'msg': _wl.replace('[!!]', '').strip()})
             try:
                 from spielplan_multi.excel_output import (
                     build_league_excel, build_cohome_summary, build_hall_schedule,
@@ -3785,7 +3814,9 @@ def _step8():
                 S.opt_log.append(f'[!!] Excel-Fehler: {_tb_excel.format_exc()}')
             st.rerun()
         else:
-            time.sleep(2)
+            # E-L2: 0.5s statt 2s → schnelleres Anzeigen wenn `__DONE__` arriviert.
+            # Auf Server-Last ist das tolerabel (1 statt 0.5 polls/sec).
+            time.sleep(0.5)
             st.rerun()
     else:
         with _dyn.container():
@@ -3941,7 +3972,12 @@ def _step8():
                           S.w_cohome, S.solver, log_q, str(_HERE)),
                     daemon=True,
                 )
-                proc.start()
+                # E-L3: proc.start() kann bei Pickle-Fehlern eine Exception werfen.
+                try:
+                    proc.start()
+                except Exception as _exc_start:
+                    st.error(f'Optimierung konnte nicht gestartet werden: {_exc_start}')
+                    return
     
                 S.opt_queue         = log_q
                 S.opt_process       = proc
@@ -4020,16 +4056,25 @@ def _diagnose_infeasible_league(lid: str) -> None:
     n_md   = _calc_n_matchdays(ld)
     total_games = n * (n - 1) // 2 * n_rounds
 
-    # Status aus Log ableiten – zeilenweise prüfen um False Positives zu vermeiden
+    # E-M2: Log-Scan cachen, damit bei jedem Rerun nicht 50k+ Zeilen mit Regex
+    # gescannt werden. Cache-Key: (lid, len(opt_log)) - bei wachsenden Logs neu.
     _log_lines = S.opt_log or []
-    _lid_pat   = r'(?<!\w)' + re.escape(lid) + r'(?!\w)'
-    _lid_in    = lambda t: bool(re.search(_lid_pat, t))
-    is_infeasible = any('INFEASIBLE'    in ln and _lid_in(ln) for ln in _log_lines)
-    is_unknown    = any(
-        ('UNKNOWN'      in ln and _lid_in(ln)) or
-        ('Keine Loesung' in ln and _lid_in(ln))
-        for ln in _log_lines
-    )
+    _cache_key = (lid, len(_log_lines))
+    _cache = S.get('_diag_cache', {})
+    if _cache.get(lid, (None,))[0] == _cache_key:
+        is_infeasible, is_unknown = _cache[lid][1]
+    else:
+        _lid_pat   = r'(?<!\w)' + re.escape(lid) + r'(?!\w)'
+        _lid_in    = lambda t: bool(re.search(_lid_pat, t))
+        is_infeasible = any('INFEASIBLE' in ln and _lid_in(ln) for ln in _log_lines)
+        is_unknown    = any(
+            ('UNKNOWN'      in ln and _lid_in(ln)) or
+            ('Keine Loesung' in ln and _lid_in(ln))
+            for ln in _log_lines
+        )
+        if '_diag_cache' not in S:
+            S['_diag_cache'] = {}
+        S['_diag_cache'][lid] = (_cache_key, (is_infeasible, is_unknown))
 
     hints: list = []
 
@@ -4161,7 +4206,14 @@ def _show_results():
     st.success('✅ Optimierung abgeschlossen!')
 
     for _w in (S.opt_warnings or []):
-        st.warning(_w)
+        # E-L6: dict mit level / msg (neu) oder plain str (Rueckwaerts-Kompatibilitaet)
+        if isinstance(_w, dict):
+            if _w.get('level') == 'error':
+                st.error(_w.get('msg', ''))
+            else:
+                st.warning(_w.get('msg', ''))
+        else:
+            st.warning(_w)
 
     if not S.results:
         st.error('Keine Ergebnisse vorhanden.')
@@ -4266,17 +4318,25 @@ def _show_results():
         n_rounds    = res.cfg.n_rounds    if res.cfg else 2
         n_per_round = max(1, res.cfg.n_matchdays // n_rounds) if res.cfg else 1
         dst_days    = res.cfg.dst_days    if res.cfg else set()
-        phase_lbl   = {1: 'Hin', 2: 'Rue'} if n_rounds == 2 else {}
+        # E-L5: Phase-Labels fuer alle Rundenzahlen einheitlich.
+        phase_lbl   = {1: 'Hin', 2: 'Rück', 3: 'Dritte'}
         is_tt       = bool(res.cfg and res.cfg.games_per_team_per_day > 1)
         typ_col     = 'Ausrichter' if is_tt else 'Typ'
+        # E-M1: Uhrzeit-Spalte einbinden wenn game_times gesetzt
+        has_times_ui = bool(res.game_times)
         rows = []
         for d in (res.cfg.days if res.cfg else sorted(res.schedule.keys())):
             rnd   = min(n_rounds, (d - 1) // n_per_round + 1)
             phase = phase_lbl.get(rnd, f'R{rnd}')
             typ   = res.hosts.get(d, '') if is_tt else ('DST' if d in dst_days else 'EST')
-            for ht, at in res.schedule.get(d, []):
-                rows.append({'ST': d, 'Phase': phase, typ_col: typ,
-                             'Heimteam': ht, 'Gastteam': at})
+            day_times = res.game_times.get(d, []) if has_times_ui else []
+            for _gi, (ht, at) in enumerate(res.schedule.get(d, [])):
+                _row = {'ST': d, 'Phase': phase, typ_col: typ}
+                if has_times_ui:
+                    _row['Uhrzeit'] = day_times[_gi] if _gi < len(day_times) else ''
+                _row['Heimteam'] = ht
+                _row['Gastteam'] = at
+                rows.append(_row)
         name = res.cfg.name if res.cfg else lid
         with st.expander(f'📅 {name}  ({len(rows)} Spiele)', expanded=False):
             st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
@@ -4347,8 +4407,13 @@ def _show_results():
                 'konkrete Daten. Für datierte Kalender-Einträge bitte in Schritt 3 einen '
                 'Rahmenterminplan hochladen und laden.'
             )
+        # E-L4: Default = aktuelles Jahr (mit Saison-Heuristik). Sommer/Herbst → laufendes Jahr,
+        # Frühjahr → Vorjahr (z. B. März = Saison started im Vorjahr).
+        import datetime as _dt_y
+        _now = _dt_y.date.today()
+        _default_ics_year = _now.year if _now.month >= 7 else _now.year - 1
         _ics_year = st.number_input(
-            'Saison-Startjahr', 2020, 2035, 2026, 1, key='ics_year',
+            'Saison-Startjahr', 2020, 2099, _default_ics_year, 1, key='ics_year',
             help=(
                 'Jahr des Saisonstarts (z. B. 2026 für Saison 2026/27). '
                 'Kalenderwochen > 26 werden diesem Jahr, Wochen ≤ 26 dem Folgejahr zugeordnet.'
@@ -4422,7 +4487,10 @@ def _show_results():
                 _res_t = S.results[_tl]
                 _slots = [s.strip() for s in S.time_templates.get(_tl, '').split(',')
                           if s.strip()]
-                if _slots:
+                # E-L7: Nur regenerieren wenn Slots sich tatsächlich geändert haben.
+                _existing = list((_res_t.game_times or {}).values())[:1]
+                _existing_slots = list(_existing[0]) if _existing else []
+                if _slots and _slots != _existing_slots:
                     _assign_game_times_fn(_res_t, _slots)
                     # Excel-Bytes neu erzeugen
                     from spielplan_multi.excel_output import build_league_excel
@@ -4563,6 +4631,12 @@ def _show_results():
                     format_func=lambda d: f'Spieltag {d}',
                     key='mv_day',
                 )
+                # E-L1: Hinweis wenn DST-Tag (analog zum Swap-Hinweis)
+                if _sel_day_mv in _cfg_mv.dst_days:
+                    st.info(
+                        'Doppelspieltag: Verschieben oder Absagen lassen den Partner-Tag '
+                        'unveraendert. Die DST-Heimrecht-Invariante kann dabei brechen.'
+                    )
                 _mv_games = _res_mv.schedule.get(_sel_day_mv, [])
 
                 # ── Pending: Nachholtermin wählen ─────────────────────────────

@@ -97,6 +97,14 @@ def refine_schedule(result: LeagueResult,
       - Jede Paarung hat genau 1 Hin- und 1 Rueckbegegnung (unveraendert)
       - Gepinnte Spiele und DST-Bloecke werden nicht angetastet
       - Sperrtage werden respektiert
+
+    Hinweis zur Reproduzierbarkeit: Die Hauptschleife ist zeitgesteuert
+    (`while time.time() - t0 < time_limit`), nicht iterationsgesteuert.
+    Bei gleichem `seed` liefert sie auf einer Maschine reproduzierbare
+    Ergebnisse, kann aber auf unterschiedlich schnellen Maschinen
+    unterschiedlich viele Iterationen durchlaufen und damit andere
+    Loesungen finden. Fuer strikt reproduzierbare Ergebnisse muesste
+    auf iterationsbasiertes Abbruchkriterium umgestellt werden.
     """
     if time_limit <= 0 or not result.schedule:
         return result

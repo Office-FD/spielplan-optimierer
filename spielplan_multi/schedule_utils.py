@@ -239,6 +239,12 @@ def cancel_game(result, cfg, day: int, match_idx: int):
     result.travels   = travels
     result.sw_counts = sw_counts
     result.sw_rates  = sw_rates
+    # C-L1: Hinweis wenn Tag Teil eines DST-Blocks war (DST-Invariante moeglicherweise gebrochen)
+    if day in cfg.dst_days:
+        import sys as _sys
+        print(f'  [!!]  Spiel an DST-Tag {day} abgesagt: DST-Partner-Tag bleibt unveraendert. '
+              f'Heimrecht-Invariante zwischen DST-Tagen ggf. nicht mehr gegeben.',
+              file=_sys.stdout, flush=True)
     return ht, at
 
 
@@ -341,6 +347,7 @@ def build_ics_bytes(result, season_year: int) -> bytes:
 
     dtstamp = _dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
     uid_n = 0
+    skipped_no_date = 0
     for d in cfg.days:
         date  = _date_for(d)
         rnd   = min(cfg.n_rounds, (d - 1) // round_len + 1)
@@ -353,6 +360,7 @@ def build_ics_bytes(result, season_year: int) -> bytes:
             host  = f' · Ausrichter: {result.hosts[d]}' if is_tt and d in result.hosts else ''
             desc  = f'Spieltag {d} · {phase}{host} · {cfg.name}'
             if not date:
+                skipped_no_date += 1
                 continue  # Kein Datum verfuegbar – Spiel aus iCal ausschliessen
             dt_str   = date.strftime('%Y%m%d')
             dt_end   = (date + _dt.timedelta(days=1)).strftime('%Y%m%d')
@@ -365,6 +373,14 @@ def build_ics_bytes(result, season_year: int) -> bytes:
             ]
 
     lines.append('END:VCALENDAR')
+    if skipped_no_date > 0:
+        # Hinweis in den Calendar-Description-Header schreiben, damit der Nutzer
+        # weiss dass nicht alle Spiele exportiert wurden.
+        for _i, _l in enumerate(lines):
+            if _l.startswith('X-WR-CALNAME:'):
+                lines.insert(_i + 1,
+                             f'X-WR-CALDESC:Hinweis: {skipped_no_date} Spiele ohne Kalenderdatum nicht enthalten.')
+                break
     return '\r\n'.join(_ical_fold(ln) for ln in lines).encode('utf-8')
 
 
@@ -537,9 +553,11 @@ def build_print_html(result, season_year: int = 0) -> str:
                 f'  &nbsp; {result.travels[ti] if ti < len(result.travels) else 0:,} km &nbsp; '
                 f'Wechselquote: {result.sw_rates[ti] if ti < len(result.sw_rates) else 0:.0f}%</h3>'
                 '<table><thead><tr>'
-                + ('<th>ST</th><th>KW</th><th>Phase</th><th>Uhrzeit</th><th>Heimrecht</th><th>Gegner</th><th>km</th>'
+                # C-M3: Spaltenbezeichnung "Direkt-km" macht klar, dass es sich um Direkt-Distanz
+                # handelt (Heimort -> Gegner), nicht um die optimierten Transitions-km.
+                + ('<th>ST</th><th>KW</th><th>Phase</th><th>Uhrzeit</th><th>Heimrecht</th><th>Gegner</th><th title="Direktdistanz Heimort → Gegner; Summe weicht ggf. von Gesamt-km im Header ab">Direkt-km</th>'
                    if has_times else
-                   '<th>ST</th><th>KW</th><th>Phase</th><th>Heimrecht</th><th>Gegner</th><th>km</th>')
+                   '<th>ST</th><th>KW</th><th>Phase</th><th>Heimrecht</th><th>Gegner</th><th title="Direktdistanz Heimort → Gegner; Summe weicht ggf. von Gesamt-km im Header ab">Direkt-km</th>')
                 + '</tr></thead><tbody>'
             )
             for d in cfg.days:

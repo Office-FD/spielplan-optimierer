@@ -565,6 +565,8 @@ def step4_weights(league_defs: Dict) -> Tuple[Dict[str, Dict], Dict[str, float],
     info('Gewichte 0-10 pro Liga. Ligahierarchie skaliert Ligen untereinander.')
 
     lids = list(league_defs.keys())
+    # G-M1: dst_eff ist im UI-Default 0.0 (Feature aus); CLI muss konsistent sein.
+    _W_DEFAULTS = {'dst_eff': 0.0}
     use_same = ask_yes_no('Gleiche Gewichte fuer alle Ligen verwenden?')
 
     if use_same:
@@ -572,7 +574,8 @@ def step4_weights(league_defs: Dict) -> Tuple[Dict[str, Dict], Dict[str, float],
         common_raw = {}
         for key, label in WEIGHT_LABELS:
             print(f'  - {label}')
-            common_raw[key] = ask_float('    Wichtigkeit (0-10)', 0, 10, default=5)
+            common_raw[key] = ask_float('    Wichtigkeit (0-10)', 0, 10,
+                                         default=_W_DEFAULTS.get(key, 5))
         raw_per_liga = {lid: common_raw.copy() for lid in lids}
     else:
         raw_per_liga = {}
@@ -581,7 +584,8 @@ def step4_weights(league_defs: Dict) -> Tuple[Dict[str, Dict], Dict[str, float],
             raw = {}
             for key, label in WEIGHT_LABELS:
                 print(f'  - {label}')
-                raw[key] = ask_float(f'    Wichtigkeit ({lid})', 0, 10, default=5)
+                raw[key] = ask_float(f'    Wichtigkeit ({lid})', 0, 10,
+                                      default=_W_DEFAULTS.get(key, 5))
             raw_per_liga[lid] = raw
 
     w_scaled_per_liga = {

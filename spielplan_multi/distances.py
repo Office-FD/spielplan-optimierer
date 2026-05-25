@@ -199,6 +199,13 @@ def load_distances_from_file(path: str, teams: List[str]) -> Optional[np.ndarray
     # Format 1: quadratische Matrix
     col_names = [str(c).strip().lower() for c in df.columns]
     col_map = {str(c).strip().lower(): str(c) for c in df.columns}
+    _team_keys = [t.strip().lower() for t in teams]
+    _matched = [t for t in _team_keys if t in col_names]
+    _missing = [teams[i] for i, t in enumerate(_team_keys) if t not in col_names]
+    # B-L8: 80%-Schwelle für "Format 1 erkannt, aber unvollstaendig"
+    if _missing and len(_matched) >= max(1, int(0.8 * len(teams))):
+        warn(f'Format 1 (Matrix) erkannt, aber Team(s) {_missing} nicht im Header gefunden – '
+             f'pruefe Spaltenueberschriften.')
     if all(t.strip().lower() in col_names for t in teams):
         try:
             dist = np.full((n, n), UNREACHABLE_KM, dtype=int)

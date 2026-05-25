@@ -3,7 +3,9 @@
 ; Erfordert Inno Setup 6.1+ (https://jrsoftware.org/isinfo.php)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.1.0"
+  ; Fallback-Wert, wenn iscc.exe direkt ohne /DMyAppVersion= aufgerufen wird.
+  ; Normalerweise setzt build_bootstrap.bat /DMyAppVersion="$(cat VERSION)".
+  #define MyAppVersion "1.4.0"
 #endif
 
 #define MyAppName "Spielplan-Optimierer"
@@ -53,8 +55,20 @@ Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [UninstallDelete]
 ; Entfernt alle Dateien die nachträglich per ZIP entpackt wurden (app.py, spielplan_multi/, etc.)
-; sowie zur Laufzeit erstellte Verzeichnisse (.cache/, Spielplaene/)
-Type: filesandordirs; Name: "{app}"
+; sowie zur Laufzeit erstellte Verzeichnisse (.cache/).
+; F-L3: Spielplaene/ bleibt explizit erhalten - Nutzer-Daten gehen so beim Deinstallieren
+; NICHT verloren. InitializeUninstall warnt sicherheitshalber zusätzlich.
+Type: filesandordirs; Name: "{app}\app.py"
+Type: filesandordirs; Name: "{app}\launcher.py"
+Type: filesandordirs; Name: "{app}\spielplan_multi"
+Type: filesandordirs; Name: "{app}\assets"
+Type: filesandordirs; Name: "{app}\python"
+Type: filesandordirs; Name: "{app}\.cache"
+Type: files; Name: "{app}\*.md"
+Type: files; Name: "{app}\*.txt"
+Type: files; Name: "{app}\*.csv"
+Type: files; Name: "{app}\*.bat"
+Type: files; Name: "{app}\VERSION"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{#MyAppName} jetzt starten"; Flags: nowait postinstall skipifsilent

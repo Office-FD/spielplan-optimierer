@@ -24,6 +24,7 @@ from spielplan_multi.excel_output import (
     build_league_excel, save_league_excel,
     build_cohome_summary, save_cohome_summary,
     build_hall_schedule, save_hall_schedule,
+    build_overview_excel,
 )
 
 
@@ -114,6 +115,16 @@ def main():
         fn_hall = save_hall_schedule(wb_hall, output_dir)
         saved_files.append(fn_hall)
         ok(f'Hallenbelegungsplan: {fn_hall}')
+
+    # G-L4: Gesamtuebersicht (alle Ligen nebeneinander, je Spiel eine Zeile)
+    if results:
+        import datetime as _dt
+        wb_ov  = build_overview_excel(results, clubs, kw_compat)
+        fn_ov  = output_dir / f'{_dt.date.today().strftime("%Y-%m-%d")}_Gesamtuebersicht.xlsx'
+        fn_ov.parent.mkdir(parents=True, exist_ok=True)
+        wb_ov.save(fn_ov)
+        saved_files.append(str(fn_ov))
+        ok(f'Gesamtuebersicht: {fn_ov}')
 
     # ── Abschluss ─────────────────────────────────────────────────────────────
     banner('FERTIG')

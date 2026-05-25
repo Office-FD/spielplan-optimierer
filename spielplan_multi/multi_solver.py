@@ -82,7 +82,7 @@ def run_phase1(cfgs: Dict[str, LeagueConfig],
                 elif status_name != 'OK':
                     warn(f'[{lid}] Phase-1-Seed fehlgeschlagen: {status_name}')
             except Exception as worker_exc:
-                err(f'Phase-1-Worker-Fehler (Prozess-Absturz): {worker_exc}')
+                err(f'Phase-1-Worker-Fehler: {worker_exc}')
                 import traceback as _tb
                 warn(_tb.format_exc())
 
@@ -332,6 +332,6 @@ def solve_all(cfgs: Dict[str, LeagueConfig],
     for lid, result in list(phase3.items()):
         if result is not None and cfgs.get(lid) and cfgs[lid].games_per_team_per_day > 1:
             if cfgs[lid].tt_settings:
-                phase3[lid] = apply_tournament_ordering(result, cfgs[lid])
+                phase3[lid] = apply_tournament_ordering(result, cfgs[lid], seed=seed)
 
     return phase3

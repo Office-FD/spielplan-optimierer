@@ -12,6 +12,9 @@ jobs:
       contents: write
 
     steps:
+      # Hinweis: actions/checkout, actions/setup-python und softprops/action-gh-release
+      # sind via Major-Version-Tag gepinnt. Fuer hoechste Supply-Chain-Sicherheit
+      # auf vollstaendige Commit-SHAs umstellen (z.B. via Dependabot konfigurieren).
       - name: Checkout
         uses: actions/checkout@v4
 

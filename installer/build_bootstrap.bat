@@ -59,6 +59,21 @@ if exist "%PYEMBED%\python.exe" (
         echo  Herunterladen von python.org...
         powershell -NoProfile -Command "Invoke-WebRequest -Uri '%PYURL%' -OutFile '%BUILD%\%PYZIP%'"
         if errorlevel 1 ( echo FEHLER: Download fehlgeschlagen. & pause & exit /b 1 )
+
+        :: F-L6: SHA256-Verifikation gegen den von python.org publizierten Hash.
+        :: Hash von https://www.python.org/downloads/release/python-3133/
+        :: → "Windows embeddable package (64-bit)" SHA256.
+        :: ACHTUNG: Bei PYVER-Update muss dieser Hash mit aktualisiert werden.
+        set "PY_SHA256=ba88e0d7370f198cd00f44dc31e3f8c3267dd2c413e57ec8538b243cefc7e8fb"
+        echo  Pruefe SHA256...
+        powershell -NoProfile -Command ^
+            "$h = (Get-FileHash -Algorithm SHA256 -LiteralPath '%BUILD%\%PYZIP%').Hash.ToLower(); if ($h -ne '%PY_SHA256%') { Write-Host 'SHA256 mismatch: erwartet %PY_SHA256%, erhalten ' $h; exit 1 }"
+        if errorlevel 1 (
+            echo FEHLER: SHA256-Verifikation fehlgeschlagen - Datei moeglicherweise korrupt oder kompromittiert.
+            del "%BUILD%\%PYZIP%" 2>nul
+            pause & exit /b 1
+        )
+        echo  SHA256 OK.
     )
     echo  Entpacken...
     powershell -NoProfile -Command "Expand-Archive -Path '%BUILD%\%PYZIP%' -DestinationPath '%PYEMBED%' -Force"

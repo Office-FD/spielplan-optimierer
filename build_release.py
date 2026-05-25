@@ -65,6 +65,13 @@ def main():
     print(f"Version: {version}")
     print(f"Pfad: {OUT}")
 
+    # Sanity-Check: Verhindere leeres oder zu kleines ZIP als Release-Artefakt.
+    # Aktuell hat der ZIP > 30 Dateien; Schwelle 10 erkennt offensichtliche Filter-Bugs.
+    if count < 10:
+        print(f"FEHLER: Nur {count} Dateien im ZIP - vermutlich Filter-Konfiguration kaputt.",
+              file=__import__('sys').stderr)
+        __import__('sys').exit(1)
+
 
 if __name__ == "__main__":
     main()

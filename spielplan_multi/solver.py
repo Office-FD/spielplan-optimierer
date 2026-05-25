@@ -717,13 +717,17 @@ class _ProgressCallback(cp_model.CpSolverSolutionCallback):
 
     Da stdout im Worker-Thread auf _QueueWriter umgeleitet wird, landen
     diese Zeilen automatisch im Streamlit-Log und können dort geparst werden.
+
+    `seed` ist optional und wird im Log-Output mitgeführt, damit parallele
+    Seed-Läufe einer Liga unterscheidbar bleiben.
     """
 
-    def __init__(self, lid: str, name: str, t0: float):
+    def __init__(self, lid: str, name: str, t0: float, seed: Optional[int] = None):
         super().__init__()
         self._lid   = lid
         self._name  = name
         self._t0    = t0
+        self._seed  = seed
         self._best  = None
         self._count = 0
 
@@ -736,8 +740,9 @@ class _ProgressCallback(cp_model.CpSolverSolutionCallback):
         if self._best is not None and abs(self._best) > 0:
             delta = f'  d{(obj - self._best) / abs(self._best) * 100:+.1f}%'
         self._best = obj
+        seed_tag = f'#s{self._seed}' if self._seed is not None else ''
         sys.stdout.write(
-            f'[BEST] {self._lid}  obj={obj:.0f}  t={mins:02d}:{secs:02d}{delta}'
+            f'[BEST] {self._lid}{seed_tag}  obj={obj:.0f}  t={mins:02d}:{secs:02d}{delta}'
             f'  (#{self._count})\n'
         )
         sys.stdout.flush()
@@ -769,7 +774,7 @@ def solve_league_phase1(cfg: LeagueConfig,
         solver.parameters.relative_gap_limit = rel_gap
 
     t0       = time.time()
-    callback = _ProgressCallback(cfg.league_id, cfg.name, t0)
+    callback = _ProgressCallback(cfg.league_id, cfg.name, t0, seed=seed)
     status   = solver.Solve(model, callback)
     elapsed = time.time() - t0
     mins, secs = int(elapsed // 60), int(elapsed % 60)

@@ -31,6 +31,10 @@ from spielplan_multi.sa_refine import refine_schedule
 def make_config(lid: str, teams: list, dist_matrix: np.ndarray) -> LeagueConfig:
     n = len(teams)
     N = 2 * (n - 1)
+    # G-L5: w_scaled muss raw_weights * WEIGHT_SCALES sein (nicht WEIGHT_SCALES selbst).
+    # raw_weights sind 0-10-Slider-Werte aus der UI; WEIGHT_SCALES sind Skalierungs-Faktoren.
+    raw = {k: 5.0 for k in WEIGHT_SCALES}
+    scaled = {k: v * WEIGHT_SCALES[k] for k, v in raw.items()}
     return LeagueConfig(
         league_id=lid,
         name=f'Test-Liga {lid}',
@@ -41,8 +45,8 @@ def make_config(lid: str, teams: list, dist_matrix: np.ndarray) -> LeagueConfig:
         weekends=[[d] for d in range(1, N + 1)],
         apply_routing=False,
         f_num=3, f_den=2,
-        w_scaled=WEIGHT_SCALES,
-        raw_weights=WEIGHT_SCALES,
+        w_scaled=scaled,
+        raw_weights=raw,
         pinned=[],
         blocked={},
         calendar={},

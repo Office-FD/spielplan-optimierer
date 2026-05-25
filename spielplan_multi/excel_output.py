@@ -878,8 +878,10 @@ def build_hall_schedule(results: Dict[str, Optional['LeagueResult']]) -> Workboo
                 })
 
     # Sortierung: KW (numerisch, leer zuletzt) → Halle → Liga → Spieltag
+    _UNKNOWN_KW_SORT = 999  # nicht-numerische KWs landen am Ende
     def _sort_key(r):
-        kw_num = r['kw'] if isinstance(r['kw'], int) else (int(r['kw']) if str(r['kw']).isdigit() else 999)
+        kw_num = (r['kw'] if isinstance(r['kw'], int)
+                  else (int(r['kw']) if str(r['kw']).isdigit() else _UNKNOWN_KW_SORT))
         return (kw_num, str(r['halle']), str(r['liga']), r['spieltag'])
     rows.sort(key=_sort_key)
 
@@ -1008,7 +1010,7 @@ def build_overview_excel(
             parts = s.split('.')
             if len(parts) >= 3:
                 return _dt.date(int(parts[2]), int(parts[1]), int(parts[0]))
-        except Exception:
+        except (ValueError, TypeError, IndexError):
             pass
         return None
 
@@ -1043,6 +1045,8 @@ def build_overview_excel(
             c.alignment = Alignment(horizontal='center', vertical='center')
         ws_c.row_dimensions[3].height = 18
         r = 4
+        # C-L5: Vereine zaehlen, die wegen fehlender Liga-Results uebersprungen wurden
+        clubs_skipped: list = []
         for club_name, liga_team_map in clubs.items():
             for kw, kw_data in sorted(kw_compat.items()):
                 entries = []
@@ -1078,6 +1082,21 @@ def build_overview_excel(
                 r += 1
         for col, w in zip(range(1, 7), [24, 8, 12, 12, 60, 10]):
             ws_c.column_dimensions[get_column_letter(col)].width = w
+        # C-L5: Hinweis-Block bei Skipped-Vereinen
+        if not clubs_skipped:
+            # Pruefen ob Vereine wegen <2 Liga-Results uebersprungen wurden
+            for _cn, _ltm in clubs.items():
+                _active = sum(1 for _lid in _ltm if _lid in results and results.get(_lid) is not None)
+                if _active < 2 and len(_ltm) >= 2:
+                    clubs_skipped.append(_cn)
+        if clubs_skipped:
+            _hint_r = r + 1
+            ws_c.merge_cells(start_row=_hint_r, start_column=1, end_row=_hint_r, end_column=6)
+            _hc = ws_c.cell(_hint_r, 1,
+                            f'Hinweis: {len(clubs_skipped)} Vereine ohne Eintrag '
+                            f'(weniger als 2 Ligen mit Ergebnis): {", ".join(clubs_skipped[:5])}'
+                            + (' …' if len(clubs_skipped) > 5 else ''))
+            _hc.font = Font(italic=True, color='666666', size=9)
 
     # ── Team-Farben (Club-aware) ───────────────────────────────────────────────
     # Teams desselben Mehrsparten-Vereins erhalten dieselbe Farbe über Ligen hinweg.

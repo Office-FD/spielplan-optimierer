@@ -43,9 +43,22 @@ def _msgbox(title: str, msg: str, flags: int = _MB_OK | _MB_ICONINFO) -> int:
 
 
 def _parse_version(v: str) -> tuple:
-    """Gibt ein Tupel aus ints zurück, z. B. '1.10.0' → (1, 10, 0)."""
+    """Gibt ein Tupel aus ints zurueck, z.B. '1.10.0' -> (1, 10, 0).
+
+    Pre-Release-Suffixe wie '-beta', '.rc1' werden abgetrennt:
+    '1.3.0-beta' -> (1, 3, 0). Damit funktionieren Pre-Releases als
+    "kleiner als" das nicht-pre-Release-Aequivalent.
+    """
     try:
-        return tuple(int(x) for x in v.strip().lstrip("v").split("."))
+        core = v.strip().lstrip("v").split("-")[0].split("+")[0]
+        parts = []
+        for x in core.split("."):
+            # Nur reine Integer-Teile akzeptieren; Suffix-Tags wie 'rc1' stoppen
+            if x.isdigit():
+                parts.append(int(x))
+            else:
+                break
+        return tuple(parts) if parts else (0,)
     except Exception:
         return (0,)
 
