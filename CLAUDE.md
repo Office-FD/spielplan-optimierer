@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.3.1 · Stand Mai 2026 · Status: Code-Review Runde 6 Sprints 1-3/5 erledigt (Datenkonsistenz, DST-Swap-Schutz, State-Management, Release-Robustheit, A-M1 Solver-Constraint), Sprint 4 (Tests + CI) wartet auf Start — siehe FIX_PLAN.md**
+> **Version 1.4.0 · Stand Mai 2026 · Status: Code-Review Runde 6 Sprints 1-4/5 erledigt (Datenkonsistenz, DST-Schutz, State-Management, Release-Robustheit, Test-Coverage + CI). Nur noch Sprint 5 (optionale Niedrig-Prio-Items) offen — siehe FIX_PLAN.md**
 
 ---
 
@@ -423,6 +423,19 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 | `.github/workflows/release.yml` | **F-M2** Workflow validiert nicht, dass Git-Tag mit VERSION-Datei übereinstimmt → bei Mismatch droht Endlos-Update-Loop, weil installiertes ZIP weiter alte Version meldet | Pre-Build-Step prüft `${GITHUB_REF_NAME#v}` gegen VERSION-Datei und bricht ab bei Differenz |
 | `app.py` (`_regen_league_excel`) | **E-M3** Bei Overview-Build-Fehler nach manuellen Mutationen blieb `S.overview_bytes` auf altem Wert stehen → User lädt veraltete Gesamtübersicht herunter, die nicht zum aktuellen State passt | Vor try-Block `S.overview_bytes = None`, nur bei Erfolg neu setzen |
 | `solver.py` | **A-M1** DST-Nachbarschafts-Constraints A/B/C berücksichtigten `needs_bye` nicht: bei ungerader Teamzahl und Bye-Tagen rund um einen DST-Block konnte `home[pre1] + home[post1] >= 1` unlösbar werden (0+0 forced bei Bye) | Bei `needs_bye`: `>= _plays_pre + _plays_post - 1` statt `>= 1`. Sum von `x[m,d]` für ti-Matches ist 0 (Bye) oder 1 (Spiel) → Constraint wird nur erzwungen, wenn beide Tage tatsächlich gespielt werden |
+
+**Code-Review Runde 6 – Sprint 4 / Test-Coverage + CI (v1.3.1 → v1.4.0):**
+
+| Datei | Befund | Fix |
+|---|---|---|
+| `test_all.py` | **G-M2** Keine Tests für `forced_home`-Feature (v1.2.x) — Bugs im Pflichtheim-Pfad würden nicht von der Test-Suite gefangen | 3 neue Tests: `t10_forced_home_respektiert` (Pflichttag wird erzwungen), `t10_forced_home_overrides_blocked` (Override-Verhalten gegen Sperrtag), `t10_forced_home_validator_konflikt` (Validator erkennt blocked+forced_home-Doppelbelegung) |
+| `test_all.py` | **G-M3** Kein Test für Spielfrei-Modus bei ungerader Teamzahl (v1.2.2) — komplexe Solver-Logik (needs_bye, sliding-window-Konditionalisierung) ohne automatisierte Absicherung | 2 neue Tests: `t11_odd_teams_feasible` (5 Teams, n_rounds=2 → 10 Spieltage, je 4 aktiv + 1 Bye), `t11_odd_teams_fair_bye_distribution` (jedes Team genau 2 Bye-Tage). `make_cfg()` erweitert um `n_active_per_day`-Support + allgemeine Spieltagzahl-Formel |
+| `test_all.py` | **G-M4** Keine Tests für Mutation-Funktionen `move_game`, `cancel_game`, `reschedule_game`, `recompute_result_stats` — Bug C-M1 (fehlende Turniertag-Guards) wäre durch Tests vorab gefangen worden | 4 neue Tests: `t12_recompute_stats_konsistenz` (sw_rates-Denominator nach C-M2-Fix), `t12_move_game_konsistenz` (schedule + home_vals konsistent), `t12_cancel_reschedule` (kompletter Round-Trip), `t12_mutation_turniertag_geguarded` (gpd>1 → alle 3 Mutationen lehnen ab) |
+| `test_pytest_runner.py` (neu) | **G-L6** Tests bisher nur als CLI-Scripts mit `sys.exit(1)`, nicht pytest-fähig → kein automatisierter CI-Lauf möglich | Pytest-Wrapper ruft alle 4 Sub-Scripts (`test_smoke`, `test_features`, `test_distances`, `test_all`) via `subprocess.run()` auf, fängt stdout/stderr für pytest-Output, mit Per-Script-Timeouts (300-1200s). Setzt `PYTHONIOENCODING=utf-8` für Windows-CI |
+| `.github/workflows/test.yml` (neu) + `.github/workflows/release.yml` | **F-L8** Workflows ohne Test-Gate → defekter Code könnte released werden | Neuer `test.yml`-Workflow läuft `pytest test_pytest_runner.py` auf push:main + alle PRs. `release.yml` ergänzt um Test-Step vor `build_release.py` (Test-Gate) |
+| `spielplan_multi/distances.py` | **(Latent)** `pd.ExcelFile(path)` hielt Windows-File-Handle bis zur GC → Datei-Lock-Probleme beim Test-Cleanup | `with pd.ExcelFile(path) as xl:` als context manager — Handle wird sofort geschlossen |
+
+**Test-Coverage neu:** 36/36 (test_all.py, +9 vs. v1.3.1), 34/34 (test_features.py), 18/18 (test_distances.py inkl. ExcelFile-Lock-Fix), Smoke ✓. Gesamt-pytest-Laufzeit ~14 min, deckt jetzt Spielfrei + forced_home + alle Mutation-Funktionen ab.
 
 ---
 

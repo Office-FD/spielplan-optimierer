@@ -177,13 +177,16 @@ def load_distances_from_file(path: str, teams: List[str]) -> Optional[np.ndarray
 
     try:
         if path.suffix.lower() in ('.xlsx', '.xls'):
-            xl = pd.ExcelFile(path)
-            dist_sheet = next(
-                (s for s in xl.sheet_names if s.strip().lower() == 'distanzmatrix'),
-                None,
-            )
-            sheet = dist_sheet if dist_sheet else xl.sheet_names[0]
-            df = xl.parse(sheet, header=0)
+            # ExcelFile als context manager → File-Handle wird sofort geschlossen.
+            # Ohne `with` haelt pandas die Datei bis zur GC offen, was auf Windows
+            # zu Datei-Lock-Problemen beim anschliessenden Loeschen fuehrt.
+            with pd.ExcelFile(path) as xl:
+                dist_sheet = next(
+                    (s for s in xl.sheet_names if s.strip().lower() == 'distanzmatrix'),
+                    None,
+                )
+                sheet = dist_sheet if dist_sheet else xl.sheet_names[0]
+                df = xl.parse(sheet, header=0)
         else:
             df = pd.read_csv(path, sep=None, engine='python')
     except Exception as exc:

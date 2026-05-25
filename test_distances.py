@@ -394,6 +394,7 @@ def main():
 
     def t5_excel_matrix():
         import openpyxl
+        import gc
         teams = ['Koeln', 'Dortmund', 'Frankfurt']
         dist_vals = [[0, 90, 185], [90, 0, 220], [185, 220, 0]]
         wb = openpyxl.Workbook()
@@ -401,11 +402,14 @@ def main():
         ws.append([''] + teams)
         for i, team in enumerate(teams):
             ws.append([team] + dist_vals[i])
-        with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as f:
-            tmp_path = f.name
-        wb.save(tmp_path)
-        mat = load_distances_from_file(tmp_path, teams)
-        Path(tmp_path).unlink(missing_ok=True)
+        # TemporaryDirectory ist robuster gegen Windows-File-Locks als NamedTemporaryFile.
+        # pd.ExcelFile() in load_distances_from_file haelt die Datei offen bis zur GC.
+        with tempfile.TemporaryDirectory() as td:
+            tmp_path = str(Path(td) / 'distances.xlsx')
+            wb.save(tmp_path)
+            mat = load_distances_from_file(tmp_path, teams)
+            # GC erzwingen, damit pandas das ExcelFile-Handle freigibt vor cleanup.
+            gc.collect()
         assert mat is not None
         assert mat[0, 1] == 90
         assert mat[1, 2] == 220

@@ -65,7 +65,13 @@ def make_cfg(lid, teams, dist=None, **kw):
         dist = np.zeros((n, n))
     nr = kw.get('n_rounds', 2)
     gpd = kw.get('games_per_team_per_day', 1)
-    n_md = nr * (n - 1) // max(1, gpd)
+    n_active = kw.get('n_active_per_day', 0)
+    # Allgemeine Formel (analog zu LeagueConfig.n_matchdays), unterstützt ungerades n
+    games_per_day = (n_active if n_active > 0 else n) * gpd // 2
+    if games_per_day > 0:
+        n_md = nr * n * (n - 1) // 2 // games_per_day
+    else:
+        n_md = nr * (n - 1) // max(1, gpd)
     days = list(range(1, n_md + 1))
     dst = kw.get('dst_blocks', [])
     return LeagueConfig(
@@ -79,10 +85,12 @@ def make_cfg(lid, teams, dist=None, **kw):
         raw_weights=raw,
         pinned=kw.get('pinned', []),
         blocked=kw.get('blocked', {}),
+        forced_home=kw.get('forced_home', {}),
         hier_weight=kw.get('hier_weight', 1.0),
         games_per_team_per_day=gpd,
         n_rounds=nr,
         n_teams_per_group=kw.get('n_teams_per_group', 0),
+        n_active_per_day=n_active,
     )
 
 
@@ -671,6 +679,203 @@ def main():
         assert schedule == before, f'Balancierter Plan wurde veraendert: {schedule}'
         return 'Plan unveraendert (Differenz < 2)'
     check('_balance_home_away: bereits ausgeglichener Plan bleibt unveraendert', t9_balance_already_balanced)
+
+    # =========================================================================
+    # TEST 10 – Heimspiel-Pflichttage (forced_home, v1.2.x-Feature)
+    # =========================================================================
+    print('\n--- Test 10: Heimspiel-Pflichttage (forced_home) ---')
+
+    def t10_forced_home_respektiert():
+        forced = {'Hamburg': [1, 5], 'Frankfurt': [3, 8]}
+        cfg_fh = make_cfg('FH', TEAMS6, dist=DIST6, forced_home=forced)
+        r = solve(cfg_fh, tl=30)
+        for team, fdays in forced.items():
+            for d in fdays:
+                if d > cfg_fh.n_matchdays:
+                    continue
+                has_home = any(ht == team for ht, _ in r.schedule.get(d, []))
+                assert has_home, f'{team} hat KEIN Heimspiel am Pflichttag {d}'
+        return f'Alle Pflichtheim-Tage eingehalten ({sum(len(v) for v in forced.values())} Tage)'
+    check('Pflichtheim-Tage werden eingehalten', t10_forced_home_respektiert)
+
+    def t10_forced_home_overrides_blocked():
+        # Override-Verhalten: Sperrtag UND forced_home auf demselben Tag
+        # → forced_home gewinnt (mit Warnung, siehe A-M2)
+        forced  = {'Hamburg': [3]}
+        blocked = {'Hamburg': [3, 4]}  # Tag 3 ist beides, Tag 4 nur blocked
+        cfg_or = make_cfg('OR', TEAMS6, dist=DIST6, forced_home=forced, blocked=blocked)
+        r = solve(cfg_or, tl=30)
+        has_home_t3 = any(ht == 'Hamburg' for ht, _ in r.schedule.get(3, []))
+        assert has_home_t3, 'Hamburg hat kein Heimspiel an Tag 3 (forced_home sollte blocked schlagen)'
+        # Tag 4 ist nur blocked - kein Heimspiel
+        has_home_t4 = any(ht == 'Hamburg' for ht, _ in r.schedule.get(4, []))
+        assert not has_home_t4, 'Hamburg hat Heimspiel an reinem Sperrtag 4 (sollte verhindert sein)'
+        return 'forced_home schlägt blocked an Tag 3, blocked greift an Tag 4'
+    check('forced_home + blocked Override-Verhalten korrekt', t10_forced_home_overrides_blocked)
+
+    def t10_forced_home_validator_konflikt():
+        # Validator erkennt: gleicher Tag in blocked UND forced_home für SELBES Team
+        # ohne forced_home-Vorrang würde es ja Sinn ergeben — validate_cfgs
+        # gibt error wenn beides für denselben Tag gesetzt ist.
+        # Aber: validate_cfgs erkennt die Override-Intent NICHT, sondern markiert es als Konflikt.
+        from spielplan_multi.config_validator import validate_cfgs
+        cfg_conf = make_cfg('CONF', TEAMS6, dist=DIST6,
+                             forced_home={'Hamburg': [3]},
+                             blocked={'Hamburg': [3]})
+        issues = validate_cfgs({'CONF': cfg_conf})
+        errors = [i for i in issues if i['level'] == 'error']
+        assert any('Sperrtag' in i['msg'] and 'Pflichtheim' in i['msg'] for i in errors), \
+            f'Validator erkennt blocked+forced_home-Konflikt nicht: {[i["msg"] for i in errors]}'
+        return f'Validator markiert blocked+forced_home auf gleichem Tag als Fehler'
+    check('Validator erkennt blocked+forced_home-Konflikt', t10_forced_home_validator_konflikt)
+
+    # =========================================================================
+    # TEST 11 – Spielfrei-Modus (ungerade Teamzahl, v1.2.2-Feature)
+    # =========================================================================
+    print('\n--- Test 11: Spielfrei-Modus (ungerade Teamzahl) ---')
+
+    def t11_odd_teams_feasible():
+        # 5 Teams, n_rounds=2 → 10 Spieltage (statt 8 bei gerader Zahl)
+        TEAMS5 = ['T1', 'T2', 'T3', 'T4', 'T5']
+        DIST5 = np.array([[0, 100, 200, 300, 400],
+                          [100, 0, 150, 250, 350],
+                          [200, 150, 0, 120, 220],
+                          [300, 250, 120, 0, 100],
+                          [400, 350, 220, 100, 0]], dtype=float)
+        cfg5 = make_cfg('ODD', TEAMS5, dist=DIST5)
+        # n_matchdays mit allgemeiner Formel: 2*5*4//2//(5*1//2) = 20//2 = 10
+        assert cfg5.n_matchdays == 10, f'Erwartet 10 Spieltage, erhielt {cfg5.n_matchdays}'
+        r = solve(cfg5, tl=45)
+        # KEIN assert_schedule_complete: das pruefe `cnt == gpd` was im Spielfrei-Modus
+        # nicht gilt (Bye-Tage haben `cnt == 0`).
+        # Bei 5 Teams + gpd=1: pro Tag spielen 4 Teams (2 Spiele), 1 hat Spielfrei
+        for d in cfg5.days:
+            games = r.schedule.get(d, [])
+            assert len(games) == 2, f'Tag {d}: {len(games)} Spiele, erwartet 2 (5 Teams, 1 Spielfrei)'
+            teams_playing = {t for ht, at in games for t in (ht, at)}
+            assert len(teams_playing) == 4, f'Tag {d}: {len(teams_playing)} Teams aktiv, erwartet 4'
+        # Gesamtspielzahl: jede Paarung 2x = C(5,2)*2 = 20 Spiele
+        total_games = sum(len(g) for g in r.schedule.values())
+        assert total_games == 20, f'Total {total_games} Spiele, erwartet 20'
+        return f'Ungerades n=5: {cfg5.n_matchdays} Spieltage, je 4 Teams aktiv + 1 Spielfrei, 20 Spiele total'
+    check('Spielfrei-Modus: 5 Teams n_rounds=2 loest, jeder Tag 1 Bye', t11_odd_teams_feasible)
+
+    def t11_odd_teams_fair_bye_distribution():
+        TEAMS5 = ['T1', 'T2', 'T3', 'T4', 'T5']
+        cfg5 = make_cfg('ODD2', TEAMS5)  # dist=0-Matrix, nur Heimrecht-Optimierung
+        r = solve(cfg5, tl=45)
+        # Jedes Team spielt: 4 Gegner × 2 Runden = 8 Spiele über 10 Tage → 2 Spielfrei pro Team
+        bye_count: dict = {t: 0 for t in TEAMS5}
+        for d in cfg5.days:
+            teams_playing = {t for ht, at in r.schedule.get(d, []) for t in (ht, at)}
+            for t in TEAMS5:
+                if t not in teams_playing:
+                    bye_count[t] += 1
+        bye_vals = list(bye_count.values())
+        assert all(v == 2 for v in bye_vals), \
+            f'Bye-Verteilung unausgeglichen: {bye_count} (erwartet je 2)'
+        return f'Bye-Verteilung fair: jedes Team genau 2 Spielfrei-Tage'
+    check('Spielfrei-Modus: Bye fair verteilt (5 Teams × 2 Byes)', t11_odd_teams_fair_bye_distribution)
+
+    # =========================================================================
+    # TEST 12 – Schedule-Mutation-Funktionen (move/cancel/reschedule/recompute)
+    # =========================================================================
+    print('\n--- Test 12: Schedule-Mutation-Funktionen ---')
+
+    from spielplan_multi.schedule_utils import (
+        move_game, cancel_game, reschedule_game, recompute_result_stats,
+    )
+
+    def _solve_for_mutation():
+        cfg_m = make_cfg('MUT', TEAMS6, dist=DIST6)
+        r = solve(cfg_m, tl=30)
+        return cfg_m, r
+
+    def t12_recompute_stats_konsistenz():
+        cfg_m, r = _solve_for_mutation()
+        # Recompute aufrufen, Werte sollten denen vom Solver entsprechen
+        travels, sw_counts, sw_rates = recompute_result_stats(r, cfg_m)
+        # travels: Transitions-Modell, sollte mit Solver-Wert übereinstimmen (Solver minimiert dasselbe)
+        # sw_rates: Denominator ist jetzt n_transitions (C-M2-Fix)
+        n_tr = cfg_m.n_transitions
+        for ti in range(cfg_m.n_teams):
+            expected_rate = round(100.0 * sw_counts[ti] / n_tr, 1) if n_tr > 0 else 0.0
+            assert abs(sw_rates[ti] - expected_rate) < 0.01, \
+                f'sw_rates[{ti}]={sw_rates[ti]} != erwartet {expected_rate}'
+        return f'recompute_stats konsistent (n_tr={n_tr}, max sw_rate={max(sw_rates):.1f}%)'
+    check('recompute_result_stats: sw_rates-Denominator = n_transitions', t12_recompute_stats_konsistenz)
+
+    def t12_move_game_konsistenz():
+        cfg_m, r = _solve_for_mutation()
+        # Suche einen Tag mit Spiel, das verschoben werden kann
+        old_day = 1
+        games_at_1 = list(r.schedule.get(old_day, []))
+        if not games_at_1:
+            return 'Übersprungen (kein Spiel an Tag 1)'
+        ht, at = games_at_1[0]
+        # Finde freien Tag für beide Teams (über schedule_utils.find_free_days)
+        from spielplan_multi.schedule_utils import find_free_days
+        free_days = find_free_days(r, cfg_m, ht, at)
+        free_days = [d for d in free_days if d != old_day]
+        if not free_days:
+            return 'Übersprungen (kein freier Tag)'
+        new_day = free_days[0]
+        err_msg = move_game(r, cfg_m, old_day, 0, new_day)
+        assert err_msg == '', f'move_game scheiterte: {err_msg}'
+        # Verifikation: Spiel ist jetzt an new_day, nicht mehr an old_day
+        assert (ht, at) in r.schedule.get(new_day, []), f'Spiel nicht an {new_day}'
+        assert (ht, at) not in r.schedule.get(old_day, []), f'Spiel noch an {old_day}'
+        # home_vals konsistent
+        t_idx = {t: i for i, t in enumerate(cfg_m.teams)}
+        assert r.home_vals.get((t_idx[ht], new_day)) == 1, 'home_vals[ht, new_day] != 1'
+        assert r.home_vals.get((t_idx[at], new_day)) == 0, 'home_vals[at, new_day] != 0'
+        return f'move {old_day}→{new_day} konsistent in schedule + home_vals'
+    check('move_game: schedule und home_vals konsistent', t12_move_game_konsistenz)
+
+    def t12_cancel_reschedule():
+        cfg_m, r = _solve_for_mutation()
+        # Spiel an Tag 1 absagen
+        old_games = list(r.schedule.get(1, []))
+        if not old_games:
+            return 'Übersprungen (kein Spiel)'
+        ht_c, at_c = cancel_game(r, cfg_m, 1, 0)
+        assert ht_c is not None, 'cancel_game returned None'
+        # Spiel ist weg
+        remaining = list(r.schedule.get(1, []))
+        assert (ht_c, at_c) not in remaining, 'Spiel nicht entfernt'
+        # Reschedule auf freien Tag
+        from spielplan_multi.schedule_utils import find_free_days
+        free_days = find_free_days(r, cfg_m, ht_c, at_c)
+        if not free_days:
+            return 'Übersprungen (kein freier Tag für Reschedule)'
+        err_msg = reschedule_game(r, cfg_m, free_days[0], ht_c, at_c)
+        assert err_msg == '', f'reschedule_game scheiterte: {err_msg}'
+        # Spiel ist eingetragen
+        assert (ht_c, at_c) in r.schedule.get(free_days[0], []), 'Reschedule nicht im Schedule'
+        return f'cancel + reschedule {ht_c} vs. {at_c} -> Tag {free_days[0]}'
+    check('cancel_game + reschedule_game: Spielplan konsistent', t12_cancel_reschedule)
+
+    def t12_mutation_turniertag_geguarded():
+        # move_game, cancel_game, reschedule_game müssen bei gpd>1 ablehnen (C-M1/swap-Guard)
+        # 9 Teams + K=3 + gpd=2 + n_rounds=1: valide Konfig (siehe Test 7).
+        # cfg7 wurde in Test 7 schon erfolgreich geloest -> wiederverwenden statt neu solven.
+        from spielplan_multi.solver import extract_groups
+        r_tt = solve(cfg7, tl=30)
+        r_tt.groups = extract_groups(r_tt.schedule, cfg7)
+        r_tt.cfg = cfg7
+        # move_game
+        err_mv = move_game(r_tt, cfg7, 1, 0, 2)
+        assert err_mv != '', 'move_game akzeptiert Turniertag (sollte abgelehnt werden)'
+        assert 'Turniertag' in err_mv, f'move_game-Fehler erwaehnt Turniertag nicht: {err_mv}'
+        # cancel_game
+        ht_c, at_c = cancel_game(r_tt, cfg7, 1, 0)
+        assert ht_c is None and at_c is None, 'cancel_game akzeptiert Turniertag'
+        # reschedule_game
+        err_re = reschedule_game(r_tt, cfg7, 1, cfg7.teams[0], cfg7.teams[1])
+        assert err_re != '', 'reschedule_game akzeptiert Turniertag'
+        assert 'Turniertag' in err_re, f'reschedule_game-Fehler erwaehnt Turniertag nicht: {err_re}'
+        return 'move + cancel + reschedule bei Turniertag korrekt abgelehnt'
+    check('Mutationen bei gpd>1 (Turniertag) abgelehnt', t12_mutation_turniertag_geguarded)
 
     # =========================================================================
     # ZUSAMMENFASSUNG

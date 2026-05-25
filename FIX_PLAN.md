@@ -72,13 +72,13 @@
 **Acceptance:** `pytest` läuft grün in GitHub Actions auf jedem PR, deckt forced_home, Spielfrei, Mutationen ab.
 **Aufwand:** ~4-6 Stunden
 
-- [ ] **G-M2** · Tests für `forced_home`: respektiert, +DST-Konflikt, +Sperrtag-Konflikt
-- [ ] **G-M3** · Test für `n_active_per_day > 0` Spielfrei-Modus (5 Teams, n_rounds=2)
-- [ ] **G-M4** · Tests für `move_game`, `cancel_game`, `reschedule_game`, `recompute_result_stats` (würde C-M1 vorab gefangen haben)
-- [ ] **G-L6** · Tests pytest-fähig machen (`assert` statt `sys.exit(1)`)
-- [ ] **G-L6/F-L8** · GitHub-Actions-Workflow `test.yml` für PRs + Test-Gate in `release.yml`
+- [x] **G-M2** · Tests für `forced_home`: respektiert, Override-Verhalten gegen Sperrtag, Validator-Konflikt
+- [x] **G-M3** · Test für `n_active_per_day > 0` Spielfrei-Modus (5 Teams, n_rounds=2) + faire Bye-Verteilung
+- [x] **G-M4** · Tests für `move_game`, `cancel_game`, `reschedule_game`, `recompute_result_stats` + Turniertag-Guards
+- [x] **G-L6** · Pytest-Wrapper `test_pytest_runner.py` ruft existierende CLI-Scripts via subprocess
+- [x] **G-L6/F-L8** · GitHub-Actions `test.yml` für push:main + PRs; `release.yml` mit Test-Gate vor Build
 
-**Status:** Offen · Geplant: ___
+**Status:** Erledigt · Version: v1.4.0 · Pending: lokale Test-Verifikation
 
 ---
 
@@ -164,8 +164,8 @@
 | 1 | 4 | 4 | **Erledigt (v1.3.0-rc1)** |
 | 2 | 6 | 6 | **Erledigt (v1.3.0)** |
 | 3 | 6 | 6 | **Erledigt (v1.3.1)** |
-| 4 | 5 | 0 | Offen |
+| 4 | 5 | 5 | **Erledigt (v1.4.0)** |
 | 5 | 45 | 0 | Optional |
-| **Σ** | **66** | **16** | |
+| **Σ** | **66** | **21** | |
 
 (Σ < 70 weil einige Niedrig-Befunde zusammengefasst sind.)

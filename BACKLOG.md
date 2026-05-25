@@ -1194,6 +1194,64 @@ Fix: `release.yml` (oder neuer `.github/workflows/test.yml` für PRs) → pytest
 
 ---
 
+### Heimrecht-Balance pro Runde mit exponentieller Strafe
+
+**Typ:** Verbesserung / Neue Funktion
+**Bereich:** Spielplan-Optimierung
+**Wichtigkeit:** Wichtig für Alltag
+**Aufwand:** Mittel
+**Beschreibung:**
+
+Aktuelles Verhalten: Die Heimrecht-Constraints (`pair_h == h_lo` in `solver.py:207`) garantieren, dass jedes Team über die GESAMTE Saison ausgeglichen Heim- und Auswärtsspiele hat (bei n_rounds=2: n-1 Heim, n-1 Auswärts). Innerhalb einer einzelnen Runde (Hin- bzw. Rückrunde) kann die Verteilung aber stark unausgewogen sein — beobachtet z. B. 7 Heim / 4 Auswärts in der Hinrunde, dann 4 Heim / 7 Auswärts in der Rückrunde.
+
+**Gewünschtes Verhalten:** Sofern keine harten Constraints (Pflichtspiele, Sperrtage, Pflichtheim, DST-Routing) dagegen sprechen, soll auch INNERHALB jeder Runde eine annähernd ausgeglichene Heim/Auswärts-Verteilung angestrebt werden. Da bei ungerader Anzahl Spieltage pro Runde (z. B. 11 Spiele bei 12 Teams) keine 50/50-Verteilung möglich ist, wird die Abweichung vom Mittelwert (5,5 Heim) im Objective progressiv (quadratisch / exponentiell) bestraft.
+
+**Beispiel:** 12 Teams, Hin/Rückrunde, 11 Spiele pro Runde
+- 5/6 oder 6/5 Heim/Auswärts: |dev| = 0,5 → ~9 % Abweichung → minimale Strafe
+- 4/7 oder 7/4: |dev| = 1,5 → ~27 % Abweichung → deutlich höhere Strafe
+- 3/8 oder 8/3: |dev| = 2,5 → ~45 % Abweichung → sehr hohe Strafe
+
+**Implementierungs-Skizze:**
+
+1. **Solver-seitig** (`solver.py: build_league_vars` + `add_league_objective`)
+   - Pro (Team, Runde): IntVar `home_in_round[ti, r]` = `sum(home[ti, d] for d in round_r_days)`
+   - Pro (Team, Runde): IntVar `dev2[ti, r]` = `(2 * home_in_round[ti, r] - n_days_per_round)`, also doppelte Abweichung vom Mittelwert (vermeidet halbe Werte)
+   - Pro (Team, Runde): IntVar `abs_dev2[ti, r] = |dev2[ti, r]|` via `model.AddAbsEquality`
+   - Quadratisch: IntVar `sq_dev[ti, r] = abs_dev2 * abs_dev2` via `model.AddMultiplicationEquality` (CP-SAT unterstützt das)
+   - Total: `round_balance_penalty = sum(sq_dev[ti, r] for ti, r)` — als IntVar in `LeagueVars`
+   - Objective: `-W['round_balance'] * round_balance_penalty` (negativ, da minimieren)
+
+2. **Gewichts-Definition** (`config.py`)
+   - Neuer Eintrag in `WEIGHT_SCALES`: `'round_balance': 0.5` (Skalierung muss kalibriert werden — Größenordnung quadrierter Wert kann pro Team und Runde ~25 erreichen, dann sum über n Teams und 2 Runden ~50n)
+   - Neuer Eintrag in `WEIGHT_LABELS` (`app.py:251`): `'round_balance': ('Heim-Balance pro Runde', 'Wie ausgeglichen Heim- und Auswärtsspiele innerhalb der Hinrunde bzw. Rückrunde verteilt sind. Höherer Wert = stärker bestrafte Abweichungen wie z. B. 7:4-Verteilungen. Default: 5')`
+
+3. **UI** (`app.py:_step3`)
+   - Automatisch durch die generische `_weight_inputs()`-Funktion abgedeckt, da sie über `WEIGHT_LABELS` iteriert. Default-Wert in `_W_DEFAULTS` ergänzen.
+
+4. **Wizard CLI** (`spielplan_multi/wizard.py:step4_weights`)
+   - Analog automatisch abgedeckt.
+
+5. **Excel-Output** (`excel_output.py:build_league_excel`)
+   - „Fairness-Analyse"-Sheet Block B („HEIMRECHT PRO PHASE") existiert bereits und zeigt Heim/Ausw. pro Runde an. Bewertung erweitern: nicht nur 40–60% global, sondern auch pro Runde.
+
+6. **Tests** (`test_all.py`)
+   - Neuer Test: bei aktivem `round_balance`-Gewicht (z. B. 10), 12-Team-Liga, n_rounds=2, prüfen dass `home_in_round` für jedes Team in beiden Runden zwischen `(N_round-1)//2` und `(N_round+2)//2` liegt (also 5 oder 6 bei 11 Spielen).
+
+**Trade-offs / Considerations:**
+- **Quadratische Constraints** machen das CP-SAT-Modell rechenintensiver. Für 12 Teams, n_rounds=2 sind das 24 zusätzliche Multiplikations-Constraints — überschaubar, aber sollte mit `test_smoke.py`-Timings verglichen werden.
+- **Soft Constraint**: Wie alle Fairness-Terme im Objective. Wenn Pflichtspiele/Sperrtage Balance verhindern, akzeptiert der Solver höhere Strafe (kein INFEASIBLE).
+- **Wechselwirkung mit `switch`-Gewicht**: Mehr Heim-Auswärts-Wechsel innerhalb einer Runde korreliert mit ausgewogener Verteilung — aber nicht zwingend. Eine Sequenz HAHAHAHAHHH hat 8 Wechsel und ist trotzdem 7:4. Beide Gewichte sollten unabhängig wirken.
+- **Stufe-2-Turniertag**: bei `gpd > 1` oder `K > 0` ist `home[ti, d]` ein Zähler (0..gpd), nicht BoolVar. Constraint braucht ggf. anderes Modell oder ist hier nicht relevant (Turniertag hat ohnehin Sonderlogik). Erste Implementierung: nur für `gpd == 1` aktivieren.
+
+**Akzeptanzkriterien:**
+- Bei aktivem `round_balance`-Gewicht (≥5) und sonst unrestriktiver Konfiguration: alle Teams haben pro Runde maximal 1 mehr Heim als Auswärts (oder umgekehrt), d.h. die optimale Verteilung wird erreicht.
+- Bei restriktiven Pflichtspielen/Sperrtagen: Solver findet weiterhin eine Lösung (kein neues INFEASIBLE), Strafe steigt aber sichtbar im Objective-Wert.
+- Phase-2-Laufzeit verschlechtert sich um maximal 20% bei einer 4-Liga-Konfiguration mit aktivem round_balance.
+
+**Status:** Offen
+
+---
+
 ### [intern] Optimierungslücke (Optimality Gap) verringern
 
 **Typ:** Verbesserung
