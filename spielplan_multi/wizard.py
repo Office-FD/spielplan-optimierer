@@ -19,6 +19,7 @@ import math
 import re
 import sys
 from collections import Counter
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -31,23 +32,43 @@ from .distances import (get_api_key, calculate_distance_matrix,
                          load_distances_from_file, enter_distances_manually)
 
 
+# ── Wizard-Datenstruktur ─────────────────────────────────────────────────────
+
+@dataclass
+class WizardLeagueDef:
+    """Wizard-interne Repraesentation einer Liga-Konfiguration.
+
+    Ersetzt das alte 9-Tuple (G-L1/G-L2). Namens-Felder erlauben sicheren
+    Zugriff und erleichtern künftige Erweiterungen.
+    """
+    teams:       List[str]
+    locations:   List[str]
+    name:        str
+    hier_weight: float = 1.0
+    gpd:         int   = 1
+    n_rounds:    int   = 2
+    k_group:     int   = 0       # 0 = Stufe 1, >0 = Stufe 2 (Gruppengroesse)
+    n_active:    int   = 0       # 0 = alle Teams, >0 = Spielfrei-Modus
+    tt_settings: dict  = field(default_factory=dict)
+
+
 # ── Hilfsfunktion: Spieltaganzahl berechnen ───────────────────────────────────
 
-def _calc_n_matchdays(ld: tuple) -> int:
+def _calc_n_matchdays(ld: WizardLeagueDef) -> int:
     """Berechnet die Anzahl der Spieltage analog zu LeagueConfig.n_matchdays."""
-    teams    = ld[0]
-    gpd      = ld[4] if len(ld) > 4 else 1
-    n_rounds = ld[5] if len(ld) > 5 else 2
-    k_group  = ld[6] if len(ld) > 6 else 0
-    n_active = ld[7] if len(ld) > 7 else 0
+    teams    = ld.teams
+    gpd      = ld.gpd
+    n_rounds = ld.n_rounds
+    k_group  = ld.k_group
+    n_active = ld.n_active
     n = len(teams)
     K = k_group if 0 < k_group < n else 0
     if K > 0:
         na = n_active if n_active > 0 else n
         G = max(1, na // K)
         total_matches = n_rounds * n * (n - 1) // 2
-        games_per_day = G * K * max(1, gpd) // 2
-        return total_matches // games_per_day if games_per_day > 0 else n_rounds * (n - 1) // max(1, gpd)
+        games_per_day = max(1, G * K * max(1, gpd) // 2)
+        return total_matches // games_per_day
     _gpd_eff = max(1, n * gpd // 2)
     return n_rounds * n * (n - 1) // 2 // _gpd_eff
 
@@ -87,13 +108,11 @@ def _input_teams() -> Tuple[List[str], List[str]]:
     return teams, locations
 
 
-def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, int, int, int, dict]]:
+def step0_leagues() -> Dict[str, WizardLeagueDef]:
     """Definiert alle Ligen.
 
-    Gibt zurueck: {lid: (teams, locations, name, hier_weight, gpd, n_rounds, k_group, n_active, tt_settings)}
-    k_group: 0 = Stufe 1 (alle Teams), >0 = Stufe 2 (Gruppengroesse)
-    n_active: 0 = alle Teams, >0 = Spielfrei-Modus (Anzahl aktiver Teams pro Spieltag)
-    tt_settings: Turniertag-Spielreihenfolge-Einstellungen (leer fuer andere Formate)
+    Gibt zurueck: {lid: WizardLeagueDef(...)} mit Named-Field-Zugriff.
+    Siehe `WizardLeagueDef` fuer die Felder.
     """
     section('SCHRITT 0: LIGEN KONFIGURIEREN')
     info('Definiere alle Ligen, die in diesem Durchlauf optimiert werden sollen.')
@@ -342,11 +361,15 @@ def step0_leagues() -> Dict[str, Tuple[List[str], List[str], str, float, int, in
         else:
             info(f'  {mode_label}: {n_events} Spieltage.')
 
-        result[lid] = (teams, locations, name, hw, gpd, n_rounds, k_group, n_active, tt_settings)
+        result[lid] = WizardLeagueDef(
+            teams=teams, locations=locations, name=name,
+            hier_weight=hw, gpd=gpd, n_rounds=n_rounds,
+            k_group=k_group, n_active=n_active, tt_settings=tt_settings,
+        )
         ok(f'  {lid}: {n_t} Teams, Format: {mode_label}.')
 
     # Leistungshinweis bei vielen Teams
-    total_teams = sum(len(t) for t, *_ in result.values())
+    total_teams = sum(len(ld.teams) for ld in result.values())
     if total_teams > 48:
         warn(f'Hinweis: {total_teams} Teams gesamt – Phase 2 (kombiniertes Modell) '
              f'koennte mehrere Stunden dauern.')
@@ -385,7 +408,8 @@ def step1_distances(league_defs: Dict[str, Tuple[List[str], List[str], str, floa
 
     dist_per_liga = {}
 
-    for lid, (teams, locations, name, _, _, _, _, *_r) in league_defs.items():
+    for lid, ld in league_defs.items():
+        teams, locations, name = ld.teams, ld.locations, ld.name
         n = len(teams)
         print(f'\n  {name} ({lid}): {n} Teams')
 
@@ -449,7 +473,8 @@ def step2_calendar_and_dst(
         print()
         info('Weise jeder Liga eine Spalte zu (Spieltag-Nummern stehen dort).')
         col_mapping: Dict[str, int] = {}
-        for lid, (_, _, name, _, _, _, _, *_r) in league_defs.items():
+        for lid, ld in league_defs.items():
+            name = ld.name
             while True:
                 raw = input(f'  Spaltenindex fuer {name} ({lid}): ').strip()
                 try:
@@ -474,7 +499,8 @@ def step2_calendar_and_dst(
             cal_dst   = cal.get('dst_blocks', {})
 
             # DST aus Kalender vorbelegen
-            for lid, (teams, _, name, _, gpd, n_rounds_lid, _, *_r) in league_defs.items():
+            for lid, ld in league_defs.items():
+                teams, name, gpd, n_rounds_lid = ld.teams, ld.name, ld.gpd, ld.n_rounds
                 _n_t = len(teams)
                 n_md = n_rounds_lid * _n_t * (_n_t - 1) // 2 // max(1, _n_t // 2)
                 if gpd > 1:
@@ -493,7 +519,8 @@ def step2_calendar_and_dst(
 
     if not use_cal:
         # Manuell DST eingeben, kein Kalender
-        for lid, (teams, _, name, _, gpd, n_rounds, _, *_r) in league_defs.items():
+        for lid, ld in league_defs.items():
+            teams, name, gpd, n_rounds = ld.teams, ld.name, ld.gpd, ld.n_rounds
             _n_t = len(teams)
             n_md = n_rounds * _n_t * (_n_t - 1) // 2 // max(1, _n_t // 2)
             if gpd > 1:
@@ -537,22 +564,27 @@ def _input_dst_manual(lid: str, name: str, n_teams: int,
 
 # ── Schritt 3: DST-Routing ────────────────────────────────────────────────────
 
-def step3_routing(league_defs: Dict,
-                  dst_per_liga: Dict[str, List]) -> Dict[str, Tuple[bool, int, int]]:
+def step3_routing(league_defs: Dict[str, WizardLeagueDef],
+                  dst_per_liga: Dict[str, List]) -> Dict[str, Tuple[bool, int]]:
+    """Gibt {lid: (apply, pct)} zurueck (konsistent zur UI, G-L3).
+
+    Konvertierung zu (f_num, f_den) erfolgt in build_configs.
+    """
     section('SCHRITT 3: DST ROUTING-OPTIMIERUNG')
-    result = {}
-    for lid, (_, _, name, _, _, _, _, *_r) in league_defs.items():
+    result: Dict[str, Tuple[bool, int]] = {}
+    for lid, ld in league_defs.items():
+        name = ld.name
         if not dst_per_liga.get(lid):
-            result[lid] = (False, 125, 100)
+            result[lid] = (False, 25)
             continue
         print(f'\n  {name}:')
         if not ask_yes_no('  Routing-Optimierung aktivieren?'):
-            result[lid] = (False, 125, 100)
+            result[lid] = (False, 25)
             continue
         pct = 25
         if ask_yes_no('  Standard 25% Mehrkilometer aendern?'):
             pct = ask_int('  Erlaubte Mehrkilometer (%)', 1, 200, default=25)
-        result[lid] = (True, 100 + pct, 100)
+        result[lid] = (True, pct)
         ok(f'  {lid}: Routing aktiv ({100 + pct}%)')
     return result
 
@@ -592,8 +624,8 @@ def step4_weights(league_defs: Dict) -> Tuple[Dict[str, Dict], Dict[str, float],
         lid: {k: v * WEIGHT_SCALES[k] for k, v in raw_per_liga[lid].items()}
         for lid in lids
     }
-    for lid, (_, _, _, hw, _, _, _, *_r) in league_defs.items():
-        w_scaled_per_liga[lid]['hier'] = hw
+    for lid, ld in league_defs.items():
+        w_scaled_per_liga[lid]['hier'] = ld.hier_weight
 
     # Co-Home-Gewicht (nur bei mehreren Ligen sinnvoll)
     w_cohome = 0.0
@@ -617,7 +649,7 @@ def step5_pinned(league_defs: Dict) -> Dict[str, List[dict]]:
         return result
 
     for lid, ld in league_defs.items():
-        teams = ld[0]; name = ld[2]
+        teams = ld.teams; name = ld.name
         n_md = _calc_n_matchdays(ld)
         print(f'\n  {name}:')
         if not ask_yes_no(f'  Pflichtspiele fuer {lid} definieren?'):
@@ -658,7 +690,7 @@ def step6_blocked(league_defs: Dict) -> Dict[str, Dict[str, List[int]]]:
         return result
 
     for lid, ld in league_defs.items():
-        teams = ld[0]; name = ld[2]
+        teams = ld.teams; name = ld.name
         n_md = _calc_n_matchdays(ld)
         print(f'\n  {name}:')
         if not ask_yes_no(f'  Sperrtage fuer {lid} definieren?'):
@@ -697,7 +729,7 @@ def step6b_forced_home(league_defs: Dict) -> Dict[str, Dict[str, List[int]]]:
         return result
 
     for lid, ld in league_defs.items():
-        teams = ld[0]; name = ld[2]
+        teams = ld.teams; name = ld.name
         n_md = _calc_n_matchdays(ld)
         print(f'\n  {name}:')
         if not ask_yes_no(f'  Pflichttage fuer {lid} definieren?'):
@@ -752,7 +784,8 @@ def step7_cohome(league_defs: Dict) -> Dict[str, Dict[str, str]]:
             break
 
         liga_map: Dict[str, str] = {}
-        for lid, (teams, _, name, *_r) in league_defs.items():
+        for lid, ld in league_defs.items():
+            teams, name = ld.teams, ld.name
             team_list = ', '.join(teams)
             raw = input(f'  Teamname in {name} ({lid}) '
                         f'[leer = kein Team]: ').strip()
@@ -863,42 +896,32 @@ def build_configs(league_defs: Dict,
                 spieltage_per_liga[lid][st] = {'kw': kw}
 
     cfgs = {}
-    for lid, league_def in league_defs.items():
-        # Tuple kann 7 (legacy), 8 oder 9 Elemente haben
-        if len(league_def) >= 9:
-            teams, locations, name, hw, gpd, n_rounds, k_group, n_active, tt_settings = league_def[:9]
-        elif len(league_def) == 8:
-            teams, locations, name, hw, gpd, n_rounds, k_group, n_active = league_def
-            tt_settings = {}
-        else:
-            teams, locations, name, hw, gpd, n_rounds, k_group = league_def
-            n_active = 0
-            tt_settings = {}
-        dst   = dst_per_liga.get(lid, [])
-        n = len(teams)
-        K = k_group if k_group > 0 and k_group < n else 0
-        # n_matchdays: gleiche Formel wie LeagueConfig.n_matchdays
-        if K > 0:
-            na = n_active if n_active > 0 else n
-            G = max(1, na // K)
-            total_matches = n_rounds * n * (n - 1) // 2
-            games_per_day = G * K * gpd // 2
-            n_md = total_matches // games_per_day if games_per_day > 0 else n_rounds * (n - 1) // max(1, gpd)
-        else:
-            _gpd_eff = max(1, n * gpd // 2)
-            n_md = n_rounds * n * (n - 1) // 2 // _gpd_eff
-        days  = list(range(1, n_md + 1))
-        cal   = spieltage_per_liga.get(lid, {})
+    for lid, ld in league_defs.items():
+        # G-L2: WizardLeagueDef-Dataclass; alte Tuple-Branches entfernt.
+        n   = len(ld.teams)
+        K   = ld.k_group if 0 < ld.k_group < n else 0
+        n_md = _calc_n_matchdays(ld)
+        days = list(range(1, n_md + 1))
+        dst  = dst_per_liga.get(lid, [])
+        cal  = spieltage_per_liga.get(lid, {})
 
-        apply_r, f_num, f_den = routing_per_liga.get(lid, (False, 125, 100))
+        # G-L3: routing-Format vereinheitlicht auf (apply, pct).
+        # Backward-Compat: altes 3-Tuple (apply, f_num, f_den) wird noch akzeptiert.
+        _rt = routing_per_liga.get(lid, (False, 25))
+        if len(_rt) == 3:
+            apply_r, f_num, f_den = _rt
+        else:
+            apply_r, pct_r = _rt
+            f_num = 100 + int(pct_r)
+            f_den = 100
         raw    = raw_per_liga.get(lid, {k: 5.0 for k in WEIGHT_SCALES})
         scaled = {k: v * WEIGHT_SCALES[k] for k, v in raw.items()}
 
         cfgs[lid] = LeagueConfig(
             league_id=lid,
-            name=name,
-            teams=teams,
-            locations=locations,
+            name=ld.name,
+            teams=ld.teams,
+            locations=ld.locations,
             dist=dist_per_liga[lid],
             dst_blocks=dst,
             weekends=build_weekends(days, dst),
@@ -911,12 +934,12 @@ def build_configs(league_defs: Dict,
             blocked=blocked_per_liga.get(lid, {}),
             forced_home=(forced_home_per_liga or {}).get(lid, {}),
             calendar=cal,
-            hier_weight=hw,
-            games_per_team_per_day=gpd,
-            n_rounds=n_rounds,
+            hier_weight=ld.hier_weight,
+            games_per_team_per_day=ld.gpd,
+            n_rounds=ld.n_rounds,
             n_teams_per_group=K,
-            n_active_per_day=n_active,
-            tt_settings=tt_settings,
+            n_active_per_day=ld.n_active,
+            tt_settings=ld.tt_settings,
         )
     return cfgs
 

@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.5.0 · Stand Mai 2026 · Status: Code-Review Runde 6 abgeschlossen + neues Feature „Heim-Balance pro Runde" (round_balance-Gewicht mit quadratischer Strafe für Hin-/Rückrunden-Asymmetrie). 6 große Refactor-Items aus Runde 6 als Future-Work zurückgestellt — siehe FIX_PLAN.md**
+> **Version 1.6.0 · Stand Mai 2026 · Status: Sprint R1 erledigt (Wizard Tuple→Dataclass + Validator-Konsolidierung). Noch 3 Refactor-Items offen: F-M1 atomarer Update, F-L2 Background-Update-Check, D-L1 Liga-Rename auf Button — siehe FIX_PLAN.md**
 
 ---
 
@@ -468,6 +468,19 @@ Neues Optimierungsgewicht `round_balance` bestraft progressive (quadratische) Ab
 | `test_all.py` | Zwei neue Tests: `t13_round_balance_wirkt` (12 Teams, Heim-Verteilung 5 oder 6 pro Runde) und `t13_round_balance_aus_default` (Regression-Check) |
 
 **Verifikation:** Mit 12-Teams-Beispiel löst Solver in <1 s OPTIMAL; alle 12 Teams bekommen genau 5 oder 6 Heimspiele pro Runde (max ±0.5 vom Mittel). Bei deaktiviertem Gewicht (Default) ist das Modell identisch zur v1.4.1 — kein Performance- oder Verhaltens-Impact für bestehende Konfigurationen.
+
+**Sprint R1 / Wizard + Validator-Refactor (v1.5.0 → v1.6.0):**
+
+Reines internes Refactoring ohne Verhaltensänderung — drei zusammenhängende Items aus Code-Review Runde 6 erledigt:
+
+| Datei | Befund | Refactor |
+|---|---|---|
+| `wizard.py` | **G-L1** Tuple-Index-Access in `_calc_n_matchdays` fragil | Neue `WizardLeagueDef`-Dataclass mit Named Fields (`ld.teams`, `ld.gpd`, `ld.n_rounds`, …). `step0_leagues()` returniert `Dict[str, WizardLeagueDef]` |
+| `wizard.py` | **G-L2** `build_configs` Dead-Code-Switch 7/8/9-Tuple | Tuple-Branches entfernt; `build_configs` arbeitet direkt mit `WizardLeagueDef`. Spieltagzahl-Berechnung dupliziert nicht mehr `_calc_n_matchdays` |
+| `wizard.py` + `app.py` | **G-L3** Routing-Format-Mismatch CLI 3-Tuple `(apply, f_num, f_den)` vs. UI 2-Tuple `(apply, pct)` | CLI auf `(apply, pct)` umgestellt; `build_configs` konvertiert. Backward-Compat für altes 3-Tuple via Length-Check |
+| `config_validator.py` | **B-L4** ~80% Code-Duplikation zwischen `validate()` und `validate_cfgs()` | Gemeinsamer Kern in `_validate_league_common(ctx, _err, _warn)` extrahiert; neue `_LeagueValCtx`-Dataclass als Adapter-Input. UI-spezifische Checks (Kalender, DST-Routing, Co-Home) bleiben in `validate()`. Datei von 488 → 399 Zeilen |
+
+**Verifikation:** Mini-Test des Validators (n<2, self-play, B-M1, B-M2, B-M3) und Wizard (build_configs mit altem und neuem Routing-Format) bestanden. Volle pytest-Suite läuft.
 
 ---
 

@@ -112,7 +112,7 @@
 ### CLI
 - [x] **G-M1** · CLI `step4_weights` dst_eff-Default auf 0.0
 - [x] **G-L4** · `main.py` ruft `build_overview_excel`
-- [ ] **G-L1, G-L2, G-L3** · `wizard.py` Refactor Tuple → Dict (großer Refactor — zurückgestellt)
+- [x] **G-L1, G-L2, G-L3** · `wizard.py` Refactor Tuple → `WizardLeagueDef`-Dataclass, Dead-Code entfernt, Routing-Format vereinheitlicht (v1.6.0)
 - [x] **G-L5** · `test_smoke.py make_config` w_scaled-Setup korrigiert
 
 ### Solver/Validator/Sonstiges
@@ -124,7 +124,7 @@
 - [x] **B-L1** · Sperrtag-Tage außerhalb 1..N werden gewarnt
 - [x] **B-L2** · `_parse_cell("5/5")` → Einzelspieltag
 - [x] **B-L3** · Doppelter Spieltag in 2 KWs warnen
-- [ ] **B-L4** · `validate()` vs `validate_cfgs()` Konsolidierung (Refactor — zurückgestellt)
+- [x] **B-L4** · `validate()` vs `validate_cfgs()` Konsolidierung in `_validate_league_common()` + Adapter (v1.6.0)
 - [x] **B-L5** · `np.isnan(int_array)` Robustheit via `_has_nan()`-Helper
 - [x] **B-L6** · `n_games_per_day` nutzt `n_active_per_day`
 - [x] **B-L7** · `len(pins) > total_games` als Fehler
@@ -166,6 +166,7 @@
 | 3 | 6 | 6 | **Erledigt (v1.3.1)** |
 | 4 | 5 | 5 | **Erledigt (v1.4.0)** |
 | 5 | 45 | 39 | **Erledigt (v1.4.1) — 6 Refactor-Items zurückgestellt** |
-| **Σ** | **66** | **60** | |
+| R1 | 4 | 4 | **Erledigt (v1.6.0) — B-L4, G-L1, G-L2, G-L3** |
+| **Σ** | **70** | **64** | |
 
 (Σ < 70 weil einige Niedrig-Befunde zusammengefasst sind.)
