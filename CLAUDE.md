@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.6.1 · Stand Mai 2026 · Status: Sprint R1 + R2 erledigt (Wizard Tuple→Dataclass, Validator-Konsolidierung, atomarer Update mit Rollback, Background-Update-Check). Nur noch 1 Refactor-Item offen: D-L1 Liga-Rename auf Button (UX-Iteration nach Feedback) — siehe FIX_PLAN.md**
+> **Version 1.6.2 · Stand Mai 2026 · Status: Code-Review Runde 6 vollständig abgeschlossen — alle 7 großen Refactor-Items behoben (Sprints R1-R3). 67 von 73 priorisierten Items + 1 neues Feature (Heim-Balance pro Runde) implementiert. Künftige Arbeit: Feature-Wünsche aus BACKLOG.md.**
 
 ---
 
@@ -498,6 +498,25 @@ Beide verbleibenden Launcher-Refactor-Items aus Runde 6 gemeinsam in einem Commi
 - F-L2 Update-Anwendung läuft jetzt erst NACH dem Server-Start → falls Update fehlschlägt, läuft die App mit der alten Version weiter (statt App nicht startfähig)
 
 **Verifikation:** launcher.py kompiliert sauber, Modul-Top-Level läuft, `_parse_version` unverändert. Manuelle Verifikation des Update-Pfads auf Test-System empfohlen (Update-Test ist nicht im pytest-Wrapper, da `launcher.py` außerhalb der spielplan_multi/-Tests liegt).
+
+**Sprint R3 / UX-Iteration Liga-ID-Rename (v1.6.1 → v1.6.2):**
+
+D-L1 als letztes verbliebenes Refactor-Item aus Code-Review Runde 6 — UX-Iteration für versehentliche Liga-Umbenennung bei Focus-Out.
+
+| Datei | Befund | Refactor |
+|---|---|---|
+| `app.py` (_step0, Liga-Section) | **D-L1** Liga-ID-Textfeld triggerte sofort bei Focus-Out ein Rename (Tab/Klick außerhalb), auch mit unvollständigem Zwischenwert | `st.form(border=False, enter_to_submit=True)` umschließt Liga-ID-Eingabe + „✓ Übernehmen"-Submit-Button. Form unterdrückt Reruns bei Focus-Out → Rename nur bei explizitem Submit (Enter im Feld ODER Button-Klick) |
+| `app.py` (Modul-Konstante) | Format-Validierung in der UI nicht aktiv (im CLI-Wizard bereits via Regex) | Neue Konstante `_LID_RE = re.compile(r'[A-Z0-9_\-]{1,20}')` für Format-Check |
+| `app.py` (Live-Caption) | Kein Feedback bei Eingabe-Problemen | Caption unter Textfeld zeigt nach Submit-Versuch: „Liga-ID erforderlich", „Ungültiges Format", „Bereits vergeben", „Verfügbar — Enter oder Übernehmen", „ID unverändert" je nach Zustand. `max_chars=20` zusätzlich am Textfeld als Hard-Limit. `st.toast` mit Liga-Rename-Bestätigung bei Erfolg |
+
+**Edge Cases verifiziert (manuell in Streamlit-UI empfohlen):**
+- Tippen + Tab → kein Rename (Form unterdrückt Focus-Out-Rerun)
+- Tippen + Enter → Rename ✓
+- Tippen + Button-Klick → Rename ✓
+- Leerer Wert + Submit → Caption „Liga-ID erforderlich"
+- Ungültiges Format (Space, Unicode) + Submit → Caption „Ungültiges Format"
+- Duplikat einer existierenden Liga-ID + Submit → Caption „Bereits vergeben"
+- Unverändert + Submit → Caption „ID unverändert"
 
 ---
 

@@ -1006,7 +1006,7 @@ Fix: `contextlib.redirect_stdout(_buf)` als context-manager nutzen — funktiona
 Z.3340-3342: `except Exception: pass` schluckt Excel-Build-Fehler still. Z.3371: `S.opt_done = True`. Der Nutzer landet in Step 8 mit `opt_done=True`, aber Excel-Download-Buttons funktionieren nicht (kein `excel_bytes`).
 Fix: Mindestens warnen wenn `len(S.excel_bytes) < len(S.results)`, oder Re-Generate-Button anbieten.
 
-**Status:** Großteils erledigt – D-M4 in v1.3.0, D-M1 + D-M2 + D-M3 in v1.3.1, D-L2 … D-L7 in v1.4.1 gefixt; **D-L1 (Liga-ID-Rename auf Button) zurückgestellt** – bewusste UX-Verhaltensänderung, gehört in eigene Iteration.
+**Status:** Erledigt – D-M4 in v1.3.0, D-M1/M2/M3 in v1.3.1, D-L2 … D-L7 in v1.4.1 gefixt, D-L1 in v1.6.2 (st.form mit Enter-Submit oder „Übernehmen"-Button, Live-Validation-Caption + Toast).
 
 ---
 

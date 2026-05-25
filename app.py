@@ -188,6 +188,9 @@ FMT_MAP = {
 # Rückwärtskompatibilität: alter Formatname
 _FMT_ALIAS = {'Turniertag (2 Spiele/Tag)': 'Turniertag'}
 
+# D-L1: Liga-ID-Format (analog CLI-Wizard); Rename erst nach expliziter Bestätigung
+_LID_RE = re.compile(r'[A-Z0-9_\-]{1,20}')
+
 
 def _get_n_rounds_gpd(ld: dict) -> tuple:
     """Gibt (n_rounds, gpd) für ein Liga-Dict zurück."""
@@ -1537,8 +1540,44 @@ def _step0():
             with c1:
                 if f'lid_{i}' not in st.session_state:
                     st.session_state[f'lid_{i}'] = lid
-                new_lid = st.text_input('Liga-ID', key=f'lid_{i}',
-                    help='Kurzkürzel ohne Leerzeichen, z. B. BL1').strip().upper()
+                # D-L1: Liga-ID-Änderung erst nach expliziter Bestätigung (Enter
+                # oder Button-Klick). st.form unterdrückt Reruns bei Focus-Out,
+                # nur Submit triggert eine Aktualisierung → kein versehentliches
+                # Rename mehr bei Zwischenwerten.
+                with st.form(f'lid_form_{i}', clear_on_submit=False,
+                              border=False, enter_to_submit=True):
+                    _fc1a, _fc1b = st.columns([5, 4])
+                    with _fc1a:
+                        new_lid_raw = st.text_input(
+                            'Liga-ID', key=f'lid_{i}', max_chars=20,
+                            help='Kurzkürzel ohne Leerzeichen, z. B. BL1. '
+                                 'Buchstaben, Ziffern, _ und - erlaubt. '
+                                 'Änderung erst durch „Übernehmen" oder Enter.')
+                    with _fc1b:
+                        # Vertikaler Spacer, damit der Button auf Höhe des
+                        # Textfelds erscheint (Label-Höhe ausgleichen)
+                        st.write('')
+                        st.write('')
+                        lid_submitted = st.form_submit_button('✓ Übernehmen')
+                new_lid = new_lid_raw.strip().upper()
+                # Live-Validierung (nur bei Submit oder bei abweichendem Wert)
+                _is_empty       = not new_lid
+                _is_unchanged   = (new_lid == lid)
+                _is_bad_format  = bool(new_lid) and not _LID_RE.fullmatch(new_lid)
+                _is_duplicate   = (new_lid != lid) and (new_lid in S.league_order)
+                _can_rename     = not (_is_empty or _is_unchanged or _is_bad_format or _is_duplicate)
+                # Caption-Feedback unter dem Textfeld
+                if not _is_unchanged or lid_submitted:
+                    if _is_empty:
+                        st.caption('ℹ Liga-ID erforderlich.')
+                    elif _is_bad_format:
+                        st.caption('⚠ Ungültiges Format. Erlaubt: A–Z, 0–9, _ und - (max. 20 Zeichen).')
+                    elif _is_duplicate:
+                        st.caption(f'⚠ Liga-ID „{new_lid}" ist bereits vergeben.')
+                    elif _can_rename:
+                        st.caption(f'✓ Neue ID „{new_lid}" verfügbar — Enter oder „Übernehmen" zum Aktivieren.')
+                    elif _is_unchanged and lid_submitted:
+                        st.caption('— ID unverändert.')
             with c2:
                 if f'lnm_{i}' not in st.session_state:
                     st.session_state[f'lnm_{i}'] = ld.get('name', lid)
@@ -1935,8 +1974,8 @@ def _step0():
 
             ld['teams'] = teams
 
-            # ── Liga-ID umbenennen ────────────────────────────────────────────
-            if new_lid and new_lid != lid and new_lid not in S.league_order:
+            # ── Liga-ID umbenennen (D-L1: nur bei expliziter Form-Submission) ──
+            if lid_submitted and _can_rename:
                 idx = S.league_order.index(lid)
                 S.league_order[idx] = new_lid
                 S.leagues[new_lid]  = S.leagues.pop(lid)
@@ -1956,6 +1995,7 @@ def _step0():
                     if _old_key in st.session_state:
                         st.session_state[f'{_wk_pfx}{new_lid}'] = st.session_state.pop(_old_key)
                 st.session_state[f'lid_{i}'] = new_lid
+                st.toast(f'Liga umbenannt: {lid} → {new_lid}', icon='✓')
                 st.rerun()
 
             if len(teams) < 4:

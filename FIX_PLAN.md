@@ -134,7 +134,7 @@
 - [x] **C-L3** · `_parse_date` Exception spezifisch
 - [x] **C-L4** · Magic-Number 999 → Modul-Konstante `_UNKNOWN_KW_SORT`
 - [x] **C-L5** · Co-Home Skipping-Hinweis im Sheet
-- [ ] **D-L1** · Liga-ID-Rename auf expliziten Button (UX-Verhaltensänderung — zurückgestellt)
+- [x] **D-L1** · Liga-ID-Rename via `st.form` (Enter oder „✓ Übernehmen"-Button), Live-Caption-Feedback (v1.6.2)
 - [x] **D-L2** · `_session_from_json` clears `de_{lid}` Editor-Cache
 - [x] **D-L3** · `S.solver`-Merge mit `_DEFAULTS` bei JSON-Restore
 - [x] **D-L4** · Calendar-Import Warnung vor Overwrite manueller Datumswerte
@@ -168,6 +168,7 @@
 | 5 | 45 | 39 | **Erledigt (v1.4.1) — 6 Refactor-Items zurückgestellt** |
 | R1 | 4 | 4 | **Erledigt (v1.6.0) — B-L4, G-L1, G-L2, G-L3** |
 | R2 | 2 | 2 | **Erledigt (v1.6.1) — F-M1, F-L2** |
-| **Σ** | **72** | **66** | |
+| R3 | 1 | 1 | **Erledigt (v1.6.2) — D-L1** |
+| **Σ** | **73** | **67** | |
 
 (Σ < 70 weil einige Niedrig-Befunde zusammengefasst sind.)
