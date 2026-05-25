@@ -37,13 +37,51 @@ def _recompute_team(loc: List[List[int]], ti: int, N: int,
     return sw, km
 
 
-def _objective(sw_count: List[int], travel: List[int], w: dict) -> float:
-    """Gewichtete Zielfunktion (identisch mit CP-SAT-Formel, Skala 1000)."""
+def _objective(sw_count: List[int], travel: List[int], w: dict,
+               dst_eff_total: int = 0) -> float:
+    """Gewichtete Zielfunktion (identisch mit CP-SAT-Formel, Skala 1000).
+
+    `dst_eff_total` ist während eines SA-Laufs konstant (SA überspringt
+    DST-Tage), wird aber für Wert-Konsistenz zum Phase-2-Objective addiert.
+    """
     scale = 1000
-    return (w['switch']    * scale * sum(sw_count)
+    obj = (w['switch']    * scale * sum(sw_count)
             - w['sw_fair']   * scale * (max(sw_count) - min(sw_count))
             - w['travel']    * scale * sum(travel)
             - w['trav_fair'] * scale * (max(travel) - min(travel)))
+    if w.get('dst_eff', 0) > 0 and dst_eff_total > 0:
+        obj += w['dst_eff'] * scale * dst_eff_total
+    return obj
+
+
+def _compute_dst_eff_total(loc: List[List[int]], n: int,
+                            dst_blocks: List[Tuple[int, int]],
+                            days_set: set, dist: np.ndarray,
+                            unreachable_km: int = 9999) -> int:
+    """Summiert dst_eff über alle Teams + DST-Blöcke (Solver-Formel).
+
+    gain(ti, i, j) = dist[ti,i] + dist[ti,j] - dist[i,j] für Team ti auf
+    Auswärts-Venues i (d1) und j (d2). Bei Heim-Venue (i==ti oder j==ti) → 0.
+    """
+    total = 0
+    for ti in range(n):
+        for d1, d2 in dst_blocks:
+            if d1 not in days_set or d2 not in days_set:
+                continue
+            i = loc[ti][d1]
+            j = loc[ti][d2]
+            if i == ti or j == ti or i == j:
+                continue
+            dti_i = int(dist[ti, i])
+            dti_j = int(dist[ti, j])
+            di_j  = int(dist[i, j])
+            if (dti_i >= unreachable_km or dti_j >= unreachable_km
+                    or di_j >= unreachable_km):
+                continue
+            gain = dti_i + dti_j - di_j
+            if gain > 0:
+                total += gain
+    return total
 
 
 # ── Haupt-Funktion ───────────────────────────────────────────────────────────
@@ -147,7 +185,12 @@ def refine_schedule(result: LeagueResult,
     for ti in range(n):
         sw_count[ti], travel[ti] = _recompute_team(loc, ti, N, dist)
 
-    current_obj = _objective(sw_count, travel, cfg.w_scaled)
+    # dst_eff_total: konstant während SA (SA überspringt DST-Tage), einmal
+    # vorausberechnen für Objective-Konsistenz mit Phase 2.
+    _days_set = set(cfg.days)
+    dst_eff_total = _compute_dst_eff_total(loc, n, cfg.dst_blocks, _days_set, dist)
+
+    current_obj = _objective(sw_count, travel, cfg.w_scaled, dst_eff_total)
     best_obj    = current_obj
     best_loc    = [row[:] for row in loc]
     best_sw     = sw_count[:]
@@ -182,7 +225,7 @@ def refine_schedule(result: LeagueResult,
         ns_bi, nk_bi = _recompute_team(loc, bi, N, dist)
         ns = sw_count[:]; ns[ai] = ns_ai; ns[bi] = ns_bi
         nk = travel[:];   nk[ai] = nk_ai; nk[bi] = nk_bi
-        samples.append(abs(_objective(ns, nk, cfg.w_scaled) - current_obj))
+        samples.append(abs(_objective(ns, nk, cfg.w_scaled, dst_eff_total) - current_obj))
         # Revert
         loc[ai][hd] = loc[bi][hd] = old_hv
         loc[ai][rd] = loc[bi][rd] = old_rv
@@ -236,7 +279,7 @@ def refine_schedule(result: LeagueResult,
         ns = sw_count[:]; ns[ai] = ns_ai; ns[bi] = ns_bi
         nk = travel[:];   nk[ai] = nk_ai; nk[bi] = nk_bi
 
-        new_obj = _objective(ns, nk, cfg.w_scaled)
+        new_obj = _objective(ns, nk, cfg.w_scaled, dst_eff_total)
         delta   = new_obj - current_obj
 
         # Geometrische Abkuehlung
@@ -269,6 +312,20 @@ def refine_schedule(result: LeagueResult,
             else:
                 schedule[d].append((cfg.teams[bi], cfg.teams[ai]))
 
+    # home_vals aus dem neuen schedule rekonstruieren (gleicher Pattern wie
+    # _session_from_json in app.py): SA tauscht Heimrecht von Paaren, also
+    # ist result.home_vals nach SA stale. Heatmap, Excel-Heatmap und
+    # recompute_result_stats lesen home_vals → falsche Anzeige ohne diesen Fix.
+    new_home_vals: Dict = {}
+    for d, games in schedule.items():
+        for ht, at in games:
+            hi = t_idx.get(ht, -1)
+            ai_t = t_idx.get(at, -1)
+            if hi >= 0:
+                new_home_vals[(hi, d)] = 1
+            if ai_t >= 0:
+                new_home_vals[(ai_t, d)] = 0
+
     km_delta = sum(best_km) - sum(result.travels)
     accept_rate = accepted / iterations if iterations > 0 else 0.0
     ok(f'  {cfg.league_id}: km {sum(result.travels)} -> {sum(best_km)} '
@@ -286,7 +343,7 @@ def refine_schedule(result: LeagueResult,
         travels=best_km,
         mins=result.mins,
         secs=result.secs,
-        home_vals=result.home_vals,
+        home_vals=new_home_vals,
         h_vals=result.h_vals,
         x_vals=result.x_vals,
         cfg=result.cfg,

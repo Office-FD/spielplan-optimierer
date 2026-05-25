@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.2.6 · Stand Mai 2026 · Status: Produktionsbereit, Code-Review Runde 5 vollständig abgeschlossen, keine bekannten Bugs**
+> **Version 1.3.1 · Stand Mai 2026 · Status: Code-Review Runde 6 Sprints 1-3/5 erledigt (Datenkonsistenz, DST-Swap-Schutz, State-Management, Release-Robustheit, A-M1 Solver-Constraint), Sprint 4 (Tests + CI) wartet auf Start — siehe FIX_PLAN.md**
 
 ---
 
@@ -374,6 +374,55 @@ Zwei vollständige Code-Reviews wurden im Mai 2026 durchgeführt. Alle gefundene
 |---|---|
 | `excel_output.py` | `build_overview_excel`: Gesamtübersicht komplett überarbeitet – je Spiel eine Excel-Zeile, Heimteam und Gastteam je in eigener Spalte (Hintergrundfarbe wie Einzelliga-Excel), Club-aware Farben (Teams desselben Mehrspartenvereins gleiche Farbe über Ligen hinweg), Sortierung nach realem Kalenderdatum statt KW-Nummer (jahresübergreifende Saisons korrekt), drei Header-Zeilen (Titel / Liga-Namen 2-spaltig gemergt / Heim+Gast) |
 | `app.py` | `_result_fname_suffix(lid)`: alle Download-Dateinamen enthalten Gewichte und Solver-Laufzeit – Format `sw{n}-sf{n}-km{km}-kf{n}[-de{n}]-co{n}_p1-{t}_p2-{t}_sa-{t}` (Beispiel: `sw8-sf5-km7-kf3-co5_p1-15m_p2-90m_sa-2m`); betrifft Liga-Excel, CoHome, Gesamtübersicht, iCal, HTML-Druck, Konfigurationsdatei |
+
+**Bugfix (v1.2.6 → v1.2.7):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `solver.py` | 5+ Spiele in Folge gleicher Heim/Auswärts-Zuteilung möglich: zwei DST-Blöcke mit nur einem Einzelspieltag dazwischen bildeten eine „tote Zone" – alle 3er- und 4er-Fenster wurden übersprungen, weil sie DST-Tage enthielten; kein 3er-Wochenend-Fenster vorhanden | 3-Wochenend-Fenster-Check auf `homeW` ergänzt: `sum(homeW[ti,w..w+2]) ≤ 2` (Heim-Serie) und `≥ 1` (Auswärts-Serie, außer bei Sperrtagen im Fenster); DST-Wochenenden werden beim Minimum-Check nicht mehr ausgenommen |
+
+**Bugfix (v1.2.7 → v1.2.8):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `app.py` | `home_vals={}` beim Session-Laden → `recompute_result_stats()` liefert `sw_counts=0` (Wechselzähler alle null); Heatmap zeigt alle Felder als Auswärts (rot) | `home_vals` wird vor dem `LeagueResult`-Aufbau direkt aus dem `schedule`-Dict rekonstruiert: Heimteam → 1, Gastteam → 0 je Spieltag |
+
+**Bugfix (v1.2.8 → v1.2.9):**
+
+| Datei | Problem | Fix |
+|---|---|---|
+| `_worker.py` | ScriptRunContext-Warnung erscheint trotz `logging`-Filter weiterhin im Terminal: Streamlit nutzt `warnings.warn()`, nicht `logging.warning()` → `logging.getLogger('streamlit').setLevel(ERROR)` hatte keine Wirkung auf diese Kategorie | `warnings.filterwarnings('ignore', message='.*ScriptRunContext.*')` ergänzt |
+
+**Code-Review Runde 6 – Sprint 1 / Datenkonsistenz (v1.2.9 → v1.3.0-rc1):**
+
+| Datei | Befund | Fix |
+|---|---|---|
+| `sa_refine.py` | **A-H1** SA gibt nach Lauf `home_vals=result.home_vals` zurück (alter Input-Wert), während `schedule` neu ist. Folge: Heatmap und Excel-Heatmap zeigen falsche Heim/Auswärts-Felder nach SA; `recompute_result_stats()` liefert `sw_counts=0`. Trifft Normalfall, da SA standardmäßig aktiv | `home_vals` aus dem neuen `schedule` rekonstruieren vor `return LeagueResult(...)` – gleicher Pattern wie der v1.2.7→v1.2.8-Session-Restore-Fix |
+| `sa_refine.py` | **A-H2** `_objective()` ignoriert `dst_eff`-Term, `result.objective` ist nicht mit Phase-2-Objective vergleichbar. Erkenntnis bei Fix: SA überspringt DST-Tage (`if hd in dst_days or rd in dst_days: continue`), daher ist `dst_eff_total` während SA konstant — der Fix ist eine reine Wert-Konsistenz-Verbesserung, kein Verhaltens-Bug | Neue Hilfsfunktion `_compute_dst_eff_total()` (analog zu Solver-Formel), einmal vor SA-Loop berechnen, in alle 3 `_objective()`-Aufrufe einspeisen |
+| `schedule_utils.py` | **C-M2** `recompute_result_stats` sw_rates-Denominator `len(weekends)-1` weicht bei DST-Saisons von `solver.py` ab (`cfg.n_transitions = n_matchdays-1`); nach manuellen Änderungen springt die Wechselquote sichtbar | Denominator auf `cfg.n_transitions` umgestellt – konsistent zum Solver |
+| `schedule_utils.py` | **C-M1** `cancel_game` und `reschedule_game` haben keinen Turniertag-Guard (im Gegensatz zu `swap_home_away` + `move_game`). `recompute_result_stats` berechnet bei `gpd > 1` falsche `travels` (Transitions-Modell vs. solver-fixed-0) | Beide Funktionen mit `if cfg.games_per_team_per_day > 1: return …`-Early-Return geschützt |
+
+**Code-Review Runde 6 – Sprint 2 / DST-Swap-Schutz + Validator-Lücken (v1.3.0-rc1 → v1.3.0):**
+
+| Datei | Befund | Fix |
+|---|---|---|
+| `schedule_utils.py` + `app.py` | **C-H1** `swap_home_away` korrumpiert State an DST-Tagen: setzt `home_vals` für Partner-Tag, schedule-Swap matcht aber nur, wenn beide Tage dieselbe Paarung haben — was bei DST nie der Fall ist (Phasen-Trennung). UI-Text versprach „Tausch gilt auch für Partnertag", was nie funktionierte | Guard `if day in cfg.dst_days: return` in `swap_home_away`; alte DST-Partner-Logik entfernt; UI zeigt jetzt `st.warning` statt irreführendem `st.info` und deaktiviert den Swap-Button auf DST-Tagen |
+| `app.py` | **D-M4** `st.data_editor` für Distanzmatrix gibt geleerte Zellen als `NaN` zurück; `np.fill_diagonal(mat2, 0)` setzt nur die Diagonale, off-diagonale NaN bleiben. `cfg.dist.astype(int)` im Solver cast NaN auf garbage-Integer | `mat2 = np.nan_to_num(mat2, nan=0.0)` nach Editor-Output, vor Spiegelung |
+| `config_validator.py` | **B-M1** Pflichtspiel-Heimrecht + Sperrtag-Konflikt nicht erkannt: `pin home=A on day 5` + `blocked[A]=[5]` → stilles INFEASIBLE | In beiden Validatoren (`validate()` und `validate_cfgs()`): nach pinned-Loop prüfen ob `_ht_pin in blocked[team]` |
+| `config_validator.py` | **B-M2** Bei n_rounds≥2 mehrere Pins für dieselbe Paarung im selben Round nicht erkannt → INFEASIBLE | Beide Validatoren: pro Paarung die zugewiesenen Rounds sammeln, Duplikate als Fehler markieren |
+| `config_validator.py` | **B-M3** `forced_home`-Teamnamen werden nicht gegen Teamliste geprüft (Inkonsistenz zu Sperrtag- und Pflichtspiel-Check) | `if team not in teams: warn(...); continue` in beiden Validatoren |
+| `solver.py` | **A-M2** Blocked + Forced-Home-Override wurde stillschweigend aufgelöst zugunsten von forced_home, ohne Warnung | Bei Override: `warn(...)` mit Liste der überschriebenen Sperrtage |
+
+**Code-Review Runde 6 – Sprint 3 / State-Management + Release-Robustheit (v1.3.0 → v1.3.1):**
+
+| Datei | Befund | Fix |
+|---|---|---|
+| `app.py` (Liga-Removal) | **D-M1** Beim Reduzieren der Liga-Anzahl wurden `S.cal_table`, `S.time_templates`, `S.opt_best` sowie Widget-Keys (`cal_editor_*`, `de_*`, `_exp_*`, …) nicht aufgeräumt → bei Re-Anlage mit gleicher ID erbt die Liga alten Kalender/Zeit-Status | Drei zusätzliche State-Dicts in den Pop-Loop aufgenommen; Widget-Key-Präfixe explizit gelöscht |
+| `app.py` (Liga-Rename) | **D-M2** Beim Umbenennen wurden nur 7 State-Dicts übertragen — `S.cal_table` & Co. bleiben unter alter ID liegen → Kalender ist nach Rename „weg" | Drei zusätzliche State-Dicts in den Transfer-Loop; alle Widget-Key-Präfixe auf neue ID umtaufen |
+| `app.py` (`_full_config_excel_bytes` + `_load_full_config_excel`) | **D-M3** `host_slots` (TT-Spielreihenfolge) wurde nicht im Excel-Export geschrieben → Round-Trip-Verlust: User-konfigurierte Ausrichter-Slot-Positionen gingen beim Speichern/Laden verloren | Neue Sheet-Spalte `Ausrichter-Slots (JSON)` im Export; Import-Logik liest sie als `[int(x) for x in JSON]` |
+| `.github/workflows/release.yml` | **F-M2** Workflow validiert nicht, dass Git-Tag mit VERSION-Datei übereinstimmt → bei Mismatch droht Endlos-Update-Loop, weil installiertes ZIP weiter alte Version meldet | Pre-Build-Step prüft `${GITHUB_REF_NAME#v}` gegen VERSION-Datei und bricht ab bei Differenz |
+| `app.py` (`_regen_league_excel`) | **E-M3** Bei Overview-Build-Fehler nach manuellen Mutationen blieb `S.overview_bytes` auf altem Wert stehen → User lädt veraltete Gesamtübersicht herunter, die nicht zum aktuellen State passt | Vor try-Block `S.overview_bytes = None`, nur bei Erfolg neu setzen |
+| `solver.py` | **A-M1** DST-Nachbarschafts-Constraints A/B/C berücksichtigten `needs_bye` nicht: bei ungerader Teamzahl und Bye-Tagen rund um einen DST-Block konnte `home[pre1] + home[post1] >= 1` unlösbar werden (0+0 forced bei Bye) | Bei `needs_bye`: `>= _plays_pre + _plays_post - 1` statt `>= 1`. Sum von `x[m,d]` für ti-Matches ist 0 (Bye) oder 1 (Spiel) → Constraint wird nur erzwungen, wenn beide Tage tatsächlich gespielt werden |
 
 ---
 

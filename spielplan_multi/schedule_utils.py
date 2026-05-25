@@ -74,15 +74,27 @@ def recompute_result_stats(result, cfg) -> tuple:
                 sw_counts[ti] += 1
             prev = cur
 
-    n_wkds   = max(1, len(weekends) - 1)
-    sw_rates = [round(100.0 * sw / n_wkds, 1) for sw in sw_counts]
+    # Denominator: n_matchdays - 1 (Spieltag-Transitions), konsistent zum Solver.
+    # cfg.n_transitions liefert genau diesen Wert.
+    n_tr     = max(1, cfg.n_transitions)
+    sw_rates = [round(100.0 * sw / n_tr, 1) for sw in sw_counts]
     return travels, sw_counts, sw_rates
 
 
 def swap_home_away(result, cfg, day: int, match_idx: int) -> None:
-    """Tauscht Heim- und Auswaertsteam fuer ein Spiel (inkl. DST-Partner-Tag)."""
+    """Tauscht Heim- und Auswaertsteam fuer ein Spiel.
+
+    Wirft KEINE Exception bei verbotenen Tagen, sondern returnt ohne Aenderung.
+    Die UI sollte den Swap-Button bei DST-Tagen deaktivieren und einen Hinweis zeigen.
+    """
     if cfg.games_per_team_per_day > 1:
         return  # Turniertag: home_vals sind Zaehler, kein einfacher Swap
+    if day in cfg.dst_days:
+        # DST-Partner-Tag hat andere Paarungen; ein Swap nur auf einem Tag wuerde
+        # die DST-Invariante (gleiches Heimrecht beider Tage) brechen. Die alte
+        # Logik versuchte den Partner mitzuziehen, hat dabei aber home_vals und
+        # schedule fuer Teams gesetzt, die auf dem Partner-Tag andere Gegner haben.
+        return
     t_idx = {t: i for i, t in enumerate(cfg.teams)}
 
     games = list(result.schedule.get(day, []))
@@ -95,25 +107,11 @@ def swap_home_away(result, cfg, day: int, match_idx: int) -> None:
     hi = t_idx.get(ht, -1)
     ai = t_idx.get(at, -1)
 
-    # DST-Partner-Tag finden
-    partner = None
-    for d1, d2 in cfg.dst_blocks:
-        if day == d1:
-            partner = d2; break
-        elif day == d2:
-            partner = d1; break
-
-    # home_vals aktualisieren
-    for fd in ([day] + ([partner] if partner else [])):
-        if hi >= 0: result.home_vals[(hi, fd)] = 0
-        if ai >= 0: result.home_vals[(ai, fd)] = 1
-        if fd != day:
-            p_games = list(result.schedule.get(fd, []))
-            for pi, (pht, pat) in enumerate(p_games):
-                if {pht, pat} == {ht, at}:
-                    p_games[pi] = (at, ht) if pht == ht else (ht, at)
-                    result.schedule[fd] = p_games
-                    break
+    # home_vals aktualisieren (nur fuer den Tag, da DST-Tage oben ausgeschlossen sind)
+    if hi >= 0:
+        result.home_vals[(hi, day)] = 0
+    if ai >= 0:
+        result.home_vals[(ai, day)] = 1
 
     travels, sw_counts, sw_rates = recompute_result_stats(result, cfg)
     result.travels   = travels
@@ -220,6 +218,8 @@ def move_game(result, cfg, old_day: int, match_idx: int, new_day: int) -> str:
 
 def cancel_game(result, cfg, day: int, match_idx: int):
     """Entfernt ein Spiel. Gibt (ht, at) zurueck oder (None, None) bei Fehler."""
+    if cfg.games_per_team_per_day > 1:
+        return None, None  # Turniertag: home_vals sind Zaehler, recompute liefert falsche travels
     t_idx = {t: i for i, t in enumerate(cfg.teams)}
     games = list(result.schedule.get(day, []))
     if match_idx >= len(games):
@@ -247,6 +247,8 @@ def reschedule_game(result, cfg, day: int, home_team: str, away_team: str) -> st
 
     Gibt '' bei Erfolg zurueck, sonst eine Fehlermeldung.
     """
+    if cfg.games_per_team_per_day > 1:
+        return 'Nachholspiele bei Turniertag nicht unterstützt.'
     if home_team not in cfg.teams:
         return f'Team "{home_team}" nicht in der Liga.'
     if away_team not in cfg.teams:

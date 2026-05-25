@@ -263,6 +263,25 @@ def build_league_vars(model: cp_model.CpModel,
                         else:
                             model.Add(sum(seg) >= 1)
 
+        # 3-Wochenend-Fenster: max 2 von 3 aufeinanderfolgenden Wochenenden gleich.
+        # Ohne diesen Check entsteht ein 5-in-Folge-Muster: DST-Block + Einzeltag + DST-Block
+        # (alle mit gleichem Heimrecht) – weil alle Einzelspieltag-Fenster DST-Tage enthalten
+        # und dadurch übersprungen werden.
+        if num_weekends >= 3:
+            for ti in range(n):
+                for w in range(num_weekends - 2):
+                    seg = [homeW[ti, w + k] for k in range(3)]
+                    model.Add(sum(seg) <= 2)
+                    if not any((w + k) in blocked_weekends_per_team[ti] for k in range(3)):
+                        if needs_bye:
+                            _plays = sum(
+                                sum(x[m, d] for m in range(num_matches) if team_in_match[ti][m])
+                                for k in range(3) for d in cfg.weekends[w + k]
+                            )
+                            model.Add(sum(seg) >= _plays - 2)
+                        else:
+                            model.Add(sum(seg) >= 1)
+
         for ti in range(n):
             for d in range(1, N):
                 model.Add(switch[ti, d] >= home[ti, d]     - home[ti, d + 1])
@@ -320,6 +339,13 @@ def build_league_vars(model: cp_model.CpModel,
                         model.Add(sum(seg) >= 1)   # nicht 4x Auswaerts
         # DST-Nachbarschaft: max 3 in Folge rund um DST-Blöcke (Constraints A/B/C)
         # Verhindert: pre2+pre1+DST(2), DST(2)+post1+post2, pre1+DST(2)+post1 = je 4 in Folge
+        # needs_bye: bei ungerader Teamzahl ist home[ti, d] = 0 erzwungen an Bye-Tagen.
+        # Wenn DST + pre1 + post1 (oder analog) alle Bye-Tage sind, wäre 0+0 >= 1 INFEASIBLE.
+        # Fix: bei needs_bye die >=1-Schranke konditionalisieren auf tatsächlich gespielte Tage.
+        def _plays_expr(ti_, d_):
+            """Sum(x[m,d_]) über alle Matches von ti_ — 0 falls ti_ Bye, 1 sonst (gpd==1)."""
+            return sum(x[m, d_] for m in range(num_matches) if team_in_match[ti_][m])
+
         if cfg.dst_blocks:
             _non_dst = [d for d in days if d not in dst_day_set]
             for ti in range(n):
@@ -337,17 +363,29 @@ def build_league_vars(model: cp_model.CpModel,
                     if pre1 is not None and post1 is not None:
                         model.Add(home[ti, pre1] + home[ti, post1] <= 1).OnlyEnforceIf(h_dst)
                         if not any(d in blocked_per_team[ti] for d in (pre1, post1)):
-                            model.Add(home[ti, pre1] + home[ti, post1] >= 1).OnlyEnforceIf(h_dst.Not())
+                            if needs_bye:
+                                _p = _plays_expr(ti, pre1) + _plays_expr(ti, post1)
+                                model.Add(home[ti, pre1] + home[ti, post1] >= _p - 1).OnlyEnforceIf(h_dst.Not())
+                            else:
+                                model.Add(home[ti, pre1] + home[ti, post1] >= 1).OnlyEnforceIf(h_dst.Not())
                     # B: post1 und post2 nicht beide gleich DST
                     if post1 is not None and post2 is not None:
                         model.Add(home[ti, post1] + home[ti, post2] <= 1).OnlyEnforceIf(h_dst)
                         if not any(d in blocked_per_team[ti] for d in (post1, post2)):
-                            model.Add(home[ti, post1] + home[ti, post2] >= 1).OnlyEnforceIf(h_dst.Not())
+                            if needs_bye:
+                                _p = _plays_expr(ti, post1) + _plays_expr(ti, post2)
+                                model.Add(home[ti, post1] + home[ti, post2] >= _p - 1).OnlyEnforceIf(h_dst.Not())
+                            else:
+                                model.Add(home[ti, post1] + home[ti, post2] >= 1).OnlyEnforceIf(h_dst.Not())
                     # C: pre2 und pre1 nicht beide gleich DST
                     if pre2 is not None and pre1 is not None:
                         model.Add(home[ti, pre2] + home[ti, pre1] <= 1).OnlyEnforceIf(h_dst)
                         if not any(d in blocked_per_team[ti] for d in (pre2, pre1)):
-                            model.Add(home[ti, pre2] + home[ti, pre1] >= 1).OnlyEnforceIf(h_dst.Not())
+                            if needs_bye:
+                                _p = _plays_expr(ti, pre2) + _plays_expr(ti, pre1)
+                                model.Add(home[ti, pre2] + home[ti, pre1] >= _p - 1).OnlyEnforceIf(h_dst.Not())
+                            else:
+                                model.Add(home[ti, pre2] + home[ti, pre1] >= 1).OnlyEnforceIf(h_dst.Not())
     # Turniertag (gpd>1): kein Konsekutiv-Constraint noetig
 
     if not is_turniertag:
@@ -523,6 +561,10 @@ def build_league_vars(model: cp_model.CpModel,
         if ti is None:
             continue
         forced_set = set(cfg.forced_home.get(team, []))
+        _overridden = [d for d in block_days if d in days and d in forced_set]
+        if _overridden:
+            warn(f'[{cfg.league_id}] Team {team!r}: Sperrtag(e) {sorted(_overridden)} '
+                 f'werden durch Pflichtheim überschrieben (Heimspiel erzwungen).')
         for d in block_days:
             if d in days and d not in forced_set:
                 model.Add(home[ti, d] == 0)

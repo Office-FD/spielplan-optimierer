@@ -998,8 +998,9 @@ def _full_config_excel_bytes() -> bytes:
         ws_tt = wb.create_sheet('TT-Spielreihenfolge')
         _tt_hdrs = ['Liga-ID', 'Ausrichterposition (J/N)', 'Mindestpause',
                     'Maximalpause', 'Ausrichter-Modus',
-                    'Ausrichter-Zaehler (JSON)', 'Ausrichter-pro-Tag (JSON)']
-        _set_col_w(ws_tt, [14, 24, 14, 14, 20, 45, 45])
+                    'Ausrichter-Zaehler (JSON)', 'Ausrichter-pro-Tag (JSON)',
+                    'Ausrichter-Slots (JSON)']
+        _set_col_w(ws_tt, [14, 24, 14, 14, 20, 45, 45, 30])
         for _ttc, _tth in enumerate(_tt_hdrs, 1):
             _h(ws_tt, 1, _ttc, _tth)
         ws_tt.row_dimensions[1].height = 20
@@ -1011,13 +1012,15 @@ def _full_config_excel_bytes() -> bytes:
             _hcj  = _json.dumps(_tt.get('host_counts', {}), ensure_ascii=False) if _tt.get('host_counts') else ''
             _hpj  = _json.dumps({str(k): v for k, v in _tt.get('host_per_day', {}).items()},
                                  ensure_ascii=False) if _tt.get('host_per_day') else ''
+            _hsj  = _json.dumps(list(_tt.get('host_slots', []) or []),
+                                 ensure_ascii=False) if _tt.get('host_slots') else ''
             for _ttc, _ttv in enumerate([
                 _lid,
                 'J' if _tt.get('host_position', False) else 'N',
                 _tt.get('min_gap', 0),
                 _tt.get('max_gap', 3),
                 _tt.get('host_mode', 'per_team'),
-                _hcj, _hpj,
+                _hcj, _hpj, _hsj,
             ], 1):
                 _d(ws_tt, _ttr, _ttc, _ttv, _fil)
             _ttr += 1
@@ -1296,6 +1299,8 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                      lambda s: _json.loads(s)),
                     ('Ausrichter-pro-Tag (JSON)', 'host_per_day',
                      lambda s: {int(k): v for k, v in _json.loads(s).items()}),
+                    ('Ausrichter-Slots (JSON)', 'host_slots',
+                     lambda s: [int(x) for x in _json.loads(s)]),
                 ]:
                     _v = str(row.get(_col, '') or '').strip()
                     if _v and _v.lower() not in ('nan', '{}', ''):
@@ -1487,10 +1492,16 @@ def _step0():
         _removed = S.league_order.pop()
         S.leagues.pop(_removed, None)
         for _sd in (S.dist_matrices, S.dst_per_liga, S.routing,
-                    S.weights, S.pinned, S.blocked, S.forced_home):
+                    S.weights, S.pinned, S.blocked, S.forced_home,
+                    S.cal_table, S.time_templates, S.opt_best):
             _sd.pop(_removed, None)
         for _club_dict in S.clubs.values():
             _club_dict.pop(_removed, None)
+        # Widget-State der entfernten Liga löschen (Editor-Caches, Expanded-Flags etc.)
+        for _wk_pfx in ('cal_editor_', 'de_', '_exp_', '_reset_', '_exp_pin_',
+                        '_exp_blk_', '_exp_frc_', '_exp_tt_',
+                        'tt_hmode_', 'tt_mingap_', 'tt_maxgap_'):
+            st.session_state.pop(f'{_wk_pfx}{_removed}', None)
 
     club_records = load_club_db()
     club_adresse  = {(r['verein'] or r['teamname']): r['adresse']  for r in club_records}
@@ -1923,16 +1934,20 @@ def _step0():
                 S.league_order[idx] = new_lid
                 S.leagues[new_lid]  = S.leagues.pop(lid)
                 for _state_dict in (S.dist_matrices, S.dst_per_liga, S.routing,
-                                    S.weights, S.pinned, S.blocked, S.forced_home):
+                                    S.weights, S.pinned, S.blocked, S.forced_home,
+                                    S.cal_table, S.time_templates, S.opt_best):
                     if lid in _state_dict:
                         _state_dict[new_lid] = _state_dict.pop(lid)
                 for _club in S.clubs.values():
                     if lid in _club:
                         _club[new_lid] = _club.pop(lid)
-                for _exp_key in (f'_exp_{lid}', f'_reset_{lid}'):
-                    if _exp_key in st.session_state:
-                        st.session_state[f'_exp_{new_lid}' if '_exp_' in _exp_key
-                                         else f'_reset_{new_lid}'] = st.session_state.pop(_exp_key)
+                # Widget-State auf neue Liga-ID umtaufen
+                for _wk_pfx in ('_exp_', '_reset_', '_exp_pin_', '_exp_blk_',
+                                '_exp_frc_', '_exp_tt_', 'cal_editor_', 'de_',
+                                'tt_hmode_', 'tt_mingap_', 'tt_maxgap_'):
+                    _old_key = f'{_wk_pfx}{lid}'
+                    if _old_key in st.session_state:
+                        st.session_state[f'{_wk_pfx}{new_lid}'] = st.session_state.pop(_old_key)
                 st.session_state[f'lid_{i}'] = new_lid
                 st.rerun()
 
@@ -1999,6 +2014,9 @@ def _step1():
                 column_config={t: st.column_config.NumberColumn(t, min_value=0,
                     format='%.0f') for t in teams})
             mat2 = edited.to_numpy(dtype=float).copy()
+            # Geleerte Zellen werden von st.data_editor als NaN zurueckgegeben;
+            # ohne Konvertierung crasht der Solver beim astype(int)-Cast.
+            mat2 = np.nan_to_num(mat2, nan=0.0)
             # Obere Dreiecksmatrix auf untere spiegeln
             for r in range(n):
                 for c in range(r + 1, n):
@@ -3290,6 +3308,19 @@ def _session_from_json(raw: bytes) -> str:
             int(d): host for d, host in res_data.get('hosts', {}).items()
         }
 
+        # home_vals aus Schedule rekonstruieren – ohne diese Daten liefert
+        # recompute_result_stats() sw_counts=0 und die Heatmap zeigt alles als Auswärts.
+        _t_idx = {t: i for i, t in enumerate(cfg.teams)}
+        _home_vals: dict = {}
+        for _d, _games in schedule.items():
+            for _ht, _at in _games:
+                _hi = _t_idx.get(_ht, -1)
+                _ai = _t_idx.get(_at, -1)
+                if _hi >= 0:
+                    _home_vals[(_hi, _d)] = 1
+                if _ai >= 0:
+                    _home_vals[(_ai, _d)] = 0
+
         result = LeagueResult(
             league_id=lid,
             status=_cp.FEASIBLE,
@@ -3300,7 +3331,7 @@ def _session_from_json(raw: bytes) -> str:
             travels=[],
             mins=0,
             secs=0,
-            home_vals={},
+            home_vals=_home_vals,
             h_vals={},
             x_vals={},
             cfg=cfg,
@@ -3966,6 +3997,10 @@ def _regen_league_excel(lid: str, res) -> None:
     _buf = io.BytesIO()
     _wb.save(_buf)
     S.excel_bytes[lid] = _buf.getvalue()
+    # Overview vor Regen-Versuch verwerfen; nur bei Erfolg neu setzen.
+    # Sonst kann eine veraltete Übersicht heruntergeladen werden, die nicht
+    # zum aktuellen S.results-State passt.
+    S.overview_bytes = None
     try:
         _wb_ov  = _boe(S.results, S.clubs, S.kw_compat)
         _buf_ov = io.BytesIO()
@@ -4456,15 +4491,15 @@ def _show_results():
                     ),
                     key='adj_day',
                 )
-                # DST-Hinweis
-                for _d1, _d2 in _cfg_adj.dst_blocks:
-                    if _sel_day in (_d1, _d2):
-                        _partner = _d2 if _sel_day == _d1 else _d1
-                        st.info(
-                            f'Doppelspieltag: Ein Tausch hier gilt automatisch auch '
-                            f'für Spieltag {_partner}.'
-                        )
-                        break
+                # DST-Hinweis: an DST-Tagen ist Swap deaktiviert, weil DST-Partner
+                # andere Paarungen hat → Spiegelung würde State korrumpieren.
+                _is_dst_day = _sel_day in _cfg_adj.dst_days
+                if _is_dst_day:
+                    st.warning(
+                        'Doppelspieltag – Heimrecht-Tausch hier nicht möglich, '
+                        'weil der Solver für beide DST-Tage dasselbe Heimrecht erzwingt. '
+                        'Ein Tausch nur auf einem Tag würde dieses Constraint brechen.'
+                    )
                 _day_games = _res_adj.schedule.get(_sel_day, [])
                 if not _day_games:
                     st.caption('Keine Spiele an diesem Spieltag.')
@@ -4475,7 +4510,10 @@ def _show_results():
                         _c2.write(f'{_at} (Gast)')
                         if _c3.button(
                             '⇄', key=f'swap_{_adj_lid}_{_sel_day}_{_mi}',
-                            help=f'Tauschen: {_at} spielt zu Hause gegen {_ht}',
+                            help=(f'Tauschen: {_at} spielt zu Hause gegen {_ht}'
+                                  if not _is_dst_day
+                                  else 'An DST-Tagen nicht verfügbar (siehe Hinweis)'),
+                            disabled=_is_dst_day,
                         ):
                             _swap_home_away(_res_adj, _cfg_adj, _sel_day, _mi)
                             from spielplan_multi.excel_output import build_league_excel as _ble

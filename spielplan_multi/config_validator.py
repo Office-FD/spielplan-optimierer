@@ -140,6 +140,41 @@ def validate(
                               'mehrfach eingetragen. Jede Paarung darf nur einmal vorkommen → unlösbar.')
                 _seen_pairs.add(pair)
 
+        # B-M2: n_rounds >= 2 → mehrere Pins für dieselbe Paarung im SELBEN Round → INFEASIBLE
+        # (Hin- und Rück-Pin sind erlaubt, aber zwei Pins in derselben Hälfte nicht.)
+        if n_rounds >= 2 and n_md > 0:
+            _round_len = max(1, n_md // n_rounds)
+            _pair_rounds: dict = {}
+            for pm in pins:
+                ta, tb = pm.get('teamA'), pm.get('teamB')
+                if not ta or not tb or pm.get('day') is None:
+                    continue
+                try:
+                    _d = int(pm['day'])
+                except (TypeError, ValueError):
+                    continue
+                pair = frozenset([ta, tb])
+                _rnd = min(n_rounds, (_d - 1) // _round_len + 1)
+                _pair_rounds.setdefault(pair, []).append(_rnd)
+            for pair, rnds in _pair_rounds.items():
+                if len(rnds) != len(set(rnds)):
+                    err(lid, f'**{name}**: Paarung {sorted(pair)} ist mehrfach in derselben '
+                              f'Runde als Pflichtspiel eingetragen → unlösbar.')
+
+        # B-M1: Pflichtspiel-Heimrecht widerspricht Sperrtag des Heimteams → INFEASIBLE
+        for pm in pins:
+            _ht_pin = pm.get('home')
+            _d_pin = pm.get('day')
+            if not _ht_pin or _d_pin is None:
+                continue
+            try:
+                _d_int = int(_d_pin)
+            except (TypeError, ValueError):
+                continue
+            if _ht_pin in blk and _d_int in set(blk.get(_ht_pin, [])):
+                err(lid, f'**{name}**: Pflichtspiel ST{_d_int} – Team «{_ht_pin}» soll '
+                          f'Heimrecht haben, ST{_d_int} ist aber gleichzeitig Sperrtag → unlösbar.')
+
         # Ungerade Team-Anzahl → automatisch ein Spielfrei-Tag pro Runde (kein Fehler, nur Hinweis)
         n_active = ld.get('n_active_per_day', 0)
         if gpd == 1 and n_active == 0 and n % 2 == 1:
@@ -167,6 +202,10 @@ def validate(
         if forced_home:
             frc = forced_home.get(lid, {})
             for team, fdays in frc.items():
+                # B-M3: Pflichtheim-Team gegen Teamliste validieren (analog zu Sperrtag/Pflichtspiel)
+                if team not in _teams_set:
+                    warn(lid, f'**{name}**: Pflichtheim-Team «{team}» nicht in der Teamliste – wird ignoriert.')
+                    continue
                 blk_set = set(blk.get(team, []))
                 frc_set = set(fdays)
                 # Konflikt: selber Tag ist Sperrtag UND Pflichttag
@@ -330,6 +369,10 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
 
         # Pflichtheim-Validierung
         for team, fdays in cfg.forced_home.items():
+            # B-M3: Pflichtheim-Team gegen Teamliste validieren
+            if team not in _teams_set_c:
+                warn(lid, f'{name}: Pflichtheim-Team «{team}» nicht in der Teamliste – wird ignoriert.')
+                continue
             frc_set = set(fdays)
             blk_set = set(cfg.blocked.get(team, []))
             conflict = blk_set & frc_set
@@ -376,6 +419,40 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
                     err(lid, f'{name}: Einfachrunde – Paarung {ta} – {tb} als Pflichtspiel '
                               'mehrfach eingetragen. Jede Paarung darf nur einmal vorkommen → unlösbar.')
                 _seen_pairs_c.add(pair)
+
+        # B-M2: n_rounds >= 2 → mehrere Pins für dieselbe Paarung im SELBEN Round → INFEASIBLE
+        if cfg.n_rounds >= 2 and n_md > 0:
+            _round_len_c = max(1, n_md // cfg.n_rounds)
+            _pair_rounds_c: dict = {}
+            for pm in cfg.pinned:
+                ta, tb = pm.get('teamA'), pm.get('teamB')
+                if not ta or not tb or pm.get('day') is None:
+                    continue
+                try:
+                    _d = int(pm['day'])
+                except (TypeError, ValueError):
+                    continue
+                pair = frozenset([ta, tb])
+                _rnd = min(cfg.n_rounds, (_d - 1) // _round_len_c + 1)
+                _pair_rounds_c.setdefault(pair, []).append(_rnd)
+            for pair, rnds in _pair_rounds_c.items():
+                if len(rnds) != len(set(rnds)):
+                    err(lid, f'{name}: Paarung {sorted(pair)} ist mehrfach in derselben '
+                              f'Runde als Pflichtspiel eingetragen → unlösbar.')
+
+        # B-M1: Pflichtspiel-Heimrecht widerspricht Sperrtag des Heimteams → INFEASIBLE
+        for pm in cfg.pinned:
+            _ht_pin = pm.get('home')
+            _d_pin = pm.get('day')
+            if not _ht_pin or _d_pin is None:
+                continue
+            try:
+                _d_int = int(_d_pin)
+            except (TypeError, ValueError):
+                continue
+            if _ht_pin in cfg.blocked and _d_int in set(cfg.blocked.get(_ht_pin, [])):
+                err(lid, f'{name}: Pflichtspiel ST{_d_int} – Team «{_ht_pin}» soll '
+                          f'Heimrecht haben, ST{_d_int} ist aber gleichzeitig Sperrtag → unlösbar.')
 
         # Ungerade Team-Anzahl → automatisch ein Spielfrei-Tag pro Runde
         if cfg.games_per_team_per_day == 1 and cfg.n_active_per_day == 0 and n % 2 == 1:

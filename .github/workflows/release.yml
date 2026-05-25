@@ -20,6 +20,20 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Tag-Version vs. VERSION-Datei prüfen
+        # Verhindert Update-Schleifen: Wenn git tag v1.3.0 gepusht wird, aber
+        # die VERSION-Datei noch 1.2.9 enthält, würde der Auto-Updater nach
+        # Install endlos ein "neueres" v1.3.0 finden.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          FILE_VERSION=$(tr -d '[:space:]' < VERSION)
+          if [ "$TAG_VERSION" != "$FILE_VERSION" ]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' (=$TAG_VERSION) stimmt nicht mit VERSION-Datei ($FILE_VERSION) überein."
+            echo "Bitte VERSION-Datei vor dem Tag-Push aktualisieren."
+            exit 1
+          fi
+          echo "Tag $TAG_VERSION matcht VERSION-Datei."
+
       - name: app-files.zip erstellen
         run: python build_release.py
 

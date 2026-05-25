@@ -1,10 +1,13 @@
 """Solver-Worker-Prozess: läuft in eigenem Prozess, daher via terminate() killbar."""
 import sys
 import logging
+import warnings
 
 # Streamlit-Warnungen im Subprocess unterdrücken (fehlender ScriptRunContext ist erwartet).
-# Kind-Logger ohne eigenen Level erben diesen Wert → alle streamlit.* WARNING-Meldungen werden gefiltert.
+# logging-Filter für alle streamlit.*-Logger (z. B. streamlit.runtime.*).
 logging.getLogger('streamlit').setLevel(logging.ERROR)
+# warnings.warn()-basierte ScriptRunContext-Warnung: Streamlit nutzt warnings.warn(), nicht logging.
+warnings.filterwarnings('ignore', message='.*ScriptRunContext.*')
 
 
 def run_solver(cfgs, clubs, kw_compat, w_cohome, solver_cfg, log_q, base_dir: str = '.'):
