@@ -565,8 +565,8 @@ def step4_weights(league_defs: Dict) -> Tuple[Dict[str, Dict], Dict[str, float],
     info('Gewichte 0-10 pro Liga. Ligahierarchie skaliert Ligen untereinander.')
 
     lids = list(league_defs.keys())
-    # G-M1: dst_eff ist im UI-Default 0.0 (Feature aus); CLI muss konsistent sein.
-    _W_DEFAULTS = {'dst_eff': 0.0}
+    # CLI-Defaults konsistent zur UI: dst_eff und round_balance sind opt-in (Default 0).
+    _W_DEFAULTS = {'dst_eff': 0.0, 'round_balance': 0.0}
     use_same = ask_yes_no('Gleiche Gewichte fuer alle Ligen verwenden?')
 
     if use_same:

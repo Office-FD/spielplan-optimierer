@@ -1248,7 +1248,7 @@ Aktuelles Verhalten: Die Heimrecht-Constraints (`pair_h == h_lo` in `solver.py:2
 - Bei restriktiven Pflichtspielen/Sperrtagen: Solver findet weiterhin eine Lösung (kein neues INFEASIBLE), Strafe steigt aber sichtbar im Objective-Wert.
 - Phase-2-Laufzeit verschlechtert sich um maximal 20% bei einer 4-Liga-Konfiguration mit aktivem round_balance.
 
-**Status:** Offen
+**Status:** Erledigt in v1.5.0. Verifiziert mit 12-Teams-Beispiel: alle Teams haben 5 oder 6 Heim pro Runde (max ±0.5 vom Mittel 5.5), Solver findet OPTIMAL in <1 Sekunde. Implementierung: `home_in_round[ti,r]` IntVar + `abs_dev2 = |2*home - n_days_r|` + `sq_dev = abs_dev2²` via `AddMultiplicationEquality`. Skala: 2.0 (analog `sw_fair`). UI- und CLI-Default: 0 (opt-in, da quadratische Constraints den Solver leicht verlangsamen). Default-Wert 5 als „empfohlen" im Help-Text. Excel-Konfig-Export erweitert um Spalte „Heim-Balance pro Runde".
 
 ---
 

@@ -249,11 +249,12 @@ def _detect_dst_blocks(rows: list) -> list:
 
 
 WEIGHT_LABELS = {
-    'switch':    ('Heimrechtswechsel',   'Wie oft wechselt ein Team zwischen Heim- und Auswärtsspielen. Höherer Wert = abwechslungsreichere Spielfolge (z.B. Heim–Auswärts–Heim statt drei Heimspiele hintereinander).'),
-    'sw_fair':   ('Wechsel-Fairness',    'Wie gleichmäßig die Wechselhäufigkeit über alle Teams verteilt ist. Höherer Wert = kein Team hat deutlich mehr oder weniger Wechsel als die anderen.'),
-    'travel':    ('Reisedistanz',        'Gesamte Fahrtstrecke aller Teams über die Saison. Höherer Wert = kürzere Gesamtkilometer werden stärker bevorzugt.'),
-    'trav_fair': ('Reise-Fairness',      'Wie gleichmäßig die Reisebelastung auf alle Teams verteilt ist. Höherer Wert = kein Team muss deutlich mehr fahren als die anderen.'),
-    'dst_eff':   ('DST-Reiseeffizienz',  'Bevorzugt Doppelwochenenden, bei denen beide Auswärtsspiele räumlich nah beieinander liegen. Teams aus Randlagen (z.B. Hamburg, München) profitieren am meisten: ihre weit entfernten Auswärtsspiele werden in einem DST gebündelt statt getrennt angesetzt. 0 = aus · 5 = empfohlen'),
+    'switch':        ('Heimrechtswechsel',     'Wie oft wechselt ein Team zwischen Heim- und Auswärtsspielen. Höherer Wert = abwechslungsreichere Spielfolge (z.B. Heim–Auswärts–Heim statt drei Heimspiele hintereinander).'),
+    'sw_fair':       ('Wechsel-Fairness',      'Wie gleichmäßig die Wechselhäufigkeit über alle Teams verteilt ist. Höherer Wert = kein Team hat deutlich mehr oder weniger Wechsel als die anderen.'),
+    'travel':        ('Reisedistanz',          'Gesamte Fahrtstrecke aller Teams über die Saison. Höherer Wert = kürzere Gesamtkilometer werden stärker bevorzugt.'),
+    'trav_fair':     ('Reise-Fairness',        'Wie gleichmäßig die Reisebelastung auf alle Teams verteilt ist. Höherer Wert = kein Team muss deutlich mehr fahren als die anderen.'),
+    'dst_eff':       ('DST-Reiseeffizienz',    'Bevorzugt Doppelwochenenden, bei denen beide Auswärtsspiele räumlich nah beieinander liegen. Teams aus Randlagen (z.B. Hamburg, München) profitieren am meisten: ihre weit entfernten Auswärtsspiele werden in einem DST gebündelt statt getrennt angesetzt. 0 = aus · 5 = empfohlen'),
+    'round_balance': ('Heim-Balance pro Runde', 'Wie ausgeglichen Heim- und Auswärtsspiele innerhalb der Hinrunde bzw. Rückrunde verteilt sind. Höherer Wert bestraft unausgeglichene Verteilungen (z.B. 7:4) progressiv stärker als geringe Abweichungen (5:6). Die Gesamt-Saison ist bereits ausgeglichen (ergibt sich aus Hin-/Rück-Constraint), dieser Term wirkt nur INNERHALB jeder Runde. 0 = aus · 5 = empfohlen · Hinweis: Quadratische Constraints machen den Solver etwas langsamer.'),
 }
 
 # ── Session-State initialisieren ──────────────────────────────────────────────
@@ -839,23 +840,28 @@ def _full_config_excel_bytes() -> bytes:
 
     # ── Sheet 4: Gewichte ─────────────────────────────────────────────────────
     ws_w = wb.create_sheet('Gewichte')
-    hdrs_w = ['Liga-ID', 'Heimrechtwechsel', 'Wechsel-Fairness', 'Reisedistanz', 'Reise-Fairness', 'DST-Reiseeffizienz']
-    _set_col_w(ws_w, [18, 20, 20, 16, 16, 20])
+    hdrs_w = ['Liga-ID', 'Heimrechtwechsel', 'Wechsel-Fairness', 'Reisedistanz',
+              'Reise-Fairness', 'DST-Reiseeffizienz', 'Heim-Balance pro Runde']
+    _set_col_w(ws_w, [18, 20, 20, 16, 16, 20, 22])
     for col, h in enumerate(hdrs_w, 1):
         _h(ws_w, 1, col, h)
+    _w_keys = ['switch', 'sw_fair', 'travel', 'trav_fair', 'dst_eff', 'round_balance']
+    _w_off_default = {'dst_eff', 'round_balance'}
     wr = 2
     if S.same_weights:
         common = S.weights.get('__common__', {})
         _d(ws_w, wr, 1, '__common__')
-        for col, k in enumerate(['switch', 'sw_fair', 'travel', 'trav_fair', 'dst_eff'], 2):
-            _d(ws_w, wr, col, common.get(k, 5.0) if k != 'dst_eff' else common.get(k, 0.0))
+        for col, k in enumerate(_w_keys, 2):
+            _d(ws_w, wr, col,
+               common.get(k, 0.0 if k in _w_off_default else 5.0))
         wr += 1
     else:
         for lid in S.league_order:
             w = S.weights.get(lid, {})
             _d(ws_w, wr, 1, lid)
-            for col, k in enumerate(['switch', 'sw_fair', 'travel', 'trav_fair', 'dst_eff'], 2):
-                _d(ws_w, wr, col, w.get(k, 5.0) if k != 'dst_eff' else w.get(k, 0.0))
+            for col, k in enumerate(_w_keys, 2):
+                _d(ws_w, wr, col,
+                   w.get(k, 0.0 if k in _w_off_default else 5.0))
             wr += 1
 
     # ── Sheet 5: Kalender ─────────────────────────────────────────────────────
@@ -1120,11 +1126,12 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                     continue
                 try:
                     weights[lid] = {
-                        'switch':    float(row.get('Heimrechtwechsel',    5.0) or 5.0),
-                        'sw_fair':   float(row.get('Wechsel-Fairness',    5.0) or 5.0),
-                        'travel':    float(row.get('Reisedistanz',        5.0) or 5.0),
-                        'trav_fair': float(row.get('Reise-Fairness',      5.0) or 5.0),
-                        'dst_eff':   float(row.get('DST-Reiseeffizienz',  0.0) or 0.0),
+                        'switch':        float(row.get('Heimrechtwechsel',         5.0) or 5.0),
+                        'sw_fair':       float(row.get('Wechsel-Fairness',         5.0) or 5.0),
+                        'travel':        float(row.get('Reisedistanz',             5.0) or 5.0),
+                        'trav_fair':     float(row.get('Reise-Fairness',           5.0) or 5.0),
+                        'dst_eff':       float(row.get('DST-Reiseeffizienz',       0.0) or 0.0),
+                        'round_balance': float(row.get('Heim-Balance pro Runde',   0.0) or 0.0),
                     }
                 except Exception:
                     pass
@@ -2604,7 +2611,8 @@ def _step3():
     same = st.checkbox('Gleiche Gewichte für alle Ligen', S.same_weights, key='samew')
     S.same_weights = same
 
-    _W_DEFAULTS = {'dst_eff': 0.0}
+    # round_balance default 0 (aus): quadratische Constraints sind teurer, nur opt-in.
+    _W_DEFAULTS = {'dst_eff': 0.0, 'round_balance': 0.0}
 
     def _weight_inputs(key_prefix: str, existing: dict) -> dict:
         vals = {}
@@ -3482,7 +3490,8 @@ def _build_league_configs() -> Dict[str, LeagueConfig]:
         n_md     = _calc_n_matchdays(ld)
         days     = list(range(1, n_md + 1))
         apply_r, pct = S.routing.get(lid, (False, 25))
-        _w_defaults = {k: (0.0 if k == 'dst_eff' else 5.0) for k in WEIGHT_SCALES}
+        _w_defaults = {k: (0.0 if k in ('dst_eff', 'round_balance') else 5.0)
+                       for k in WEIGHT_SCALES}
         raw      = S.weights.get(lid, _w_defaults)
         scaled   = {k: v * WEIGHT_SCALES[k] for k, v in raw.items() if k in WEIGHT_SCALES}
         # Spielfrei-Modus: active_per_day < n_teams

@@ -299,6 +299,50 @@ def build_league_vars(model: cp_model.CpModel,
     model.AddMaxEquality(max_sw, [sw_count[ti] for ti in range(n)])
     model.AddMinEquality(min_sw, [sw_count[ti] for ti in range(n)])
 
+    # ── Heim-Balance pro Runde (round_balance) ───────────────────────────────
+    # Bestrafe quadrierte Abweichung der Heim-Anzahl je (Team, Runde) vom Mittelwert.
+    # Wird nur aktiviert wenn:
+    #   - gpd == 1 (im Turniertag ist home[ti, d] ein Zaehler, nicht BoolVar)
+    #   - n_rounds >= 2 (Einfachrunde hat nur 1 Runde, Balance trivial == Gesamt)
+    #   - round_balance-Gewicht > 0 (Performance: quadratische Constraints sind teuer)
+    round_balance_penalty = None
+    if gpd == 1 and n_rounds >= 2 and cfg.w_scaled.get('round_balance', 0.0) > 0:
+        round_len_rb = N // max(1, n_rounds)
+        round_days: List[List[int]] = []
+        for r in range(n_rounds):
+            r_start = r * round_len_rb + 1
+            r_end   = (r + 1) * round_len_rb if r < n_rounds - 1 else N
+            round_days.append(list(range(r_start, r_end + 1)))
+
+        sq_devs = []
+        for ti in range(n):
+            for r_idx, r_days in enumerate(round_days):
+                n_days_r = len(r_days)
+                if n_days_r == 0:
+                    continue
+                # home_in_round = sum(home[ti, d] for d in r_days), Wertebereich 0..n_days_r
+                home_in_round = model.NewIntVar(0, n_days_r,
+                                                 f'{p}him_{ti}_r{r_idx}')
+                model.Add(home_in_round == sum(home[ti, d] for d in r_days))
+                # dev2 = 2 * home_in_round - n_days_r (in 2x-Skala, vermeidet Bruchteile)
+                # Wertebereich: -n_days_r .. +n_days_r
+                dev2 = model.NewIntVar(-n_days_r, n_days_r, f'{p}d2_{ti}_r{r_idx}')
+                model.Add(dev2 == 2 * home_in_round - n_days_r)
+                # abs_dev2 = |dev2|
+                abs_dev2 = model.NewIntVar(0, n_days_r, f'{p}ad2_{ti}_r{r_idx}')
+                model.AddAbsEquality(abs_dev2, dev2)
+                # sq_dev = abs_dev2 * abs_dev2 → quadratische Strafe
+                sq_dev = model.NewIntVar(0, n_days_r * n_days_r,
+                                          f'{p}sq_{ti}_r{r_idx}')
+                model.AddMultiplicationEquality(sq_dev, [abs_dev2, abs_dev2])
+                sq_devs.append(sq_dev)
+
+        if sq_devs:
+            _max_ndr = max(len(rd) for rd in round_days)
+            ub_rb = max(1, n * n_rounds * _max_ndr * _max_ndr)
+            round_balance_penalty = model.NewIntVar(0, ub_rb, f'{p}round_bal_pen')
+            model.Add(round_balance_penalty == sum(sq_devs))
+
     # Konsekutiv-Constraint: max 2 gleiche Heim/Auswaerts hintereinander (nur gpd=1)
     dst_day_set = cfg.dst_days
     if gpd == 1:
@@ -585,6 +629,7 @@ def build_league_vars(model: cp_model.CpModel,
         max_travel=max_travel, min_travel=min_travel,
         team_idx=t_idx, matches=matches, days=days,
         dst_eff_total=dst_eff_total,
+        round_balance_penalty=round_balance_penalty,
     )
 
 
@@ -621,6 +666,9 @@ def add_league_objective(model, lv: LeagueVars, cfg: LeagueConfig,
     ]
     if lv.dst_eff_total is not None and W.get('dst_eff', 0) > 0:
         terms.append(W['dst_eff'] * lv.dst_eff_total)
+    if lv.round_balance_penalty is not None and W.get('round_balance', 0) > 0:
+        # Minimieren der quadrierten Abweichung → negativer Term in Maximierungs-Ziel
+        terms.append(-W['round_balance'] * lv.round_balance_penalty)
     return terms
 
 

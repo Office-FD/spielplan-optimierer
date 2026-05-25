@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.4.1 · Stand Mai 2026 · Status: Code-Review Runde 6 vollständig abgeschlossen — 60 von 66 priorisierten Befunden behoben (Sprints 1-5). 6 große Refactor-Items (Validator-Konsolidierung, Wizard Tuple→Dict, atomarer Update, Update-Background-Thread, Rename-Button) als Future-Work zurückgestellt — siehe FIX_PLAN.md**
+> **Version 1.5.0 · Stand Mai 2026 · Status: Code-Review Runde 6 abgeschlossen + neues Feature „Heim-Balance pro Runde" (round_balance-Gewicht mit quadratischer Strafe für Hin-/Rückrunden-Asymmetrie). 6 große Refactor-Items aus Runde 6 als Future-Work zurückgestellt — siehe FIX_PLAN.md**
 
 ---
 
@@ -453,6 +453,21 @@ Wichtigste Änderungen nach Bereich:
 | UI Ergebnisansicht | E-M1 (Uhrzeit-Spalte in Spielplan-Tabelle), E-M2 (Diagnose-Cache via `_diag_cache`), E-L1 (DST-Hinweis bei Cancel/Move), E-L2 (`sleep(2)` → `sleep(0.5)`), E-L3 (`proc.start()` mit try/except), E-L4 (iCal Default-Jahr aus `datetime.now()`), E-L5 (Phase-Label für alle n_rounds), E-L6 (severity dict mit `level`/`msg`), E-L7 (Spielzeit-Excel-Regen nur bei Änderung) |
 | Distribution | F-L1 (`_parse_version` für Pre-Release-Suffixe), F-L3 (`Spielplaene/` aus `[UninstallDelete]` ausgenommen), F-L4 (ISS-Default 1.4.0), F-L5 (`build_release.py` min 10 Dateien), F-L6 (Python-Embedded SHA256-Verifikation in `build_bootstrap.bat`), F-L7 (Kommentar zu SHA-Pinning) |
 | CLI | G-M1 (CLI dst_eff-Default 0.0 konsistent zur UI), G-L4 (CLI ruft jetzt `build_overview_excel`), G-L5 (`test_smoke.py` w_scaled-Setup korrigiert) |
+
+**Neues Feature (v1.4.1 → v1.5.0): Heim-Balance pro Runde**
+
+Neues Optimierungsgewicht `round_balance` bestraft progressive (quadratische) Abweichung der Heim-Anzahl pro Team und Runde vom Mittelwert. Beispiel 12 Teams Hin/Rück: 11 Spiele/Runde → Mittel 5,5. Verteilung 5/6 wird kaum bestraft, 4/7 wird ~9× stärker bestraft (quadrierte Abweichung 9 vs. 1).
+
+| Datei | Was geändert |
+|---|---|
+| `config.py` | Neuer Eintrag in `WEIGHT_SCALES` (`'round_balance': 2.0`) und `WEIGHT_LABELS` |
+| `league_types.py` | `LeagueVars.round_balance_penalty: Any = None` (IntVar) |
+| `solver.py` | In `build_league_vars`: Pro (Team, Runde) IntVars `home_in_round`, `dev2 = 2*home - n_days_r`, `abs_dev2 = |dev2|` via `AddAbsEquality`, `sq_dev = abs_dev2²` via `AddMultiplicationEquality`. `round_balance_penalty = sum(sq_dev)`. Wird nur bei `gpd == 1`, `n_rounds >= 2` und `w_scaled['round_balance'] > 0` aktiviert. `add_league_objective` zieht `-W['round_balance'] * round_balance_penalty` ab |
+| `app.py` | UI-Slider automatisch via `WEIGHT_LABELS`-Dict-Eintrag mit Help-Text und Default 0 (`_W_DEFAULTS`). Excel-Konfig-Export Sheet „Gewichte" erweitert um Spalte „Heim-Balance pro Runde". Import-Logik liest die Spalte ein |
+| `wizard.py` | CLI-Defaults konsistent: `_W_DEFAULTS = {'dst_eff': 0.0, 'round_balance': 0.0}` |
+| `test_all.py` | Zwei neue Tests: `t13_round_balance_wirkt` (12 Teams, Heim-Verteilung 5 oder 6 pro Runde) und `t13_round_balance_aus_default` (Regression-Check) |
+
+**Verifikation:** Mit 12-Teams-Beispiel löst Solver in <1 s OPTIMAL; alle 12 Teams bekommen genau 5 oder 6 Heimspiele pro Runde (max ±0.5 vom Mittel). Bei deaktiviertem Gewicht (Default) ist das Modell identisch zur v1.4.1 — kein Performance- oder Verhaltens-Impact für bestehende Konfigurationen.
 
 ---
 

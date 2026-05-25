@@ -3,13 +3,23 @@
 from typing import Dict
 
 # ── Solver-Gewichte ───────────────────────────────────────────────────────────
-WEIGHT_SCALES = {'switch': 80.0, 'sw_fair': 2.0, 'trav_fair': 0.02, 'travel': 0.05, 'dst_eff': 0.03}
+# round_balance: Skala 2.0 (analog sw_fair), bestraft quadrierte Abweichung der
+# Heimspiel-Anzahl pro Runde vom Mittelwert. Default in der UI: 0 (aus).
+WEIGHT_SCALES = {
+    'switch':        80.0,
+    'sw_fair':        2.0,
+    'trav_fair':      0.02,
+    'travel':         0.05,
+    'dst_eff':        0.03,
+    'round_balance':  2.0,
+}
 WEIGHT_LABELS = [
-    ('switch',    'Heimrecht-Wechsel maximieren'),
-    ('sw_fair',   'Fairness bei Heimrecht-Wechseln'),
-    ('trav_fair', 'Fairness bei Reisekilometern'),
-    ('travel',    'Gesamtkilometer minimieren'),
-    ('dst_eff',   'DST-Reiseeffizienz'),
+    ('switch',        'Heimrecht-Wechsel maximieren'),
+    ('sw_fair',       'Fairness bei Heimrecht-Wechseln'),
+    ('trav_fair',     'Fairness bei Reisekilometern'),
+    ('travel',        'Gesamtkilometer minimieren'),
+    ('dst_eff',       'DST-Reiseeffizienz'),
+    ('round_balance', 'Heim-Balance pro Runde'),
 ]
 
 KM_PAUSCHALE   = 0.20

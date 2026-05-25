@@ -878,6 +878,73 @@ def main():
     check('Mutationen bei gpd>1 (Turniertag) abgelehnt', t12_mutation_turniertag_geguarded)
 
     # =========================================================================
+    # TEST 13 – Heim-Balance pro Runde (round_balance, v1.5.0-Feature)
+    # =========================================================================
+    print('\n--- Test 13: Heim-Balance pro Runde (round_balance) ---')
+
+    def t13_round_balance_wirkt():
+        """Bei aktivem round_balance: Heim-Anzahl je Team und Runde maximal ±1 vom Mittel."""
+        # 12 Teams, n_rounds=2 → 22 Spieltage → 11 pro Runde → Mittel 5.5 → 5 oder 6 Heim
+        TEAMS12 = [f'Team{i:02d}' for i in range(1, 13)]
+        n = len(TEAMS12)
+        n_rounds = 2
+        n_md = n_rounds * (n - 1)  # 22
+        days = list(range(1, n_md + 1))
+        raw = {k: 0.0 for k in WEIGHT_SCALES}
+        raw['round_balance'] = 10.0  # stark aktiv
+        cfg = LeagueConfig(
+            league_id='RB', name='Round-Balance-Test',
+            teams=TEAMS12, locations=TEAMS12,
+            dist=np.zeros((n, n)), dst_blocks=[],
+            weekends=build_weekends(days, []),
+            apply_routing=False, f_num=125, f_den=100,
+            w_scaled={k: v * WEIGHT_SCALES[k] for k, v in raw.items()},
+            raw_weights=raw,
+            pinned=[], blocked={},
+            games_per_team_per_day=1, n_rounds=n_rounds, n_teams_per_group=0,
+        )
+        r = solve(cfg, tl=90)
+        assert_schedule_complete(r, cfg)
+        round_len = n_md // n_rounds
+        deviations = []
+        for ti, t in enumerate(TEAMS12):
+            for r_idx in range(n_rounds):
+                r_start = r_idx * round_len + 1
+                r_end = (r_idx + 1) * round_len if r_idx < n_rounds - 1 else n_md
+                home_count = sum(
+                    1 for d in range(r_start, r_end + 1)
+                    for ht, _ in r.schedule.get(d, [])
+                    if ht == t
+                )
+                n_days_r = r_end - r_start + 1
+                # Mittel = n_days_r / 2 (z.B. 5.5 bei 11 Tagen) -> optimal 5 oder 6
+                ideal_lo = n_days_r // 2
+                ideal_hi = (n_days_r + 1) // 2
+                deviations.append(home_count - n_days_r / 2)
+                assert ideal_lo <= home_count <= ideal_hi, (
+                    f'{t} Runde {r_idx+1}: {home_count} Heim, erwartet '
+                    f'{ideal_lo} oder {ideal_hi} (von {n_days_r} Spielen)'
+                )
+        max_abs_dev = max(abs(d) for d in deviations)
+        return f'max |Abweichung vom Mittel| = {max_abs_dev:.1f} (erwartet 0.5)'
+    check('Heim-Balance pro Runde: Heim-Anzahl ±1 vom Mittel (12 Teams)', t13_round_balance_wirkt)
+
+    def t13_round_balance_aus_default():
+        """Bei round_balance=0 (Default): keine zusätzlichen Constraints, alte Verteilung möglich."""
+        # Lediglich: Modell baut sich und löst (keine Regression).
+        TEAMS6 = ['Hamburg', 'Bremen', 'Hannover', 'Dortmund', 'Koeln', 'Frankfurt']
+        raw = {k: 5.0 for k in WEIGHT_SCALES}
+        raw['round_balance'] = 0.0  # explizit aus
+        cfg = make_cfg('RB_OFF', TEAMS6, dist=DIST6)
+        # Override raw_weights/w_scaled fuer diesen Test
+        cfg.raw_weights['round_balance'] = 0.0
+        cfg.w_scaled['round_balance']    = 0.0
+        r = solve(cfg, tl=30)
+        assert_schedule_complete(r, cfg)
+        return 'round_balance=0 -> kein Constraint, Solver loest normal'
+    check('Heim-Balance pro Runde: Default (=0) deaktiviert das Feature', t13_round_balance_aus_default)
+
+    # =========================================================================
     # ZUSAMMENFASSUNG
     # =========================================================================
     print('\n' + '=' * 70)

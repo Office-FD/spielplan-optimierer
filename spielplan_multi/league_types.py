@@ -99,6 +99,7 @@ class LeagueVars:
     matches:   List   # [{'A':..., 'B':..., 'phase':...}]
     days:      List[int]
     dst_eff_total: Any = None  # IntVar; nur gesetzt wenn dst_eff-Gewicht > 0 und DST-Blöcke vorhanden
+    round_balance_penalty: Any = None  # IntVar; sum(sq_dev[ti,r]) für Heim-Balance pro Runde
 
 
 @dataclass
