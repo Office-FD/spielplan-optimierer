@@ -11,7 +11,7 @@ B-L4 (Code-Review Runde 6 Sprint R1): Validator-Konsolidierung
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 import numpy as np
 

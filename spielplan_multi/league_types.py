@@ -1,6 +1,5 @@
 """Datenklassen fuer Liga-Konfiguration, Solver-Variablen und Ergebnisse."""
 
-import math
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Tuple
 import numpy as np

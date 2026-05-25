@@ -11,8 +11,9 @@ Spielplaene/
 # Persönliche Notizen/Memory (lokal)
 memory/
 
-# Claude Code – nur lokale Einstellungen ausschließen
+# Claude Code – lokale Einstellungen + Lock-Files
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Windows
 Thumbs.db

@@ -14,9 +14,8 @@ from ortools.sat.python import cp_model as _cp_model
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
-from .league_types import LeagueConfig, LeagueResult
-from .config import TEAM_COLORS, WEIGHT_LABELS, KM_PAUSCHALE, get_team_color
-from .ui import step, ok, warn
+from .league_types import LeagueResult
+from .config import WEIGHT_LABELS, KM_PAUSCHALE, get_team_color
 
 
 # ── Style-Helfer ─────────────────────────────────────────────────────────────

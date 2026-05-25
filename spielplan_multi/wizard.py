@@ -17,14 +17,12 @@ from __future__ import annotations
 
 import math
 import re
-import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from .ui import (banner, section, ok, info, warn, err, step,
-                  ask_yes_no, ask_int, ask_float, ask_path)
+from .ui import (banner, section, ok, info, warn, err, ask_yes_no, ask_int, ask_float, ask_path)
 from .config import WEIGHT_SCALES, WEIGHT_LABELS
 from .calendar_parser import parse_rahmenterminplan, preview_columns, build_weekends
 from .league_types import LeagueConfig
@@ -138,13 +136,13 @@ def step0_leagues() -> Dict[str, WizardLeagueDef]:
             break
 
         # Liga-Name
-        name = input(f'  Liga-Name (z.B. Regionalliga Nord): ').strip()
+        name = input('  Liga-Name (z.B. Regionalliga Nord): ').strip()
         if not name:
             name = lid
 
         # Hierarchiegewicht
         if n_ligen > 1:
-            hw = ask_float(f'  Hierarchiegewicht (1.0 = Standard, hoeher = wichtiger)',
+            hw = ask_float('  Hierarchiegewicht (1.0 = Standard, hoeher = wichtiger)',
                            0.1, 5.0, default=1.0)
         else:
             hw = 1.0
@@ -885,7 +883,6 @@ def build_configs(league_defs: Dict,
                   kw_compat: Dict,
                   forced_home_per_liga: Optional[Dict] = None) -> Dict[str, LeagueConfig]:
     """Erstellt LeagueConfig-Objekte fuer alle Ligen."""
-    from .calendar_parser import build_weekends
 
     # Kalender-Spieltage ableiten aus kw_compat
     spieltage_per_liga: Dict[str, Dict] = {}

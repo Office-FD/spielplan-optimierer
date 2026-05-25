@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .league_types import LeagueConfig, LeagueResult
+    pass
 
 
 def assign_game_times(result, time_slots: list) -> None:

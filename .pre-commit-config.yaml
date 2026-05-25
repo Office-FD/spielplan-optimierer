@@ -1,0 +1,32 @@
+# Pre-Commit-Hook-Konfiguration fuer Spielplan-Optimierer
+# Installation (einmalig pro Entwickler-Maschine):
+#   pip install pre-commit
+#   pre-commit install
+#
+# Manuell auf alle Dateien anwenden:
+#   pre-commit run --all-files
+#
+# Updates der Hook-Versionen:
+#   pre-commit autoupdate
+
+repos:
+  # Ruff: Linter (gleiche Config wie CI via ruff.toml)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.14
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^(spielplan_multi/|app\.py|launcher\.py|build_release\.py|test_.*\.py)
+
+  # Allgemeine Hooks: Whitespace, Dateienden, YAML, Merge-Konflikt-Marker
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(.*\.csv|.*\.md)$
+      - id: end-of-file-fixer
+        exclude: ^(.*\.csv)$
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=2048']  # Warnt bei Files > 2 MB

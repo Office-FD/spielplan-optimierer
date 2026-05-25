@@ -17,7 +17,6 @@ import queue
 import re
 import sys
 import tempfile
-import threading
 import time
 import zipfile
 from pathlib import Path
@@ -35,7 +34,6 @@ if str(_HERE) not in sys.path:
 from spielplan_multi.config import WEIGHT_SCALES
 from spielplan_multi.calendar_parser import build_weekends
 from spielplan_multi.league_types import LeagueConfig, LeagueResult
-from spielplan_multi.multi_solver import solve_all
 from spielplan_multi.schedule_utils import (
     recompute_result_stats  as _recompute_result_stats_fn,
     swap_home_away          as _swap_home_away_fn,
@@ -2104,7 +2102,7 @@ def _step1():
                 st.success('✓ Bereits berechnet.')
                 with st.expander('Matrix anzeigen'):
                     st.dataframe(pd.DataFrame(S.dist_matrices[lid], index=teams, columns=teams))
-                if st.button(f'Neu berechnen', key=f'recalc_{lid}'):
+                if st.button('Neu berechnen', key=f'recalc_{lid}'):
                     del S.dist_matrices[lid]
                     st.rerun()
             else:
@@ -2118,7 +2116,7 @@ def _step1():
                     with st.expander('Adressen prüfen (werden an Google Maps gesendet)'):
                         for t, loc in zip(teams, locs):
                             st.caption(f'**{t}** → {loc}')
-                    if st.button(f'Distanzen berechnen (Google Maps)', key=f'calc_{lid}', type='primary'):
+                    if st.button('Distanzen berechnen (Google Maps)', key=f'calc_{lid}', type='primary'):
                         # D-L6: contextlib.redirect_stdout ist scope-begrenzt und thread-sicher
                         # gegenueber dem alten globalen sys.stdout-Swap.
                         import contextlib as _contextlib
@@ -2641,7 +2639,7 @@ def _step3():
             enabled = st.checkbox(f'Routing für {ld["name"]}', cur_apply, key=f'rt_{lid}')
             pct     = cur_pct
             if enabled:
-                pct = st.slider(f'Erlaubter Mehraufwand (%)', 1, 100, max(1, cur_pct), 5,
+                pct = st.slider('Erlaubter Mehraufwand (%)', 1, 100, max(1, cur_pct), 5,
                     key=f'rp_{lid}', help='Wie viel Prozent Mehrkilometer darf ein Team bei einem Doppelwochenende in Kauf nehmen? 1 % = fast kein Umweg erlaubt · 25 % = bis zu 25 % mehr als der direkte Weg')
             S.routing[lid] = (enabled, pct)
 
@@ -4830,7 +4828,7 @@ def _show_results():
                 try:
                     _cmp_xl = pd.ExcelFile(io.BytesIO(_cmp_up.getvalue()))
                     if 'Kilometerstatistik' not in _cmp_xl.sheet_names:
-                        st.error(f'Sheet "Kilometerstatistik" nicht in der Datei gefunden.')
+                        st.error('Sheet "Kilometerstatistik" nicht in der Datei gefunden.')
                         continue
                     _cmp_df = _cmp_xl.parse('Kilometerstatistik').fillna('')
                     # Lookup: team → (km, sw_rate)

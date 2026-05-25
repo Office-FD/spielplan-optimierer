@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.6.2 · Stand Mai 2026 · Status: Code-Review Runde 6 vollständig abgeschlossen — alle 7 großen Refactor-Items behoben (Sprints R1-R3). 67 von 73 priorisierten Items + 1 neues Feature (Heim-Balance pro Runde) implementiert. Künftige Arbeit: Feature-Wünsche aus BACKLOG.md.**
+> **Version 1.7.0 · Stand Mai 2026 · Status: CI-Quality-Sprint Q1 abgeschlossen — Ruff-Linter, Dependabot, Pre-Commit-Hook und CodeQL eingerichtet. Code-Review Runde 6 (67/73 Items + 1 Feature) bleibt Basis. Künftige Arbeit: Test-Coverage-Audit (Q2), Feature-Wünsche aus BACKLOG.md.**
 
 ---
 
@@ -517,6 +517,19 @@ D-L1 als letztes verbliebenes Refactor-Item aus Code-Review Runde 6 — UX-Itera
 - Ungültiges Format (Space, Unicode) + Submit → Caption „Ungültiges Format"
 - Duplikat einer existierenden Liga-ID + Submit → Caption „Bereits vergeben"
 - Unverändert + Submit → Caption „ID unverändert"
+
+**CI-Quality-Sprint Q1 (v1.6.2 → v1.7.0):**
+
+Tooling-Bundle zur Bug-Prävention. Kein Code-Verhalten geändert; betrifft Linter, Dependency-Updates, Pre-Commit, Security-Scanning.
+
+| Datei | Änderung |
+|---|---|
+| `ruff.toml` (neu) | Ruff-Konfiguration: nur echte Bugs strikt (F-Codes + E4 Imports + E9 Syntax + W6 Deprecation). Style-Findings (E701/E702/E741/F841) toleriert — bestehender Code-Stil mit mehreren Statements pro Zeile bleibt akzeptiert. Per-file-ignores für `app.py` + `main.py` (legit `sys.path.insert()` vor Imports) und Test-Skripte (Side-Effect-Imports). |
+| diverse | 26 Ruff-Auto-Fixes ausgeführt: unused imports (F401), f-strings ohne Platzhalter (F541), redefinitions (F811). Betraf u. a. `wizard.py`, `sa_refine.py`, `schedule_utils.py`, `league_types.py`, `solver.py`, `config_validator.py`, `app.py`. Keine logischen Änderungen; Smoke- und Feature-Tests grün. |
+| `.github/workflows/test.yml` | Neuer Step `Ruff-Linter (fail-fast vor Tests)` läuft vor pytest. Verhindert defekte Releases durch Lint-Issues. |
+| `.github/dependabot.yml` (neu) | Wöchentliche Update-PRs für GitHub Actions + Python-Pakete (Minor/Patch gruppiert). Schedule: montags 06:00 Berlin-Zeit, max. 5 offene PRs pro Ecosystem. |
+| `.pre-commit-config.yaml` (neu) | Hook-Konfiguration mit Ruff + Standard-Checks (trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, check-added-large-files >2 MB). Installation pro Entwickler: `pip install pre-commit && pre-commit install`. |
+| `.github/workflows/codeql.yml` (neu) | GitHub-natives statisches Security-Scanning für Python (Path-Traversal, unsafe deserialization, Command-Injection etc.). Trigger: push/PR auf main + wöchentlicher Cron (Mo 04:00 UTC). |
 
 ---
 

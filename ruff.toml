@@ -1,0 +1,51 @@
+# Ruff-Konfiguration fuer Spielplan-Optimierer
+# Pragmatische Defaults: nur echte Bugs strikt, Style-Issues toleriert.
+# Der bestehende Code-Stil (mehrere Statements auf einer Zeile, lange Zeilen)
+# wird beibehalten — Ruff-Checks fokussieren auf logische Fehler.
+
+line-length = 120
+target-version = "py313"
+
+exclude = [
+    ".venv",
+    ".cache",
+    "Spielplaene",
+    "installer/build",
+    "installer/Output",
+]
+
+[lint]
+# F-Regeln (pyflakes) sind echte Bugs (unused imports, undefined names, etc.)
+# E4 = Imports, E7 = Statement-Probleme, E9 = Syntax-Fehler
+# W6 = Deprecation-Warnungen
+select = [
+    "F",     # pyflakes – echte Bugs
+    "E4",    # Imports
+    "E9",    # Syntax-Fehler / RuntimeErrors
+    "W6",    # Deprecation
+]
+
+ignore = [
+    # E701/E702: Multiple Statements auf einer Zeile sind im bestehenden
+    # Code-Stil akzeptiert (z. B. `if x: continue` oder `a = 1; b = 2`).
+    "E701",
+    "E702",
+    # E741: Variablennamen wie `l` (Liga), `I` sind in unserem Code üblich
+    # und in den meisten Fällen klar im Kontext.
+    "E741",
+    # F841: Unused locals sind manchmal beabsichtigt (z. B. tuple-unpacking
+    # mit `_` ist schon ignoriert, aber manche Namen sind aussagekräftig).
+    "F841",
+    # F401 für test-Files: pytest braucht manchmal Side-Effect-Imports.
+    # Wir whitelisten Tests per-file unten.
+]
+
+[lint.per-file-ignores]
+# Test-Skripte: Side-Effect-Imports sind hier gewollt, ebenso lokale Test-Helper.
+"test_*.py" = ["F401", "F811"]
+# build_release.py: standalone script, Module-Imports innerhalb von main() ok.
+"build_release.py" = ["E402"]
+# app.py + main.py: bewusst `sys.path.insert()` vor den Imports, damit das
+# Modul auch ohne Installation findbar ist (Streamlit-Direktstart / CLI-Run).
+"app.py" = ["E402"]
+"spielplan_multi/main.py" = ["E402"]

@@ -13,12 +13,12 @@ from __future__ import annotations
 import math
 import random
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 
 from .league_types import LeagueConfig, LeagueResult
-from .ui import step, ok, warn
+from .ui import step, ok
 
 
 # ── Kern-Hilfsfunktionen ─────────────────────────────────────────────────────

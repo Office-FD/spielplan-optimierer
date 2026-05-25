@@ -26,13 +26,11 @@ import math
 import os
 import sys
 import time
-from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
 from ortools.sat.python import cp_model
 
-from .ui import step, ok, warn, err, banner
+from .ui import step, ok, warn
 from .league_types import LeagueConfig, LeagueVars, LeagueResult
 from .config import UNREACHABLE_KM
 

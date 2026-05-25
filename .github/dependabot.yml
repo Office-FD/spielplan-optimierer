@@ -1,0 +1,47 @@
+# Dependabot-Konfiguration fuer Spielplan-Optimierer
+# Erstellt automatische Update-PRs fuer:
+#   - GitHub Actions in .github/workflows/
+#   - Python-Pakete in requirements.txt
+#
+# Schedule: wöchentlich (montags), max. 5 offene PRs pro Ecosystem.
+
+version: 2
+updates:
+
+  # GitHub Actions (z. B. actions/checkout, actions/setup-python)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Python-Pakete in requirements.txt
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Berlin"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    # Gruppiere kleinere Patch-/Minor-Updates zu einem PR
+    groups:
+      python-minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
