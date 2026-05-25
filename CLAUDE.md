@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.6.0 · Stand Mai 2026 · Status: Sprint R1 erledigt (Wizard Tuple→Dataclass + Validator-Konsolidierung). Noch 3 Refactor-Items offen: F-M1 atomarer Update, F-L2 Background-Update-Check, D-L1 Liga-Rename auf Button — siehe FIX_PLAN.md**
+> **Version 1.6.1 · Stand Mai 2026 · Status: Sprint R1 + R2 erledigt (Wizard Tuple→Dataclass, Validator-Konsolidierung, atomarer Update mit Rollback, Background-Update-Check). Nur noch 1 Refactor-Item offen: D-L1 Liga-Rename auf Button (UX-Iteration nach Feedback) — siehe FIX_PLAN.md**
 
 ---
 
@@ -481,6 +481,23 @@ Reines internes Refactoring ohne Verhaltensänderung — drei zusammenhängende 
 | `config_validator.py` | **B-L4** ~80% Code-Duplikation zwischen `validate()` und `validate_cfgs()` | Gemeinsamer Kern in `_validate_league_common(ctx, _err, _warn)` extrahiert; neue `_LeagueValCtx`-Dataclass als Adapter-Input. UI-spezifische Checks (Kalender, DST-Routing, Co-Home) bleiben in `validate()`. Datei von 488 → 399 Zeilen |
 
 **Verifikation:** Mini-Test des Validators (n<2, self-play, B-M1, B-M2, B-M3) und Wizard (build_configs mit altem und neuem Routing-Format) bestanden. Volle pytest-Suite läuft.
+
+**Sprint R2 / Launcher-Hardening (v1.6.0 → v1.6.1):**
+
+Beide verbleibenden Launcher-Refactor-Items aus Runde 6 gemeinsam in einem Commit, da `_apply_update` und `main()` zusammenhängen.
+
+| Datei | Befund | Refactor |
+|---|---|---|
+| `launcher.py` | **F-M1** `_apply_update` nicht atomar — bei Partial-Failure (z.B. Datei-Lock im Move-Loop) inkonsistenter App-State | Neuer Pre-Move-Backup-Step: aktuelle App-Files (außer `python/`, `Spielplaene/`, `.cache/`, `VERSION`) werden in `backup_dir` verschoben → leerer Ziel-Pfad → kein File-Lock möglich. Bei Failure (innerer try/except): vollständiger Rollback aus Backup. Bei Erfolg: Backup gelöscht. `VERSION_FILE` wird nur nach erfolgreichem Move geschrieben → kein Endlos-Update-Loop |
+| `launcher.py` | **F-L2** 5s-Timeout im `_check_update` blockierte App-Start | Update-Check in `threading.Thread(daemon=True)`. Server-Subprocess startet PARALLEL zum Check. Falls Update gefunden: Dialog NACH Server-Bereit-Wait (max 5s `update_done.wait(timeout=5)`). Bei Bestätigung: Server stoppen, Update anwenden, Server neu starten. Falls Server bereits läuft: einfach Browser öffnen ohne Update-Anwendung (Check läuft für nächsten Start weiter) |
+
+**Risiko-Mitigation:**
+- Tag-Validation (F-M2, schon in v1.3.1) verhindert Tag-vs-VERSION-Mismatch
+- Test-Gate (F-L8, schon in v1.4.0) verhindert Release von defektem Code
+- F-M1-Rollback aktiviert bei jedem Failure im Inner-Move-Loop → konsistenter App-State garantiert
+- F-L2 Update-Anwendung läuft jetzt erst NACH dem Server-Start → falls Update fehlschlägt, läuft die App mit der alten Version weiter (statt App nicht startfähig)
+
+**Verifikation:** launcher.py kompiliert sauber, Modul-Top-Level läuft, `_parse_version` unverändert. Manuelle Verifikation des Update-Pfads auf Test-System empfohlen (Update-Test ist nicht im pytest-Wrapper, da `launcher.py` außerhalb der spielplan_multi/-Tests liegt).
 
 ---
 

@@ -1127,7 +1127,7 @@ Fix: `uses: actions/checkout@<full-sha>` mit Kommentar `# v4`. Setzt regelmäßi
 Workflow läuft `build_release.py` und published. Keine Test-Ausführung. Defektes Coding-Standard-konformer Code könnte released werden.
 Fix: Vor `build_release.py` einen `pytest` oder `python test_smoke.py`-Step ergänzen. Tests müssen vorher CI-fähig gemacht werden (siehe Block G).
 
-**Status:** Großteils erledigt – F-M2 in v1.3.1, F-L8 in v1.4.0 (Test-Gate), F-L1, F-L3, F-L4, F-L5, F-L6, F-L7 in v1.4.1 gefixt; **F-M1 (atomarer Update mit Rollback) und F-L2 (Update-Check in Background-Thread) zurückgestellt** – größere Refactors am Launcher.
+**Status:** Erledigt – F-M2 in v1.3.1, F-L8 in v1.4.0, F-L1/L3/L4/L5/L6/L7 in v1.4.1, F-M1 + F-L2 in v1.6.1 (atomarer Update mit Rollback + Background-Update-Check).
 
 ---
 

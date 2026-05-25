@@ -11,11 +11,13 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
 import webbrowser
 import zipfile
+from typing import Optional
 
 GITHUB_REPO = "Office-FD/spielplan-optimierer"
 GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -94,16 +96,37 @@ def _check_update():
         return None, None
 
 
+# Verzeichnisse die NICHT vom Update beruehrt werden:
+# - python/        : embedded Python-Umgebung (im Installer fixed, nicht im app-files.zip)
+# - Spielplaene/   : Nutzer-Daten
+# - .cache/        : Distanz-Cache, last_result.pkl
+_UPDATE_PROTECTED = {"python", "Spielplaene", ".cache"}
+
+
 def _apply_update(url: str, new_version: str) -> bool:
-    # CR4-L2: NamedTemporaryFile statt mktemp (kein TOCTOU)
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".zip")
+    """Update atomar mit Backup/Rollback (F-M1).
+
+    Ablauf:
+      1. ZIP downloaden
+      2. ZIP in tmp_extract entpacken (mit Path-Traversal-Guard)
+      3. Aktuelle App-Dateien (ausser _UPDATE_PROTECTED) nach backup_dir bewegen
+      4. Neue Dateien aus tmp_extract nach BASE_DIR bewegen
+      5. VERSION-Datei schreiben
+      6. Erfolg: backup_dir loeschen
+      7. Failure (in Schritt 4-5): Rollback aus backup_dir
+    """
+    # CR4-L2: mkstemp statt mktemp (kein TOCTOU)
+    tmp_fd, tmp_zip = tempfile.mkstemp(suffix=".zip")
     os.close(tmp_fd)
-    tmp_extract = tempfile.mkdtemp()
+    tmp_extract = tempfile.mkdtemp(prefix="spielplan_extract_")
+    backup_dir  = tempfile.mkdtemp(prefix="spielplan_backup_")
+    backed_up   = []   # Liste der Items die ins Backup verschoben wurden
+
     try:
-        urllib.request.urlretrieve(url, tmp_path)
+        urllib.request.urlretrieve(url, tmp_zip)
 
         # CR4-L3: erst vollstaendig in temporaeres Verzeichnis entpacken
-        with zipfile.ZipFile(tmp_path) as z:
+        with zipfile.ZipFile(tmp_zip) as z:
             base_real = os.path.realpath(BASE_DIR)
             for member in z.namelist():
                 if member.startswith("python/"):
@@ -114,34 +137,74 @@ def _apply_update(url: str, new_version: str) -> bool:
                     raise ValueError(f"ZIP-Eintrag außerhalb von BASE_DIR: {member}")
                 z.extract(member, tmp_extract)
 
-        # Alle extrahierten Dateien atomar nach BASE_DIR verschieben
-        for root, dirs, files in os.walk(tmp_extract):
-            rel_root = os.path.relpath(root, tmp_extract)
-            dest_root = os.path.join(BASE_DIR, rel_root) if rel_root != "." else BASE_DIR
-            os.makedirs(dest_root, exist_ok=True)
-            for fname in files:
-                src = os.path.join(root, fname)
-                dst = os.path.join(dest_root, fname)
-                shutil.move(src, dst)
+        # F-M1: Backup aller bestehenden App-Items (ausser PROTECTED) ins backup_dir.
+        # Damit ist BASE_DIR jetzt sauber, der nachfolgende Move kann nicht durch
+        # File-Locks scheitern.
+        for item in os.listdir(BASE_DIR):
+            if item in _UPDATE_PROTECTED or item == "VERSION":
+                continue
+            src = os.path.join(BASE_DIR, item)
+            dst = os.path.join(backup_dir, item)
+            shutil.move(src, dst)
+            backed_up.append(item)
 
-        with open(VERSION_FILE, "w", encoding="utf-8") as f:
-            f.write(new_version + "\n")
-        return True
+        # Neue Dateien aus tmp_extract nach BASE_DIR
+        try:
+            for root, _dirs, files in os.walk(tmp_extract):
+                rel_root = os.path.relpath(root, tmp_extract)
+                dest_root = (os.path.join(BASE_DIR, rel_root)
+                             if rel_root != "." else BASE_DIR)
+                os.makedirs(dest_root, exist_ok=True)
+                for fname in files:
+                    shutil.move(os.path.join(root, fname),
+                                os.path.join(dest_root, fname))
+
+            # VERSION-Datei erst NACH erfolgreichem Move schreiben
+            with open(VERSION_FILE, "w", encoding="utf-8") as f:
+                f.write(new_version + "\n")
+
+            # Erfolg: Backup loeschen
+            shutil.rmtree(backup_dir, ignore_errors=True)
+            return True
+
+        except Exception:
+            # ROLLBACK: aktuelle (teilweise neue) Dateien entfernen, Backup zurueck
+            for item in backed_up:
+                target = os.path.join(BASE_DIR, item)
+                if os.path.exists(target):
+                    if os.path.isdir(target):
+                        shutil.rmtree(target, ignore_errors=True)
+                    else:
+                        try:
+                            os.unlink(target)
+                        except OSError:
+                            pass
+                try:
+                    shutil.move(os.path.join(backup_dir, item), target)
+                except OSError:
+                    pass  # Best-effort: bei kaputtem Backup, weiter
+            raise
+
     except Exception as exc:
         _msgbox(
             "Spielplan-Optimierer – Update fehlgeschlagen",
             f"Das Update konnte nicht installiert werden:\n{exc}\n\n"
-            "Das Programm startet trotzdem mit der aktuellen Version.",
+            "Das Programm startet mit der bisherigen Version.",
             _MB_OK | _MB_ICONERROR,
         )
         return False
+
     finally:
         try:
-            os.unlink(tmp_path)
+            os.unlink(tmp_zip)
         except OSError:
             pass
         try:
             shutil.rmtree(tmp_extract, ignore_errors=True)
+        except OSError:
+            pass
+        try:
+            shutil.rmtree(backup_dir, ignore_errors=True)
         except OSError:
             pass
 
@@ -163,24 +226,54 @@ def _wait_for_server(timeout: int = 45) -> bool:
     return False
 
 
+def _start_streamlit_server() -> Optional[subprocess.Popen]:
+    """Startet den Streamlit-Subprocess; gibt das Process-Objekt zurueck."""
+    CREATE_NO_WINDOW = 0x08000000
+    return subprocess.Popen(
+        [
+            PYTHON_EXE,
+            "-m", "streamlit", "run", APP_PY,
+            "--server.headless=true",
+            "--browser.gatherUsageStats=false",
+            f"--server.port={PORT}",
+        ],
+        creationflags=CREATE_NO_WINDOW,
+        cwd=BASE_DIR,
+    )
+
+
 def main():
-    updated = False
+    """Launcher-Hauptfunktion mit Background-Update-Check (F-L2).
 
-    # 1. Update pruefen (max. 5 Sekunden, Fehler werden ignoriert)
-    new_version, dl_url = _check_update()
-    if new_version:
-        result = _msgbox(
-            "Spielplan-Optimierer – Update verfuegbar",
-            f"Version {new_version} ist auf GitHub verfuegbar.\n\n"
-            "Jetzt aktualisieren? (Empfohlen)\n\n"
-            "Das Programm startet danach automatisch.",
-            _MB_YESNO | _MB_ICONINFO,
-        )
-        if result == _IDYES:
-            updated = _apply_update(dl_url, new_version)
+    Reihenfolge:
+      1. Update-Check in Background-Thread starten (blockiert NICHT den App-Start)
+      2. Bestehender Server vorhanden? Wenn ja: Browser oeffnen und fertig
+         (Update-Check laeuft fuer den naechsten Start)
+      3. Sonst: Server starten, Update-Check parallel
+      4. Server-Ready abwarten
+      5. Wenn waehrend Server-Start ein Update gefunden wurde: Dialog,
+         ggf. Server stoppen + Update + neu starten
+      6. Browser oeffnen
+    """
+    update_result: dict = {}
+    update_done = threading.Event()
 
-    # 2. Schon laufenden Server nutzen – aber NICHT nach einem Update (CR4-L5)
-    if not updated and _server_ready():
+    def _bg_check():
+        try:
+            ver, url = _check_update()
+            if ver:
+                update_result['version'] = ver
+                update_result['url'] = url
+        finally:
+            update_done.set()
+
+    # 1. Update-Check im Background (max. 5s timeout im _check_update)
+    threading.Thread(target=_bg_check, daemon=True).start()
+
+    # 2. Wenn Server schon laeuft: einfach Browser oeffnen.
+    # Update wird beim naechsten Neustart angeboten (Update-Check laeuft trotzdem
+    # weiter im Background, aber wir warten nicht darauf).
+    if _server_ready():
         webbrowser.open(f"http://localhost:{PORT}")
         return
 
@@ -194,21 +287,44 @@ def main():
         )
         return
 
-    # 4. Streamlit-Server im Hintergrund starten (kein Fenster)
-    CREATE_NO_WINDOW = 0x08000000
-    subprocess.Popen(
-        [
-            PYTHON_EXE,
-            "-m", "streamlit", "run", APP_PY,
-            "--server.headless=true",
-            "--browser.gatherUsageStats=false",
-            f"--server.port={PORT}",
-        ],
-        creationflags=CREATE_NO_WINDOW,
-        cwd=BASE_DIR,
-    )
+    # 4. Streamlit-Server SOFORT starten - parallel zum Update-Check
+    server_proc = _start_streamlit_server()
 
-    # 5. Warten bis Server bereit, dann Browser oeffnen
+    # 5. Auf Update-Check warten (max 5s — _check_update hat eigenes Timeout).
+    # Falls Update gefunden → vor Server-Bereit-Wait fragen, damit der Nutzer
+    # keinen unnoetigen Browser-Tab oeffnet.
+    update_done.wait(timeout=5)
+
+    if update_result.get('version'):
+        new_version = update_result['version']
+        dl_url      = update_result['url']
+        result = _msgbox(
+            "Spielplan-Optimierer – Update verfuegbar",
+            f"Version {new_version} ist auf GitHub verfuegbar.\n\n"
+            "Jetzt aktualisieren? (Empfohlen)\n\n"
+            "Das Programm wird kurz beendet und neu gestartet.",
+            _MB_YESNO | _MB_ICONINFO,
+        )
+        if result == _IDYES:
+            # Server beenden, Update anwenden, neu starten
+            try:
+                server_proc.terminate()
+                try:
+                    server_proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    server_proc.kill()
+            except Exception:
+                pass
+            # Kurz warten, damit Port freigegeben wird
+            time.sleep(1)
+            if _apply_update(dl_url, new_version):
+                server_proc = _start_streamlit_server()
+            # Bei Update-Fail laeuft die App mit der alten Version weiter
+            # → neuen Server starten
+            else:
+                server_proc = _start_streamlit_server()
+
+    # 6. Warten bis Server bereit, dann Browser oeffnen
     if _wait_for_server(timeout=60):
         webbrowser.open(f"http://localhost:{PORT}")
     else:

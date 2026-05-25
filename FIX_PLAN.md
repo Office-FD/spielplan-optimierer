@@ -100,9 +100,9 @@
 - [x] **E-L7** · Excel-Regen nur bei geänderten Spielzeiten
 
 ### Distribution
-- [ ] **F-M1** · Atomarer `_apply_update` mit Backup/Rollback (großer Refactor — zurückgestellt)
+- [x] **F-M1** · Atomarer `_apply_update` mit Backup/Rollback in `launcher.py` (v1.6.1)
 - [x] **F-L1** · `_parse_version` für non-numeric Tag-Suffixe (pre-release split)
-- [ ] **F-L2** · Update-Check in Background-Thread (größerer Refactor — zurückgestellt)
+- [x] **F-L2** · Update-Check in Background-Thread, Server-Start parallel (v1.6.1)
 - [x] **F-L3** · `Spielplaene/` aus `[UninstallDelete]` ausnehmen (explizite Dateilisten)
 - [x] **F-L4** · `spielplan.iss` MyAppVersion-Default auf 1.4.0
 - [x] **F-L5** · `build_release.py` Mindest-Dateianzahl prüfen (10)
@@ -167,6 +167,7 @@
 | 4 | 5 | 5 | **Erledigt (v1.4.0)** |
 | 5 | 45 | 39 | **Erledigt (v1.4.1) — 6 Refactor-Items zurückgestellt** |
 | R1 | 4 | 4 | **Erledigt (v1.6.0) — B-L4, G-L1, G-L2, G-L3** |
-| **Σ** | **70** | **64** | |
+| R2 | 2 | 2 | **Erledigt (v1.6.1) — F-M1, F-L2** |
+| **Σ** | **72** | **66** | |
 
 (Σ < 70 weil einige Niedrig-Befunde zusammengefasst sind.)
