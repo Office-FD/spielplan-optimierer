@@ -47,7 +47,7 @@
 - Finale Gap-Kennzahl in der Ergebnis-Übersicht
 - Über mehrere Optimierungs-Läufe Vergleichswerte sammeln (CSV-Export)
 
-**Status:** Offen — nach Pfad A
+**Status:** Erledigt in v1.11.0 — `LeagueResult` erweitert um gap_history + best_bound + final_gap; `_ProgressCallback` zeichnet auf; UI-Section mit Metriken + Live-Chart + CSV-Export.
 
 ### B2 · Doku-Update v1.8.x
 **Wichtigkeit:** Mittel — Endnutzer sollten neue Features finden

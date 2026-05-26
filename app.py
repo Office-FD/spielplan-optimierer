@@ -4621,6 +4621,102 @@ def _show_results():
                 _st_calendar(events=_events, options=_opts,
                               key='spielplan_calendar')
 
+    # ── Solver-Telemetrie / Gap-Monitoring (B1, v1.11.0) ────────────────────
+    _valid_res_for_telem = [(lid, res) for lid, res in S.results.items()
+                             if res is not None
+                             and (res.best_bound is not None or res.gap_history)]
+    if _valid_res_for_telem:
+        st.subheader('📊 Solver-Telemetrie')
+        st.caption(
+            'Optimierungslücke (Gap) zwischen erreichter Lösung und LP-Bound '
+            'des Solvers. Niedrige Gap-Werte = nah am theoretischen Optimum. '
+            'Die Werte stammen aus Phase 2 (gemeinsamer Lauf aller Ligen) bzw. '
+            'Phase 1 (Einzelliga-Lauf, falls Phase 2 fehlgeschlagen).'
+        )
+
+        # Aggregat-Metriken (Phase 2 = gemeinsam, daher nur einmal anzeigen
+        # — wir nehmen die ersten Werte aus dem Dict)
+        _first_lid, _first_res = _valid_res_for_telem[0]
+        _all_same_p2 = all(
+            (r.best_bound == _first_res.best_bound and
+             r.final_gap == _first_res.final_gap)
+            for _, r in _valid_res_for_telem
+        )
+
+        if _all_same_p2 and _first_res.best_bound is not None:
+            # Phase-2-Modus: alle Ligen teilen Gap (gemeinsames Modell)
+            _m_cols = st.columns(4)
+            with _m_cols[0]:
+                st.metric('Objective',
+                          f'{_first_res.objective:.3g}')
+            with _m_cols[1]:
+                st.metric('Best Bound',
+                          f'{_first_res.best_bound:.3g}')
+            with _m_cols[2]:
+                gap_pct = (_first_res.final_gap or 0) * 100
+                st.metric('Gap', f'{gap_pct:.2f} %',
+                          help='|bound − obj| / |bound|')
+            with _m_cols[3]:
+                st.metric('Improvements',
+                          str(len(_first_res.gap_history or [])))
+        else:
+            # Phase-1-Modus: pro Liga eigene Werte
+            for lid, res in _valid_res_for_telem:
+                with st.expander(
+                    f'**{lid}** — obj={res.objective:.3g}'
+                    + (f', bound={res.best_bound:.3g}' if res.best_bound else '')
+                    + (f', gap={res.final_gap*100:.2f}%' if res.final_gap else ''),
+                    expanded=False,
+                ):
+                    _m_cols = st.columns(4)
+                    with _m_cols[0]:
+                        st.metric('Objective', f'{res.objective:.3g}')
+                    with _m_cols[1]:
+                        st.metric('Best Bound',
+                                  f'{res.best_bound:.3g}' if res.best_bound else 'n/a')
+                    with _m_cols[2]:
+                        gp = (res.final_gap or 0) * 100
+                        st.metric('Gap', f'{gp:.2f} %' if res.final_gap else 'n/a')
+                    with _m_cols[3]:
+                        st.metric('Improvements', str(len(res.gap_history or [])))
+
+        # Gap-Verlauf-Chart (Objective über Zeit)
+        _hist_data = []
+        if _all_same_p2 and _first_res.gap_history:
+            for t_sec, obj in _first_res.gap_history:
+                _hist_data.append({'Zeit (s)': t_sec, 'Objective': obj,
+                                   'Liga': 'Phase 2'})
+        else:
+            for lid, res in _valid_res_for_telem:
+                for t_sec, obj in (res.gap_history or []):
+                    _hist_data.append({'Zeit (s)': t_sec, 'Objective': obj,
+                                       'Liga': lid})
+
+        if _hist_data:
+            import pandas as _pd
+            _df_hist = _pd.DataFrame(_hist_data)
+            # Pivot fuer Multi-Liga
+            try:
+                _df_pivot = _df_hist.pivot(index='Zeit (s)',
+                                            columns='Liga', values='Objective')
+                st.line_chart(_df_pivot, height=240)
+            except (ValueError, KeyError):
+                st.line_chart(_df_hist.set_index('Zeit (s)')['Objective'],
+                              height=240)
+
+            # CSV-Download
+            _csv_bytes = _df_hist.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                '⬇ Telemetrie als CSV',
+                data=_csv_bytes,
+                file_name=f'solver_telemetrie{_result_fname_suffix()}.csv',
+                mime='text/csv',
+                key='dl_telem_csv',
+            )
+        else:
+            st.caption('Keine Improvement-History verfügbar '
+                       '(Solver hat möglicherweise sofort die Erstlösung gefunden).')
+
     # ── Kalender-Export (.ics) ────────────────────────────────────────────────
     _valid_res = [(lid, res) for lid, res in S.results.items() if res is not None]
     if _valid_res:

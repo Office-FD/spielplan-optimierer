@@ -242,6 +242,18 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
         warn('Verwende Phase-1-Ergebnisse als Fallback.')
         return phase1_results
 
+    # B1 (v1.11.0): Phase-2-Gap-Telemetrie (gemeinsam fuer alle Ligen,
+    # da Phase 2 ein gemeinsames Modell loest)
+    p2_obj = float(solver.ObjectiveValue())
+    try:
+        p2_bound = float(solver.BestObjectiveBound())
+    except Exception:
+        p2_bound = None
+    p2_gap = None
+    if p2_bound is not None and abs(p2_bound) > 1e-9:
+        p2_gap = abs(p2_bound - p2_obj) / abs(p2_bound)
+    p2_history = list(getattr(_p2_cb, 'history', []))
+
     results: Dict[str, Optional[LeagueResult]] = {}
     for lid, lv in all_lv.items():
         cfg = cfgs[lid]
@@ -254,7 +266,7 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
         results[lid] = LeagueResult(
             league_id=lid,
             status=status,
-            objective=solver.ObjectiveValue(),
+            objective=p2_obj,
             schedule=schedule,
             sw_counts=sw_counts,
             sw_rates=sw_rates,
@@ -268,6 +280,9 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
             groups=groups,
             hosts=_p1.hosts if _p1 else {},
             game_times=_p1.game_times if _p1 else {},
+            gap_history=p2_history,
+            best_bound=p2_bound,
+            final_gap=p2_gap,
         )
         _sw = sw_counts or [0]
         ok(f'  {lid}: {sum(travels)} km gesamt, '

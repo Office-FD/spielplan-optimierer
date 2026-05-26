@@ -988,6 +988,23 @@ def main():
         return f'{len(events)} Events trotz fehlendem week_start (Fallback aus KW)'
     check('build_calendar_events: KW-Fallback wenn week_start fehlt', t_events_kw_fallback)
 
+    def t_gap_telemetry_populated():
+        """B1 (v1.11.0): nach solve_league_phase1 sind gap_history+bound+gap gesetzt."""
+        assert result.gap_history is not None and len(result.gap_history) >= 1, \
+            f'gap_history leer oder None: {result.gap_history}'
+        assert result.best_bound is not None and result.best_bound > 0, \
+            f'best_bound nicht gesetzt: {result.best_bound}'
+        assert result.final_gap is not None and 0 <= result.final_gap < 1, \
+            f'final_gap unplausibel: {result.final_gap}'
+        # Jeder History-Eintrag ist (elapsed_sec, obj)
+        for t_sec, obj in result.gap_history:
+            assert isinstance(t_sec, (int, float)) and t_sec >= 0
+            assert isinstance(obj, (int, float))
+        return (f'history={len(result.gap_history)} entries, '
+                f'bound={result.best_bound:.0f}, '
+                f'gap={result.final_gap*100:.2f}%')
+    check('B1: Gap-Telemetrie nach Phase 1 vorhanden', t_gap_telemetry_populated)
+
     def t_events_multi_liga_mixed():
         """Multi-Liga: eine Liga mit Datum, andere nur mit KW -> alle Events."""
         cfg_full = make_cfg('LF', TEAMS, dist=DIST, calendar={

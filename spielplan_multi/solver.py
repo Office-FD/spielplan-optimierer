@@ -826,6 +826,8 @@ class _ProgressCallback(cp_model.CpSolverSolutionCallback):
         self._seed  = seed
         self._best  = None
         self._count = 0
+        # B1 (v1.11.0): Gap-History — (elapsed_sec, obj) bei jedem [BEST]
+        self.history: List[Tuple[float, float]] = []
 
     def on_solution_callback(self):
         self._count += 1
@@ -836,6 +838,7 @@ class _ProgressCallback(cp_model.CpSolverSolutionCallback):
         if self._best is not None and abs(self._best) > 0:
             delta = f'  d{(obj - self._best) / abs(self._best) * 100:+.1f}%'
         self._best = obj
+        self.history.append((elapsed, float(obj)))
         seed_tag = f'#s{self._seed}' if self._seed is not None else ''
         sys.stdout.write(
             f'[BEST] {self._lid}{seed_tag}  obj={obj:.0f}  t={mins:02d}:{secs:02d}{delta}'
@@ -890,10 +893,20 @@ def solve_league_phase1(cfg: LeagueConfig,
     home_vals, h_vals, x_vals   = extract_hints(solver, lv)
     groups              = extract_groups(schedule, cfg)
 
+    # B1 (v1.11.0): Gap-Telemetrie
+    obj_val = float(solver.ObjectiveValue())
+    try:
+        bound = float(solver.BestObjectiveBound())
+    except Exception:
+        bound = None
+    gap = None
+    if bound is not None and abs(bound) > 1e-9:
+        gap = abs(bound - obj_val) / abs(bound)
+
     return LeagueResult(
         league_id=cfg.league_id,
         status=status,
-        objective=solver.ObjectiveValue(),
+        objective=obj_val,
         schedule=schedule,
         sw_counts=sw_counts,
         sw_rates=sw_rates,
@@ -904,4 +917,7 @@ def solve_league_phase1(cfg: LeagueConfig,
         x_vals=x_vals,
         cfg=cfg,
         groups=groups,
+        gap_history=list(callback.history),
+        best_bound=bound,
+        final_gap=gap,
     )

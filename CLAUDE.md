@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.10.1 · Stand Mai 2026 · Status: Roadmap-Pfad A vollständig + Hotfix für Multi-Liga-Kalender — A1 (Karten-Visualisierung) + A2 (Kalenderansicht) implementiert. Kalender zeigt jetzt auch Ligen ohne explizites `week_start`-Datum (Fallback aus KW + Saison-Jahr). 9 Dependabot-Updates gemerged. Roadmap weiter mit Pfad B (B1 Gap-Monitoring, B2 Doku-Update, B3 Real-World-Verifikation).**
+> **Version 1.11.0 · Stand Mai 2026 · Status: Sprint B1 abgeschlossen — Gap-Monitoring / Solver-Telemetrie in der Ergebnisansicht (Objective, Best Bound, Gap %, # Improvements, Live-Chart, CSV-Export). Roadmap-Pfad A komplett (A1+A2), Pfad B weiter mit B2 (Doku-Update) und B3 (Real-World-Verifikation).**
 
 ---
 
@@ -629,6 +629,22 @@ Zweites User-sichtbares Feature aus Roadmap-Pfad A. Ergänzt Excel-Export um int
 **Verifikation:** 64/64 Tests grün. UI-Sichtprüfung im Browser empfohlen (Monats-/Wochen-/Listenansicht, Klick auf Event zeigt Details).
 
 **Hotfix v1.10.0 → v1.10.1 – Multi-Liga-Kalender:** Bei Multi-Liga-Optimierungen werden Ligen ohne explizites `week_start`-Datum nicht mehr stillschweigend ausgelassen. `build_calendar_events` erhält neuen `season_year`-Parameter mit Auto-Erkennung via `_guess_season_year()` (erstes vorhandenes Datum mit KW-Saison-Logik). Fehlt `week_start`, aber `kw` ist gesetzt, wird das Datum aus `date.fromisocalendar(yr, kw, 6)` (Samstag) berechnet. Behebt das Problem dass nur die erste Liga im Kalender erschien, wenn der Rahmenterminplan-Import oder die manuelle Cal-Table-Eingabe nur für eine Liga Daten gesetzt hat. Tests +2: `t_events_kw_fallback`, `t_events_multi_liga_mixed`.
+
+**Sprint B1 — Gap-Monitoring / Solver-Telemetrie (v1.10.1 → v1.11.0):**
+
+Erstes Feature aus Roadmap-Pfad B. Macht die Wirksamkeit der F1-Hebel (H1/H3/H2 — symmetry_level=2, Switch-Term-Obergrenze, Hint-Boost) in der UI sichtbar und exportierbar für Vorher/Nachher-Vergleiche.
+
+| Datei | Inhalt |
+|---|---|
+| `spielplan_multi/league_types.py` | `LeagueResult` erweitert um `gap_history: List[Tuple[float, float]]`, `best_bound: Optional[float]`, `final_gap: Optional[float]`. |
+| `spielplan_multi/solver.py` | `_ProgressCallback` speichert jetzt `self.history` (Tupel `(elapsed_sec, obj)`) bei jedem `on_solution_callback`. `solve_league_phase1` schreibt `gap_history`, `best_bound = solver.BestObjectiveBound()` und `final_gap = |bound - obj| / |bound|` in das `LeagueResult`. |
+| `spielplan_multi/multi_solver.py` | Analoge Felder in Phase-2-`LeagueResult`-Objekten — alle Ligen teilen die gleichen Phase-2-Werte (gemeinsames Modell). |
+| `app.py` | Neue Section „📊 Solver-Telemetrie" in der Ergebnisansicht. Phase-2-Modus: 4 Metriken (Objective, Bound, Gap %, # Improvements). Phase-1-Modus: pro Liga ein Expander mit Metriken. Live-Chart der Objective-Verläufe via `st.line_chart` (Pivot-Format wenn mehrere Ligen). CSV-Download aller Telemetrie-Werte für externe Auswertung. |
+| `test_features.py` | +1 Test: `t_gap_telemetry_populated` prüft `gap_history`, `best_bound` und `final_gap` sind nach Phase-1-Lauf sauber gefüllt. |
+
+**Verifikation:** 67/67 Tests grün.
+
+**Nutzung:** Nach jeder Optimierung ist der finale Gap-Wert + die Verlaufskurve sichtbar. Der CSV-Export hat die Spalten `Zeit (s)`, `Objective`, `Liga` und eignet sich für externe Vergleiche zwischen Solver-Versionen.
 
 ---
 
