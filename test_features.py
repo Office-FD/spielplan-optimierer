@@ -801,6 +801,73 @@ def main():
         return 'Nicht-existente Datei -> None'
     check('preview_columns: fehlende Datei -> None', t_preview_columns_nonexistent)
 
+    # ── Feature 9: Karten-Visualisierung (A1, v1.9.0) ────────────────────────
+    print('\n--- Feature 9: Karten-Visualisierung (geocode + map_output) ---')
+
+    from spielplan_multi.geocode import _normalize, _load_cache, _save_cache
+    from spielplan_multi.map_output import build_route_map
+
+    def t_geocode_normalize():
+        assert _normalize('  Berlin  ') == 'berlin'
+        assert _normalize('Hamburg   Hbf') == 'hamburg hbf'
+        assert _normalize('KÖLN') == 'köln'
+        return 'Trim + lowercase + whitespace-collapse'
+    check('geocode._normalize: trimmt + lowercase', t_geocode_normalize)
+
+    def t_geocode_cache_roundtrip():
+        """Cache write+read mit Tuples roundtrip."""
+        import tempfile, os
+        from spielplan_multi import geocode
+        with tempfile.TemporaryDirectory() as tmpdir:
+            old_cache = geocode._CACHE_FILE
+            geocode._CACHE_FILE = type(old_cache)(os.path.join(tmpdir, 'gc.json'))
+            try:
+                data = {'addr1': (52.5, 13.4), 'addr2': None, 'addr3': (50.0, 10.0)}
+                _save_cache(data)
+                read_back = _load_cache()
+                assert read_back == data, f'Cache roundtrip: {read_back}'
+                return f'{len(data)} Eintraege roundtripped'
+            finally:
+                geocode._CACHE_FILE = old_cache
+    check('geocode._load_cache/_save_cache: Roundtrip', t_geocode_cache_roundtrip)
+
+    def t_map_empty():
+        """build_route_map mit leeren results -> Karte ohne Marker."""
+        import folium
+        m = build_route_map({}, {})
+        assert isinstance(m, folium.Map), 'kein folium.Map zurueck'
+        return 'Leeres Dict -> leere Karte ohne Crash'
+    check('build_route_map: leeres results', t_map_empty)
+
+    def t_map_single_liga():
+        """build_route_map mit einer Liga + 2 Koordinaten -> Marker + Linien."""
+        import folium
+        # Reusing 'result' (TEST-Liga, 4 Teams)
+        fake_geocodes = {
+            'Alpha': (52.5, 13.4),    # Berlin
+            'Beta':  (53.5, 10.0),    # Hamburg
+            'Gamma': (50.9, 6.9),     # Köln
+            'Delta': (48.1, 11.6),    # München
+        }
+        m = build_route_map({'TEST': result}, fake_geocodes)
+        assert isinstance(m, folium.Map)
+        # Karte als HTML rendern und Marker zaehlen (CircleMarker -> 'circle')
+        html = m._repr_html_()
+        # 4 CircleMarker fuer 4 Teams
+        n_circles = html.count('circleMarker')
+        assert n_circles >= 4, f'erwartet >= 4 CircleMarker, got {n_circles}'
+        return f'4 Standorte -> {n_circles} CircleMarker im HTML'
+    check('build_route_map: Single-Liga mit Markern', t_map_single_liga)
+
+    def t_map_missing_coords():
+        """Wenn fuer ein Team keine Koordinate vorhanden ist, kein Crash."""
+        import folium
+        fake_geocodes = {'Alpha': (52.5, 13.4)}  # Nur 1/4
+        m = build_route_map({'TEST': result}, fake_geocodes)
+        assert isinstance(m, folium.Map)
+        return 'Teil-Geocodes -> kein Crash'
+    check('build_route_map: fehlende Koordinaten ueberspringen', t_map_missing_coords)
+
     _summarize()
 
 

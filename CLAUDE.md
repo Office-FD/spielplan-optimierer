@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.8.1 · Stand Mai 2026 · Status: Solver-Optimierungs-Sprint F1 vollständig abgeschlossen — H1+H3 in v1.8.0, H2 (Phase-1→Phase-2 Hint-Boost) in v1.8.1. Erwartete Gap-Reduktion kombiniert ~25%. Test-Coverage 77.5%. Künftige Arbeit: Feature-Wünsche aus BACKLOG.md.**
+> **Version 1.9.0 · Stand Mai 2026 · Status: Sprint A1 abgeschlossen — Karten-Visualisierung der Reiserouten (folium + streamlit-folium + Nominatim-Geocoding). Roadmap-Pfad A weiter mit A2 (Kalenderansicht); danach Pfad B (Gap-Monitoring, Doku, Real-World-Verifikation). Siehe ROADMAP.md.**
 
 ---
 
@@ -580,6 +580,20 @@ Phase-1→Phase-2 Hint-Boost. Aktuell waren laut BACKLOG-Beobachtung nur ~17% de
 **Erwartete Wirkung:** 15-17% zusätzliche Gap-Reduktion. Schnellere erste gute Lösung in Phase 2 → mehr Solver-Zeit verbleibt für Bound-Beweis. Kombiniert mit H1+H3 erwartet ~25% Reduktion.
 
 **Verifikation:** 62/62 Tests grün. Multi-Liga-Test (test_all #8) durchläuft Phase 1+2+3 und triggert `set_hints` — keine Regression.
+
+**Sprint A1 — Karten-Visualisierung Reiserouten (v1.8.1 → v1.9.0):**
+
+Erstes User-sichtbares Feature aus Roadmap-Pfad A. Spielplan-Reviewer können lange Reisetage und Ausreißer auf einer interaktiven Karte erkennen.
+
+| Datei | Inhalt |
+|---|---|
+| `requirements.txt` | +`folium>=0.18`, +`streamlit-folium>=0.21` |
+| `spielplan_multi/geocode.py` (neu) | Adress-Geocoding via OpenStreetMap Nominatim mit lokalem JSON-Cache (`.cache/geocodes.json`). Rate-Limit 1.1s, Cache-First (zweiter Lauf instant). Identitäts-Map Output: `{addr: (lat, lon)│None}`. |
+| `spielplan_multi/map_output.py` (neu) | `build_route_map(results, geocodes, dist_matrices=None)`: Folium-Map mit Liga-LayerGroups, `CircleMarker` pro Team-Standort (Team-Farbe wie Excel-Heatmap), `PolyLine` pro Paarung (Dicke = Anzahl Begegnungen), Tooltip mit km + Spieltagen. Auto-Fit auf Koordinaten-Bounding-Box. |
+| `app.py` | Neue Section „🗺 Karten-Visualisierung" in Ergebnisansicht (Schritt 8, vor Kalender-Export). Lazy-Loading: erst auf Klick „Karte erstellen / aktualisieren" wird Geocoding gestartet (Progress-Bar). Cache-Key aus Liga-Spielzahlen erkennt Änderungen → automatischer Neubau. `S.map_obj` + `S.map_lid_keys` als Session-State. |
+| `test_features.py` | +5 Tests (Feature 9): `_normalize` (trim+lowercase+whitespace-collapse), `_load/_save_cache`-Roundtrip mit Tuples/None, `build_route_map` leeres Dict / Single-Liga / fehlende Koordinaten. |
+
+**Verifikation:** 57/57 Tests grün (test_features), Smoke + Distances ebenfalls grün. Manuell in Browser noch zu testen: tatsächliche Map-Anzeige in Schritt 8.
 
 ---
 

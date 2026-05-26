@@ -76,7 +76,7 @@ Spielplan nach der Optimierung als klickbaren Monatskalender direkt in der App a
 **Aufwand:** Groß
 **Beschreibung:**
 Reiserouten pro Spieltag auf einer interaktiven Karte einblenden (Folium oder Leaflet via streamlit-folium). Standorte der Teams als Pins, Verbindungen zeigen welches Team wohin reist. Kann helfen Ausreißer-Spieltage mit ungewöhnlich langen Wegen zu identifizieren.
-**Status:** Offen
+**Status:** Erledigt – in v1.9.0 implementiert (`spielplan_multi/geocode.py` + `spielplan_multi/map_output.py`). Folium-Map mit Liga-LayerGroups, CircleMarker pro Team-Standort und PolyLines pro Paarung (Dicke = Anzahl Begegnungen). Geocoding via OSM Nominatim mit Cache.
 
 ---
 
