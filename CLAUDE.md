@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.12.0 · Stand Mai 2026 · Status: UX-Variante-B (lesbare Solver-Live-Anzeige) — neuer „📈 Was gerade passiert"-Block parst [BEST]-Zeilen und übersetzt sie ins Deutsche („1. FBL Herren – Verbesserung Nr. 25: +1,3 % besser · Bewertung 127,69 Mio · Lauf-Zeit 14:44"). Bisheriger Roh-Log bleibt im Expander erreichbar. Plus Erklärungs-Expander „Was bedeuten die Werte?". Roadmap-Pfad A+B komplett, B3 = post-F1-Lauf weiter offen.**
+> **Version 1.12.1 · Stand Mai 2026 · Status: Hotfix — sa_refine.refine_schedule() schreibt Telemetrie-Felder (gap_history, best_bound, final_gap) jetzt aus dem Input-Result durch. Bisher überschrieb SA die Werte mit Defaults → in JSON-Sitzungen war die Telemetrie weg, wenn SA-Refine aktiv war. Roadmap-Pfad A+B komplett, B3 = post-F1-Lauf weiter offen (User-Action).**
 
 ---
 
@@ -683,6 +683,16 @@ User-Feedback: „die Zahlen sind abstrakt, ohne Kontext hat man dazu keinen Bez
 | `app.py` (Live-Anzeige) | Neue Section „📈 Was gerade passiert" zeigt letzte 12 Übersetzungen, neuestes oben. Roh-Log wandert in Expander „🔍 Vollständiges Solver-Log (technisch)". Plus „📖 Was bedeuten die Werte?"-Expander mit Legende. |
 
 **Verifikation:** 67/67 Tests grün, manuell mit 5 realen `[BEST]`-Zeilen getestet (inkl. Multi-Wort-Liga-Namen und Phase-2-`P2`-Marker).
+
+**Hotfix v1.12.0 → v1.12.1 — SA-Refine reicht Telemetrie durch:**
+
+Beim 8h-Verifikations-Lauf vom 26.05.2026 wurde im JSON-Export beobachtet: `best_bound`, `final_gap` und `gap_history` waren `None` bzw. leer, obwohl Schema 1.1 die Felder vorgesehen hatte und Phase 1+2 die Werte korrekt geliefert haben. Ursache: `sa_refine.refine_schedule()` (Z. 343-361) baut ein neues `LeagueResult` zurück und übergab dabei die 3 neuen Telemetrie-Felder nicht — Default-Werte (leer/None) überschrieben die Werte aus Phase 2.
+
+| Datei | Fix |
+|---|---|
+| `spielplan_multi/sa_refine.py` | Im Final-`LeagueResult` werden `gap_history=list(result.gap_history or [])`, `best_bound=result.best_bound`, `final_gap=result.final_gap` durchgereicht. Damit überleben die Phase-2-Telemetrie-Werte den SA-Pass (SA optimiert nur Heimrecht-Tauschmöglichkeiten, ohne eigenen LP-Bound — daher kann die Phase-2-Berechnung als Approximation des verbleibenden Optimierungs-Gaps stehen bleiben). |
+
+**Bekannte Einschränkung:** Da SA die `objective` aktualisiert (km-Reduktion), ist die direkte Gap-Berechnung `|bound - SA-objective| / |bound|` nur eine Annäherung. Der `best_bound` stammt aus dem Phase-2-Modell vor SA. Für striktere Auswertung müsste man `phase2_objective` separat speichern (Future-Item).
 
 ---
 

@@ -358,4 +358,9 @@ def refine_schedule(result: LeagueResult,
         groups=result.groups,
         hosts=result.hosts,
         game_times=result.game_times,
+        # B1/Bonus-4 Hotfix (v1.12.1): Telemetrie-Felder aus Phase 1/2 durchreichen,
+        # damit sie nach SA-Refine nicht auf Defaults zurueckspringen.
+        gap_history=list(result.gap_history or []),
+        best_bound=result.best_bound,
+        final_gap=result.final_gap,
     )
