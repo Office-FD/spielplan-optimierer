@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.11.3 · Stand Mai 2026 · Status: Sprint B-Bonus + pre-F1-Daten archiviert — JSON-Sitzungs-Schema 1.1 mit Telemetrie-Persistenz; pre-F1-Referenzdaten aus dem 8h-Lauf vom 23.05.2026 in `Spielplaene/telemetrie/` als CSV + Summary archiviert. Roadmap-Pfad A komplett, Pfad B fast komplett (nur B3 = post-F1-Lauf bei nächster Saison offen).**
+> **Version 1.12.0 · Stand Mai 2026 · Status: UX-Variante-B (lesbare Solver-Live-Anzeige) — neuer „📈 Was gerade passiert"-Block parst [BEST]-Zeilen und übersetzt sie ins Deutsche („1. FBL Herren – Verbesserung Nr. 25: +1,3 % besser · Bewertung 127,69 Mio · Lauf-Zeit 14:44"). Bisheriger Roh-Log bleibt im Expander erreichbar. Plus Erklärungs-Expander „Was bedeuten die Werte?". Roadmap-Pfad A+B komplett, B3 = post-F1-Lauf weiter offen.**
 
 ---
 
@@ -672,6 +672,17 @@ User-Wunsch nach Bonus-Option 4: JSON-Sitzungs-Format um Telemetrie-Felder erwei
 | `Spielplaene/telemetrie/pre_F1_2026-05-23_8h_summary.md` (neu, gitignored) | Markdown-Zusammenfassung: Solver-Parameter, Endkennzahlen, Verlauf-Highlights. Erwartetes post-F1-Ziel: Gap 14–16 % bei gleicher Laufzeit. |
 
 **Verifikation:** 67/67 Tests grün, Ruff clean. Backward-compat des JSON-Loaders manuell verifiziert (alte `version=1.0`-Files erhalten Default-Felder ohne Crash).
+
+**Sprint UX-VarianteB v1.11.3 → v1.12.0 — Solver-Log lesbar machen:**
+
+User-Feedback: „die Zahlen sind abstrakt, ohne Kontext hat man dazu keinen Bezug". Lösung: Live-Übersetzung der `[BEST]`-Solver-Output-Zeilen ins Deutsche, parallel zum technischen Roh-Log.
+
+| Datei | Inhalt |
+|---|---|
+| `app.py` (`_BEST_LINE_RE` + `_translate_solver_log`) | Neue Regex parst die `[BEST] <Liga>#s<seed>  obj=<n>  t=<mm:ss>  d±<x>%  (#count)`-Zeilen und gibt Listen verständlicher Sätze zurück. Liga-Namen mit Leerzeichen (z. B. „1. FBL HERREN") werden korrekt erkannt durch `\s{2,}`-Trenner vor `obj=`. Liga-Anzeige-Name aus `S.leagues[lid]['name']`. Objective wird in „X,XX Mio" formatiert. Verlust- und Gewinn-Deltas separat markiert. Phase-1/2/3-Banner, `[OK]`-Status- und `[!!]`-Warnungs-Zeilen werden auch übersetzt (Häkchen / Warn-Emoji). |
+| `app.py` (Live-Anzeige) | Neue Section „📈 Was gerade passiert" zeigt letzte 12 Übersetzungen, neuestes oben. Roh-Log wandert in Expander „🔍 Vollständiges Solver-Log (technisch)". Plus „📖 Was bedeuten die Werte?"-Expander mit Legende. |
+
+**Verifikation:** 67/67 Tests grün, manuell mit 5 realen `[BEST]`-Zeilen getestet (inkl. Multi-Wort-Liga-Namen und Phase-2-`P2`-Marker).
 
 ---
 

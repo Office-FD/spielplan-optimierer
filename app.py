@@ -3514,6 +3514,97 @@ class _QueueWriter:
             self._original.flush()
 
 
+# ── Solver-Log Übersetzer für Laien-freundliche Live-Anzeige (UX Variante B) ──
+
+_BEST_LINE_RE = re.compile(
+    r'^\[BEST\]\s+(?P<liga>.+?)(?:#s(?P<seed>\d+))?\s{2,}'
+    r'obj=(?P<obj>-?\d+(?:\.\d+)?)\s+'
+    r't=(?P<t>\d{2}:\d{2})'
+    r'(?:\s+d(?P<delta>[+\-]\d+\.\d+)%)?'
+    r'(?:\s+(?P<extra>\[.*?\]))?'
+    r'\s+\(#(?P<count>\d+)\)'
+)
+
+
+def _translate_solver_log(lines: List[str], leagues: dict) -> List[str]:
+    """Übersetzt Solver-Log-Zeilen ins Deutsche.
+
+    [BEST]-Zeilen werden geparst und als verständliche Sätze formatiert.
+    Andere Zeilen (Phase-Banner, [OK], [!!]) bleiben — sie sind schon lesbar.
+    Gibt nur die übersetzten + relevanten Zeilen zurück.
+    """
+    out: List[str] = []
+    for raw in lines:
+        line = raw.rstrip()
+        if not line:
+            continue
+
+        # [BEST]-Zeilen: technisch → deutsch
+        if line.startswith('[BEST] '):
+            m = _BEST_LINE_RE.match(line)
+            if not m:
+                continue  # kann passieren bei [combined]-Erweiterungen, einfach skippen
+            liga    = m.group('liga')
+            seed    = m.group('seed') or ''
+            obj_v   = float(m.group('obj'))
+            t_str   = m.group('t')
+            delta   = m.group('delta')   # z. B. "+1.3" oder "-0.0" oder None
+            count   = int(m.group('count'))
+
+            # Liga-Anzeige-Name aus S.leagues, sonst Liga-ID
+            if liga == 'P2':
+                name = 'Phase 2 (gemeinsam alle Ligen)'
+            else:
+                name = leagues.get(liga, {}).get('name', liga)
+
+            # Objective verständlich in Millionen
+            if abs(obj_v) >= 1_000_000:
+                obj_str = f'{obj_v / 1_000_000:.2f} Mio'
+            else:
+                obj_str = f'{obj_v:,.0f}'
+
+            # Delta-Text
+            if delta is None or delta in ('+0.0', '-0.0'):
+                delta_str = '(quasi gleich)'
+            elif delta.startswith('+'):
+                delta_str = f'**{delta}&thinsp;%** besser'
+            else:
+                delta_str = f'**{delta}&thinsp;%** (schlechter, wird verworfen)'
+
+            seed_str = f' [Seed {seed}]' if seed else ''
+            out.append(
+                f'🟢 **{name}**{seed_str} – Verbesserung Nr. {count}: '
+                f'{delta_str} · Bewertung {obj_str} · Lauf-Zeit {t_str}'
+            )
+
+        # Phase-Banner
+        elif 'PHASE 1' in line and '===' in line:
+            out.append('━━━ ▶ **Phase 1 startet** — pro Liga Spielplan erstellen ━━━')
+        elif 'PHASE 2' in line and '===' in line:
+            out.append('━━━ ▶ **Phase 2 startet** — Ligen aufeinander abstimmen ━━━')
+        elif 'PHASE 3' in line and '===' in line:
+            out.append('━━━ ▶ **Phase 3 startet** — Feinabstimmung (SA) ━━━')
+        # [OK]-Status-Zeilen
+        elif line.startswith('  [OK]'):
+            # "  [OK]    1. FBL HERREN: FEASIBLE  obj=127690450  t=15:00"
+            txt = line.replace('  [OK]', '✅').strip()
+            txt = txt.replace('FEASIBLE', 'Lösung gefunden')
+            txt = txt.replace('OPTIMAL', 'optimale Lösung gefunden')
+            out.append(txt)
+        # [!!]-Warnungen
+        elif line.startswith('  [!!]'):
+            txt = line.replace('  [!!]', '⚠').strip()
+            out.append(txt)
+        # SOLVER GESTARTET-Marker
+        elif 'SOLVER GESTARTET' in line:
+            phase = 'Phase 2' if 'PHASE 2' in line else 'Phase 1'
+            out.append(f'🚀 Solver startet ({phase}) — neue Lösungen werden hier live angezeigt')
+        # Zeitlimit-Info
+        elif line.lstrip().startswith('[..]') and 'Zeitlimit' in line:
+            out.append(f'⏱ {line.strip()[5:]}')
+    return out
+
+
 def _build_league_configs() -> Dict[str, LeagueConfig]:
     """Baut LeagueConfig-Objekte aus dem GUI-State."""
     # cal_table → spieltage_per_liga (inkl. Datum wenn vorhanden)
@@ -3812,7 +3903,29 @@ def _step8():
                             value=f'{_bst["obj"]:,.0f}',
                             help=f't={_bst["elapsed"]}  |  #{_bst["count"]} Lösung(en)',
                         )
-            st.code('\n'.join(S.opt_log[-80:]), language=None)
+            # UX Variante B: Laien-freundliche Live-Übersicht über dem Roh-Log
+            _readable = _translate_solver_log(S.opt_log, S.leagues)
+            if _readable:
+                st.markdown('#### 📈 Was gerade passiert (Übersetzung)')
+                # Letzte 12 Übersetzungen, neuestes oben (rückwärts)
+                _recent = _readable[-12:][::-1]
+                _block = '\n\n'.join(_recent)
+                st.markdown(_block, unsafe_allow_html=True)
+                with st.expander('📖 Was bedeuten die Werte?', expanded=False):
+                    st.markdown(
+                        '- **Verbesserung Nr. N** — N-te bessere Lösung in diesem Lauf\n'
+                        '- **X % besser** — die neue Lösung ist X % wertvoller als die vorige\n'
+                        '- **Bewertung** — gewichtete Summe aus Wechseln, km, Fairness und Co-Home '
+                        '(höher = besser; absolute Zahl nur intern relevant, nicht zwischen Ligen vergleichbar)\n'
+                        '- **Lauf-Zeit** — Wandzeit seit Start der jeweiligen Phase\n'
+                        '- **Phase 1** = pro Liga den Spielplan erstellen (heimrecht-optimiert)\n'
+                        '- **Phase 2** = Ligen gemeinsam an die Kalenderwochen verteilen\n'
+                        '- **Phase 3** = Feinabstimmung der Heimspiel-Tauschmöglichkeiten (SA)\n'
+                    )
+
+            # Roh-Log (für Debugging / Details) bleibt darunter
+            with st.expander('🔍 Vollständiges Solver-Log (technisch)', expanded=False):
+                st.code('\n'.join(S.opt_log[-80:]), language=None)
             st.divider()
             if st.button('⏹  OPTIMIERUNG ABBRECHEN', type='primary', width='stretch',
                          help='Bricht die laufende Berechnung ab. '
