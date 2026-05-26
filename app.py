@@ -3249,10 +3249,17 @@ def _session_to_json() -> bytes:
                 'hosts': {
                     str(d): host for d, host in (res.hosts or {}).items()
                 },
+                # B1/Bonus-4 (v1.11.3): Solver-Telemetrie mitsichern
+                'objective':   float(res.objective) if res.objective is not None else None,
+                'best_bound':  float(res.best_bound) if res.best_bound is not None else None,
+                'final_gap':   float(res.final_gap)  if res.final_gap  is not None else None,
+                'gap_history': [[float(t), float(o)] for t, o in (res.gap_history or [])],
+                'mins':        int(res.mins or 0),
+                'secs':        int(res.secs or 0),
             }
 
     data = {
-        'version': '1.0',
+        'version': '1.1',  # v1.1: Telemetrie-Felder (gap_history, best_bound, final_gap) ergänzt
         'config': {
             'league_order': S.league_order,
             'leagues':      S.leagues,
@@ -3389,16 +3396,24 @@ def _session_from_json(raw: bytes) -> str:
                 if _ai >= 0:
                     _home_vals[(_ai, _d)] = 0
 
+        # B1/Bonus-4 (v1.11.3): Telemetrie-Felder aus JSON laden (falls vorhanden)
+        _telem_obj   = res_data.get('objective')
+        _telem_bound = res_data.get('best_bound')
+        _telem_gap   = res_data.get('final_gap')
+        _telem_hist  = [(float(t), float(o)) for t, o in res_data.get('gap_history', [])]
+        _telem_mins  = int(res_data.get('mins', 0) or 0)
+        _telem_secs  = int(res_data.get('secs', 0) or 0)
+
         result = LeagueResult(
             league_id=lid,
             status=_cp.FEASIBLE,
-            objective=0.0,
+            objective=float(_telem_obj) if _telem_obj is not None else 0.0,
             schedule=schedule,
             sw_counts=[],
             sw_rates=[],
             travels=[],
-            mins=0,
-            secs=0,
+            mins=_telem_mins,
+            secs=_telem_secs,
             home_vals=_home_vals,
             h_vals={},
             x_vals={},
@@ -3406,6 +3421,9 @@ def _session_from_json(raw: bytes) -> str:
             groups=groups,
             hosts=hosts,
             game_times=game_times,
+            gap_history=_telem_hist,
+            best_bound=float(_telem_bound) if _telem_bound is not None else None,
+            final_gap=float(_telem_gap) if _telem_gap is not None else None,
         )
         try:
             travels, sw_counts, sw_rates = _recompute_result_stats_fn(result, cfg)

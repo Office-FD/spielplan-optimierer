@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.11.2 · Stand Mai 2026 · Status: Sprint B2 abgeschlossen — Endnutzer-Doku auf v1.11-Stand: Karten-Visualisierung, Kalenderansicht, Solver-Telemetrie und neue Gewichte (round_balance, dst_eff) im BENUTZERHANDBUCH.md erklärt. Schritt-Nummerierung auf UI-1-basiert angeglichen. README + INSTALLATION aktualisiert. Roadmap-Pfad A komplett (A1+A2), Pfad B weiter mit B3 (Real-World-Verifikation, User-Action).**
+> **Version 1.11.3 · Stand Mai 2026 · Status: Sprint B-Bonus + pre-F1-Daten archiviert — JSON-Sitzungs-Schema 1.1 mit Telemetrie-Persistenz; pre-F1-Referenzdaten aus dem 8h-Lauf vom 23.05.2026 in `Spielplaene/telemetrie/` als CSV + Summary archiviert. Roadmap-Pfad A komplett, Pfad B fast komplett (nur B3 = post-F1-Lauf bei nächster Saison offen).**
 
 ---
 
@@ -659,6 +659,19 @@ Zweites Feature aus Roadmap-Pfad B. Bringt das Benutzerhandbuch auf v1.11-Stand.
 | `README.md` | Feature-Liste ergänzt: Karten-Visualisierung, Kalenderansicht, Solver-Telemetrie, Hallenbelegungsplan, Gesamtübersicht. |
 
 **Verifikation:** Markdown-Konsistenz (Schritt-Refs alle aktualisiert), Tests bleiben grün (keine Code-Änderungen).
+
+**Sprint B-Bonus v1.11.2 → v1.11.3 — JSON-Telemetrie-Persistenz + pre-F1-Archiv:**
+
+User-Wunsch nach Bonus-Option 4: JSON-Sitzungs-Format um Telemetrie-Felder erweitert, damit künftige Läufe ihre Gap-Verläufe direkt in der Session-Datei mitspeichern.
+
+| Datei | Änderung |
+|---|---|
+| `app.py` (`_session_to_json`) | results_data pro Liga jetzt zusätzlich: `objective`, `best_bound`, `final_gap`, `gap_history` (Liste von [t, obj]), `mins`, `secs`. Schemaversion auf `'1.1'` gebumpt. |
+| `app.py` (`_session_from_json`) | Lädt die neuen Felder via `.get()` mit Defaults (backward-compatible für v1.0-JSONs ohne Telemetrie). Rekonstruiert `LeagueResult` mit korrektem `objective`/`best_bound`/`final_gap`/`gap_history`/`mins`/`secs`. |
+| `Spielplaene/telemetrie/pre_F1_2026-05-23_8h.csv` (neu, gitignored) | 72 Improvements aus dem 8h-Lauf vom 23.05.2026, manuell aus dem Console-Log extrahiert. symmetry_level=1, final Gap 19.96 %. Dient als pre-F1-Referenz für Sprint B3. |
+| `Spielplaene/telemetrie/pre_F1_2026-05-23_8h_summary.md` (neu, gitignored) | Markdown-Zusammenfassung: Solver-Parameter, Endkennzahlen, Verlauf-Highlights. Erwartetes post-F1-Ziel: Gap 14–16 % bei gleicher Laufzeit. |
+
+**Verifikation:** 67/67 Tests grün, Ruff clean. Backward-compat des JSON-Loaders manuell verifiziert (alte `version=1.0`-Files erhalten Default-Felder ohne Crash).
 
 ---
 
