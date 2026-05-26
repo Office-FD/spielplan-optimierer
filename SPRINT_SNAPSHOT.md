@@ -1,6 +1,6 @@
 # Sprint-Snapshot — Spielplan-Optimierer
 
-> **Stand: 26. Mai 2026, Version 1.11.3** · Keine bekannten Bugs · Alle CI-Workflows grün
+> **Stand: 26. Mai 2026, Version 1.12.1** · Keine bekannten Bugs · CI durch GitHub-Actions-Drossel temporär gehemmt (Support-Ticket läuft)
 
 ---
 
@@ -53,8 +53,8 @@ In 18 Releases (9 Feature/Sprint-Tags + 9 Hotfix/Patch-Tags) wurden drei strateg
 
 | Aufgabe | Status | Größe | Wer? |
 |---|---|---|---|
-| **B3** — post-F1 8h-Lauf + CSV-Vergleich | Wartet auf Saison | Mittel (Wartezeit) | Martin |
-| **Installer neu bauen** — Bootstrap mit folium/streamlit-folium/streamlit-calendar | Nice-to-have | Klein (~30 min) | Martin |
+| **B3** — vollständige Telemetrie-Auswertung | Teilweise (Bug-bedingt nur Endwerte verfügbar) | Klein bei nächster Saison | Martin |
+| Installer neu bauen | ✓ Erledigt (v1.11.3) | – | – |
 | F1-H5 (Phase-2-Dekomposition) | Future-Work | Sehr groß (2-3 Wo) | — |
 | Multi-Saison-Planung | Backlog | Groß | — |
 | REST-API | Backlog | Groß | — |

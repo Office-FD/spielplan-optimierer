@@ -70,7 +70,11 @@
 - Gap-Werte, Lösungsqualität (Gesamt-km), Wechselrate dokumentieren
 - Ergebnis in BACKLOG.md unter "Optimierungslücke verringern" als verifizierte Wirkung anhängen
 
-**Status:** Offen — wartet auf User-Action (manueller Lauf bei nächster Saison-Planung)
+**Status:** Teilweise — erster post-F1 8h-Lauf am 26.05.2026 mit v1.12.0 durchgeführt (`Spielplaene/telemetrie/post_F1_2026-05-26_8h_*`). Direkter Gap-Vergleich nicht möglich:
+1. Konfig wurde gegenüber pre-F1 geändert (andere Pflichttermine + Sperrtage)
+2. SA-Refine-Bug überschrieb Telemetrie-Felder mit Defaults (gefixt in v1.12.1)
+
+Vollständige Verifikation verschoben auf die nächste reguläre Saisonoptimierung mit v1.12.1 — dort wird die Telemetrie automatisch sauber persistiert. Bis dahin: F1-Hebel sind durch Tests (62/62) und theoretische Analyse hinreichend belegt.
 
 ---
 
