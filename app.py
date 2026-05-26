@@ -4450,73 +4450,87 @@ def _show_results():
                            if res is not None and res.cfg and res.schedule]
     if _valid_res_for_map:
         st.subheader('🗺 Karten-Visualisierung')
-        st.caption(
-            'Reiserouten auf der Karte: Marker pro Team-Standort, '
-            'Polylinien pro Paarung. Liga-Layers oben rechts umschaltbar. '
-            'Erste Erstellung benötigt einige Sekunden pro neuer Adresse '
-            '(Geocoding via OpenStreetMap, lokal gecacht).'
-        )
 
-        if 'map_obj' not in S:
-            S.map_obj = None
-            S.map_lid_keys = None
+        # Prüfung ob folium + streamlit-folium installiert sind (neue Deps in v1.9.0)
+        _map_deps_ok = True
+        _map_dep_err = ''
+        try:
+            import folium  # noqa: F401
+            from streamlit_folium import st_folium  # noqa: F401
+        except ImportError as _e:
+            _map_deps_ok = False
+            _map_dep_err = str(_e)
 
-        # Cache-Key: Tupel aus allen Liga-IDs + Anzahl Spiele
-        _map_key = tuple(sorted(
-            (lid, sum(len(g) for g in res.schedule.values()))
-            for lid, res in _valid_res_for_map
-        ))
+        if not _map_deps_ok:
+            st.info(
+                'Das Karten-Feature benötigt zusätzliche Pakete, die bei Deiner '
+                'Installation noch fehlen. Im aktivierten venv ausführen:\n\n'
+                '```\n.venv\\Scripts\\python.exe -m pip install folium streamlit-folium\n```'
+                f'\n\nFehler-Details: `{_map_dep_err}`'
+            )
+        else:
+            st.caption(
+                'Reiserouten auf der Karte: Marker pro Team-Standort, '
+                'Polylinien pro Paarung. Liga-Layers oben rechts umschaltbar. '
+                'Erste Erstellung benötigt einige Sekunden pro neuer Adresse '
+                '(Geocoding via OpenStreetMap, lokal gecacht).'
+            )
 
-        col_btn, col_status = st.columns([1, 3])
-        with col_btn:
-            _build_map = st.button('🗺 Karte erstellen / aktualisieren',
-                                   key='build_map_btn', width='stretch')
-        if _build_map or S.map_lid_keys != _map_key and S.map_obj is not None:
-            S.map_obj = None  # erzwinge Neubau
+            if 'map_obj' not in S:
+                S.map_obj = None
+                S.map_lid_keys = None
 
-        if _build_map:
-            from spielplan_multi.geocode import geocode_addresses
-            from spielplan_multi.map_output import build_route_map
+            # Cache-Key: Tupel aus allen Liga-IDs + Anzahl Spiele
+            _map_key = tuple(sorted(
+                (lid, sum(len(g) for g in res.schedule.values()))
+                for lid, res in _valid_res_for_map
+            ))
 
-            # Alle eindeutigen Standort-Adressen sammeln
-            all_locations: List[str] = []
-            for lid, res in _valid_res_for_map:
-                for loc in res.cfg.locations:
-                    if loc and loc not in all_locations:
-                        all_locations.append(loc)
+            col_btn, col_status = st.columns([1, 3])
+            with col_btn:
+                _build_map = st.button('🗺 Karte erstellen / aktualisieren',
+                                       key='build_map_btn', width='stretch')
+            if _build_map or (S.map_lid_keys != _map_key and S.map_obj is not None):
+                S.map_obj = None  # erzwinge Neubau
 
-            with col_status:
-                _prog = st.progress(0.0, text=f'Geocoding {len(all_locations)} Adressen...')
+            if _build_map:
+                from spielplan_multi.geocode import geocode_addresses
+                from spielplan_multi.map_output import build_route_map
 
-                def _cb(i, n, addr):
-                    _prog.progress(i / max(1, n),
-                                   text=f'Geocoding {i}/{n}: {addr[:50]}')
+                # Alle eindeutigen Standort-Adressen sammeln
+                all_locations: List[str] = []
+                for lid, res in _valid_res_for_map:
+                    for loc in res.cfg.locations:
+                        if loc and loc not in all_locations:
+                            all_locations.append(loc)
 
-                try:
-                    geocodes = geocode_addresses(all_locations, progress_callback=_cb)
-                    _prog.empty()
-                    n_found = sum(1 for v in geocodes.values() if v)
-                    if n_found < len(all_locations):
-                        st.warning(f'{len(all_locations) - n_found} von '
-                                   f'{len(all_locations)} Adressen nicht gefunden – '
-                                   f'diese Standorte fehlen auf der Karte.')
-                    S.map_obj = build_route_map(
-                        {lid: res for lid, res in _valid_res_for_map},
-                        geocodes,
-                    )
-                    S.map_lid_keys = _map_key
-                except Exception as exc:
-                    _prog.empty()
-                    st.error(f'Karte konnte nicht erstellt werden: {exc}')
+                with col_status:
+                    _prog = st.progress(0.0, text=f'Geocoding {len(all_locations)} Adressen...')
 
-        if S.map_obj is not None:
-            try:
-                from streamlit_folium import st_folium
+                    def _cb(i, n, addr):
+                        _prog.progress(i / max(1, n),
+                                       text=f'Geocoding {i}/{n}: {addr[:50]}')
+
+                    try:
+                        geocodes = geocode_addresses(all_locations, progress_callback=_cb)
+                        _prog.empty()
+                        n_found = sum(1 for v in geocodes.values() if v)
+                        if n_found < len(all_locations):
+                            st.warning(f'{len(all_locations) - n_found} von '
+                                       f'{len(all_locations)} Adressen nicht gefunden – '
+                                       f'diese Standorte fehlen auf der Karte.')
+                        S.map_obj = build_route_map(
+                            {lid: res for lid, res in _valid_res_for_map},
+                            geocodes,
+                        )
+                        S.map_lid_keys = _map_key
+                    except Exception as exc:
+                        _prog.empty()
+                        st.error(f'Karte konnte nicht erstellt werden: {exc}')
+
+            if S.map_obj is not None:
                 st_folium(S.map_obj, height=520, width=None,
                           returned_objects=[], key='route_map')
-            except ImportError:
-                st.error('streamlit-folium ist nicht installiert. '
-                         '`pip install streamlit-folium` ausführen.')
 
     # ── Kalender-Export (.ics) ────────────────────────────────────────────────
     _valid_res = [(lid, res) for lid, res in S.results.items() if res is not None]
