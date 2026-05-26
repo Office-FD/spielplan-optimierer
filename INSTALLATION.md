@@ -80,6 +80,13 @@ Wenn ja, erscheint folgende Meldung:
 Das Update ändert nur die Programmdateien – Ihre gespeicherten Konfigurationen
 und erstellten Spielpläne bleiben erhalten.
 
+> **Hinweis bei neuen Versions-Features:** Wenn ein Update zusätzliche Python-
+> Pakete benötigt (z. B. für die Karten-Visualisierung seit v1.9 oder die
+> Kalenderansicht seit v1.10), zeigt das Programm bei der entsprechenden
+> Funktion einen Hinweis mit Installationsbefehl. In der Regel löst ein
+> einmaliges manuelles Update des Bootstrap-Installers (durch den IT-Support
+> bereitgestellt) das Problem dauerhaft.
+
 ---
 
 ## Programm beenden

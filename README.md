@@ -53,8 +53,12 @@ Das Tool erstellt optimierte Spielpläne für eine oder mehrere Ligen gleichzeit
 ### Export & Nachbearbeitung
 - **Excel** je Liga (Spielplan, Heimrecht-Heatmap, Kilometertabelle, Distanzmatrix, Fahrtkostenausgleich)
 - **Co-Home-Excel**: KW-Heimspiel-Übersicht aller Ligen
+- **Hallenbelegungsplan** + **Gesamtübersicht** (alle Ligen nebeneinander)
 - **iCal**: Import in Outlook, Google Kalender etc.
 - **HTML-Druckansicht**
+- **Karten-Visualisierung** (folium + OpenStreetMap): Standorte und Reiserouten auf interaktiver Karte
+- **Kalenderansicht** (streamlit-calendar): Monats-/Wochen-/Listenansicht aller Spiele
+- **Solver-Telemetrie**: Gap-Verlauf live im Browser + CSV-Export für externe Auswertung
 - Spielpläne vergleichen: zwei Varianten gegenüberstellen (Delta km und Wechselquote)
 - Spielplan nachbearbeiten: Spiele verschieben, absagen, Nachholtermine eintragen, Heimrecht tauschen
 

@@ -58,7 +58,7 @@
 - `INSTALLATION.md`: Hinweise zur neuen Pre-Commit-Hook-Option für Power-User
 - Screenshots auffrischen falls UI sich verändert hat
 
-**Status:** Offen — nach B1
+**Status:** Erledigt in v1.11.2 — BENUTZERHANDBUCH.md auf v1.11-Stand (Karten, Kalender, Telemetrie, neue Gewichte). Schritt-Nummerierung 1-basiert konsistent mit UI. INSTALLATION + README ergänzt.
 
 ### B3 · Real-World-Verifikation
 **Wichtigkeit:** Hoch — beweist Effektivität von Sprint F1 (~25% Gap-Reduktion erwartet)

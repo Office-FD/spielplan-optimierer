@@ -12,15 +12,15 @@ als Excel-Datei zum Herunterladen.
 **Typischer Ablauf:**
 
 ```
-Schritt 0  Ligen und Teams eingeben
-Schritt 1  Distanzen zwischen den Spielorten festlegen
-Schritt 2  Rahmenterminplan laden und Doppelspieltage konfigurieren
-Schritt 3  Optimierungsgewichte einstellen
-Schritt 4  Pflichtspiele festlegen (optional)
-Schritt 5  Sperrtage eingeben (optional)
-Schritt 6  Co-Home-Vereine konfigurieren (optional)
-Schritt 7  Solver-Einstellungen wählen
-Schritt 8  Optimierung starten → Ergebnisse herunterladen
+Schritt 1  Ligen und Teams eingeben
+Schritt 2  Distanzen zwischen den Spielorten festlegen
+Schritt 3  Rahmenterminplan laden und Doppelspieltage konfigurieren
+Schritt 4  Optimierungsgewichte einstellen
+Schritt 5  Pflichtspiele festlegen (optional)
+Schritt 6  Sperrtage eingeben (optional)
+Schritt 7  Co-Home-Vereine konfigurieren (optional)
+Schritt 8  Solver-Einstellungen wählen
+Schritt 9  Optimierung starten → Ergebnisse herunterladen
 ```
 
 ---
@@ -37,7 +37,7 @@ Die Adresse lautet: `http://localhost:8501`
 
 ---
 
-## Schritt 0 – Ligen und Teams
+## Schritt 1 – Ligen und Teams
 
 Hier legen Sie fest, für welche Ligen Sie einen Spielplan erstellen möchten.
 
@@ -64,7 +64,7 @@ Hier legen Sie fest, für welche Ligen Sie einen Spielplan erstellen möchten.
 
 ---
 
-## Schritt 1 – Distanzmatrizen
+## Schritt 2 – Distanzmatrizen
 
 Das Tool benötigt die Entfernungen zwischen allen Spielorten in Kilometern,
 um reisekostenminimierende Spielpläne zu erstellen.
@@ -88,7 +88,7 @@ Dazu benötigen Sie einen **Google Maps API-Schlüssel**.
 
 ---
 
-## Schritt 2 – Kalender und Doppelspieltage
+## Schritt 3 – Kalender und Doppelspieltage
 
 **Rahmenterminplan laden:**
 Laden Sie die Excel-Datei mit dem Rahmenterminplan des Verbands hoch.
@@ -103,7 +103,7 @@ Doppelspieltage sind Wochenenden, an denen Teams zweimal spielen
 
 ---
 
-## Schritt 3 – Optimierungsgewichte und DST-Routing
+## Schritt 4 – Optimierungsgewichte und DST-Routing
 
 **Optimierungsgewichte:**
 Steuern Sie, was bei der Optimierung wichtiger ist:
@@ -114,6 +114,8 @@ Steuern Sie, was bei der Optimierung wichtiger ist:
 | Fairness Wechsel | Wie ausgeglichen sind die Wechsel zwischen allen Teams |
 | Gesamtkilometer | Minimierung der Gesamtreisekilometer |
 | Fairness km | Wie ausgeglichen sind die Reisekilometer zwischen allen Teams |
+| DST-Reiseeffizienz | Belohnt DST-Blöcke mit räumlich nahen Auswärtsspielen (Randlagen-Teams profitieren). Standard: 0 (aus). |
+| Heim-Balance pro Runde | Bestraft progressive Abweichung der Heim-Anzahl pro Team und Runde vom Mittelwert (sw_fair-ähnlich, aber pro Runde). Default: 0 (aus); Empfehlung: 5 wenn aktiviert. |
 
 Schieberegler von 0 (egal) bis 10 (sehr wichtig).
 Für die meisten Ligen sind die Standardwerte ein guter Ausgangspunkt.
@@ -129,7 +131,7 @@ dazu gebracht werden, ihre Heimspiele in der gleichen Kalenderwoche zu haben.
 
 ---
 
-## Schritt 4 – Pflichtspiele
+## Schritt 5 – Pflichtspiele
 
 Hier können Sie festlegen, dass bestimmte Spiele an einem bestimmten Spieltag
 stattfinden müssen (z. B. Eröffnungsspiel, Stadtderby).
@@ -145,7 +147,7 @@ stattfinden müssen (z. B. Eröffnungsspiel, Stadtderby).
 
 ---
 
-## Schritt 5 – Sperrtage
+## Schritt 6 – Sperrtage
 
 Sperrtage sind Spieltage, an denen ein Team **nicht** spielen kann
 (z. B. wegen Hallensperrungen, Schulferien, anderen Veranstaltungen).
@@ -159,7 +161,7 @@ Sperrtage sind Spieltage, an denen ein Team **nicht** spielen kann
 
 ---
 
-## Schritt 6 – Co-Home-Vereine
+## Schritt 7 – Co-Home-Vereine
 
 Co-Home bedeutet: Mehrere Teams eines Vereins (z. B. Herren und Damen)
 teilen sich eine Halle und sollen ihre Heimspiele möglichst in der
@@ -170,7 +172,7 @@ Sie können die Zuordnungen hier prüfen und manuell anpassen.
 
 ---
 
-## Schritt 7 – Solver-Einstellungen
+## Schritt 8 – Solver-Einstellungen
 
 Diese Einstellungen beeinflussen Rechenzeit und Qualität des Ergebnisses.
 
@@ -191,7 +193,7 @@ Diese Einstellungen beeinflussen Rechenzeit und Qualität des Ergebnisses.
 
 ---
 
-## Schritt 8 – Optimierung und Ergebnisse
+## Schritt 9 – Optimierung und Ergebnisse
 
 ### Optimierung starten
 
@@ -206,6 +208,17 @@ Nach Abschluss werden folgende Informationen angezeigt:
 - Gesamtkilometer aller Teams
 - Durchschnittliche Wechselquote (Heimrecht-Wechsel)
 
+**Solver-Telemetrie (📊, seit v1.11):**
+- **Objective** – erreichter Zielfunktionswert
+- **Best Bound** – theoretisches Optimum (LP-Schranke)
+- **Gap** – wie nah am Optimum: `|Bound − Objective| / |Bound|`
+  - 0 % = bewiesen optimal
+  - <5 % = sehr gute Lösung
+  - 15–20 % = typisch bei langen Phase-2-Läufen
+- **Improvements** – wie viele neue Bestlösungen während des Laufs gefunden wurden
+- **Verlaufs-Chart** zeigt den Objective über die Zeit
+- **CSV-Download** für externe Auswertung / Vergleich mit anderen Läufen
+
 **Warnungen** erscheinen bei:
 - 4 oder mehr aufeinanderfolgende Heim- oder Auswärtsspiele
 - Reisekilometer-Ausreißern (>35% über dem Durchschnitt)
@@ -215,12 +228,35 @@ Heimspielanteil.
 
 **Spielplan:** Aufklappbar je Liga, mit farbiger Heimrecht-Übersicht.
 
+**Karten-Visualisierung (🗺, seit v1.9):**
+Klick auf **„Karte erstellen / aktualisieren"** zeigt die Standorte aller Teams
+auf einer Karte (OpenStreetMap), mit Verbindungslinien zwischen den Paarungen.
+Liga-Layer oben rechts umschaltbar.
+
+- **Erste Erstellung dauert einige Sekunden pro neuer Adresse** (Geocoding via
+  OpenStreetMap, danach lokal gecacht — Folge-Aufrufe sind sofort fertig)
+- **Tooltip auf Marker:** Team-Name, Standort, Liga
+- **Tooltip auf Linie:** Paarung, km-Distanz, alle Spieltage
+- **Fehlende Adressen:** Erscheinen in einem Expander „📍 N Adresse(n) manuell
+  ergänzen" — dort lat/lon-Koordinaten aus Google Maps eintragen, Speichern
+  schreibt sie in den Cache für künftige Karten
+
+**Kalenderansicht (📅, seit v1.10):**
+Interaktiver Monats-/Wochen-/Listen-Kalender direkt in der App.
+
+- Buttons oben rechts: Monat / Woche / Liste
+- Wechsel zwischen Spielzeiten- (Wochenansicht) und Übersichtsdarstellung (Monatsansicht)
+- Voraussetzung: Rahmenterminplan in Schritt 3 geladen oder KW pro Spieltag gesetzt
+
 ### Downloads
 
 | Download | Inhalt |
 |---|---|
 | **Excel (alle Ligen)** | Spielpläne als ZIP mit einer Excel-Datei je Liga |
 | **Co-Home-Excel** | Übersicht der Heimspielwochen aller Ligen |
+| **Hallenbelegungsplan** | Liga-übergreifende Hallenbelegung pro Tag |
+| **Gesamtübersicht** | Alle Spielpläne nebeneinander mit Co-Home-Markierung |
+| **Telemetrie-CSV** | Gap-Verlauf des Solvers (für externe Auswertung) |
 | **iCal** | Kalender-Datei zum Import in Outlook, Google Kalender etc. |
 | **Druckansicht** | Spielpläne als HTML-Seite zum Ausdrucken |
 
@@ -266,9 +302,9 @@ Häufigste Ursachen und Lösungen:
 |---|---|
 | Zu viele Pflichtspiele | Pflichtspiele reduzieren |
 | Zu viele Sperrtage | Sperrtage reduzieren oder Solver-Zeitlimit erhöhen |
-| DST-Routing zu eng | DST-Routing-Wert erhöhen (Schritt 3) |
-| Zeitlimit zu kurz | Phase-1-Zeitlimit und Seeds erhöhen (Schritt 7) |
-| Alle Spieltage durch DST blockiert | DST-Blöcke überprüfen (Schritt 2) |
+| DST-Routing zu eng | DST-Routing-Wert erhöhen (Schritt 4) |
+| Zeitlimit zu kurz | Phase-1-Zeitlimit und Seeds erhöhen (Schritt 8) |
+| Alle Spieltage durch DST blockiert | DST-Blöcke überprüfen (Schritt 3) |
 
 > **Tipp:** Die Diagnose-Meldung gibt einen Hinweis auf die wahrscheinlichste
 > Ursache. Starten Sie mit der dort genannten Lösung.
@@ -278,7 +314,7 @@ Häufigste Ursachen und Lösungen:
 ## Sitzung speichern und wiederherstellen
 
 Alle Einstellungen können als Excel-Konfigurationsdatei gespeichert werden
-(Schritt 0 → **„Download Konfiguration"**). Beim nächsten Mal laden Sie die
+(Schritt 1 → **„Download Konfiguration"**). Beim nächsten Mal laden Sie die
 Datei einfach wieder hoch und alle Einstellungen sind wiederhergestellt.
 
 ---

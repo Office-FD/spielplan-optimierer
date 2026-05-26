@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.11.1 · Stand Mai 2026 · Status: Sprint B1 + UX-Iteration abgeschlossen — Gap-Monitoring / Solver-Telemetrie in der Ergebnisansicht (Objective, Best Bound, Gap %, # Improvements, Live-Chart, CSV-Export). Position direkt unter den Kennzahlen-Metriken (User-Wunsch, prominente Sichtbarkeit). Roadmap-Pfad A komplett (A1+A2), Pfad B weiter mit B2 (Doku-Update) und B3 (Real-World-Verifikation).**
+> **Version 1.11.2 · Stand Mai 2026 · Status: Sprint B2 abgeschlossen — Endnutzer-Doku auf v1.11-Stand: Karten-Visualisierung, Kalenderansicht, Solver-Telemetrie und neue Gewichte (round_balance, dst_eff) im BENUTZERHANDBUCH.md erklärt. Schritt-Nummerierung auf UI-1-basiert angeglichen. README + INSTALLATION aktualisiert. Roadmap-Pfad A komplett (A1+A2), Pfad B weiter mit B3 (Real-World-Verifikation, User-Action).**
 
 ---
 
@@ -647,6 +647,18 @@ Erstes Feature aus Roadmap-Pfad B. Macht die Wirksamkeit der F1-Hebel (H1/H3/H2 
 **Nutzung:** Nach jeder Optimierung ist der finale Gap-Wert + die Verlaufskurve sichtbar. Der CSV-Export hat die Spalten `Zeit (s)`, `Objective`, `Liga` und eignet sich für externe Vergleiche zwischen Solver-Versionen.
 
 **UX-Iteration v1.11.0 → v1.11.1:** Telemetrie-Section direkt unter den Kennzahlen-Metriken positioniert (vorher: weiter unten nach Karte + Kalender). User-Feedback: Gap-Werte sind die wichtigste Sofort-Information nach jeder Optimierung und sollten oben sichtbar sein.
+
+**Sprint B2 — Endnutzer-Doku-Update v1.11.1 → v1.11.2:**
+
+Zweites Feature aus Roadmap-Pfad B. Bringt das Benutzerhandbuch auf v1.11-Stand.
+
+| Datei | Änderung |
+|---|---|
+| `BENUTZERHANDBUCH.md` | (1) Schritt-Nummerierung 0-basiert → 1-basiert (passt zur Sidebar und UI-Headern). (2) Schritt 4 Optimierungsgewichte: `dst_eff` und `round_balance` ergänzt mit Empfehlung. (3) Schritt 9 (Ergebnisse): neue Sub-Sections für Solver-Telemetrie 📊, Karten-Visualisierung 🗺 (inkl. Adressen-Editor-Hinweis), Kalenderansicht 📅. (4) Downloads-Tabelle ergänzt um Hallenbelegungsplan, Gesamtübersicht, Telemetrie-CSV. (5) Interne Querverweise (Schritt 2 → 3, Schritt 7 → 8 etc.) konsistent gemacht. |
+| `INSTALLATION.md` | Hinweis bei Auto-Update: wenn neue Versionen zusätzliche Python-Pakete benötigen (folium/streamlit-folium/streamlit-calendar), zeigt die App eine Info-Box mit Install-Anweisung. Bootstrap-Installer kann bei Bedarf neu vom IT-Support gebaut werden. |
+| `README.md` | Feature-Liste ergänzt: Karten-Visualisierung, Kalenderansicht, Solver-Telemetrie, Hallenbelegungsplan, Gesamtübersicht. |
+
+**Verifikation:** Markdown-Konsistenz (Schritt-Refs alle aktualisiert), Tests bleiben grün (keine Code-Änderungen).
 
 ---
 
