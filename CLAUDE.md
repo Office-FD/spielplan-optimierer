@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.11.0 · Stand Mai 2026 · Status: Sprint B1 abgeschlossen — Gap-Monitoring / Solver-Telemetrie in der Ergebnisansicht (Objective, Best Bound, Gap %, # Improvements, Live-Chart, CSV-Export). Roadmap-Pfad A komplett (A1+A2), Pfad B weiter mit B2 (Doku-Update) und B3 (Real-World-Verifikation).**
+> **Version 1.11.1 · Stand Mai 2026 · Status: Sprint B1 + UX-Iteration abgeschlossen — Gap-Monitoring / Solver-Telemetrie in der Ergebnisansicht (Objective, Best Bound, Gap %, # Improvements, Live-Chart, CSV-Export). Position direkt unter den Kennzahlen-Metriken (User-Wunsch, prominente Sichtbarkeit). Roadmap-Pfad A komplett (A1+A2), Pfad B weiter mit B2 (Doku-Update) und B3 (Real-World-Verifikation).**
 
 ---
 
@@ -645,6 +645,8 @@ Erstes Feature aus Roadmap-Pfad B. Macht die Wirksamkeit der F1-Hebel (H1/H3/H2 
 **Verifikation:** 67/67 Tests grün.
 
 **Nutzung:** Nach jeder Optimierung ist der finale Gap-Wert + die Verlaufskurve sichtbar. Der CSV-Export hat die Spalten `Zeit (s)`, `Objective`, `Liga` und eignet sich für externe Vergleiche zwischen Solver-Versionen.
+
+**UX-Iteration v1.11.0 → v1.11.1:** Telemetrie-Section direkt unter den Kennzahlen-Metriken positioniert (vorher: weiter unten nach Karte + Kalender). User-Feedback: Gap-Werte sind die wichtigste Sofort-Information nach jeder Optimierung und sollten oben sichtbar sein.
 
 ---
 
