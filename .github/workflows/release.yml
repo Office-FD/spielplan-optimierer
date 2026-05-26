@@ -16,7 +16,7 @@ jobs:
       # sind via Major-Version-Tag gepinnt. Fuer hoechste Supply-Chain-Sicherheit
       # auf vollstaendige Commit-SHAs umstellen (z.B. via Dependabot konfigurieren).
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Python einrichten
         uses: actions/setup-python@v5
