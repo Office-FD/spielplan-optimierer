@@ -293,6 +293,7 @@ _DEFAULTS: dict = dict(
     overview_bytes=None,  # bytes – Gesamtübersicht aller Spielpläne nebeneinander
     map_obj=None,         # folium.Map – Karten-Visualisierung Reiserouten (A1, v1.9.0)
     map_lid_keys=None,    # Cache-Key (Tuple) für Map-Neubau bei Änderungen
+    missing_geocodes=[],  # Liste von Adressen die Nominatim nicht gefunden hat
     opt_queue=None,
     opt_process=None,
     opt_result_holder=None,
@@ -4516,9 +4517,12 @@ def _show_results():
                         _prog.empty()
                         n_found = sum(1 for v in geocodes.values() if v)
                         if n_found < len(all_locations):
+                            S.missing_geocodes = [a for a in all_locations if not geocodes.get(a)]
                             st.warning(f'{len(all_locations) - n_found} von '
                                        f'{len(all_locations)} Adressen nicht gefunden – '
                                        f'diese Standorte fehlen auf der Karte.')
+                        else:
+                            S.missing_geocodes = []
                         S.map_obj = build_route_map(
                             {lid: res for lid, res in _valid_res_for_map},
                             geocodes,
@@ -4527,6 +4531,46 @@ def _show_results():
                     except Exception as exc:
                         _prog.empty()
                         st.error(f'Karte konnte nicht erstellt werden: {exc}')
+
+            # Manuelle Koordinaten-Ergaenzung fuer fehlende Adressen
+            _missing = getattr(S, 'missing_geocodes', None) or []
+            if _missing:
+                with st.expander(f'📍 {len(_missing)} Adresse(n) manuell ergänzen', expanded=False):
+                    st.caption(
+                        'Wenn Nominatim eine Adresse nicht findet, hier Koordinaten '
+                        'manuell eintragen. Koordinaten z. B. aus Google Maps: '
+                        'Rechtsklick auf den Standort → Werte werden als '
+                        '"52.520008, 13.404954" angezeigt.'
+                    )
+                    for i, addr in enumerate(_missing):
+                        col_a, col_b, col_c = st.columns([3, 2, 1])
+                        with col_a:
+                            st.text_input('Adresse', value=addr, disabled=True,
+                                          key=f'mgc_addr_{i}', label_visibility='collapsed')
+                        with col_b:
+                            latlon = st.text_input(
+                                'lat, lon (z. B. 52.52, 13.40)',
+                                key=f'mgc_latlon_{i}',
+                                placeholder='52.520008, 13.404954',
+                                label_visibility='collapsed',
+                            )
+                        with col_c:
+                            if st.button('Speichern', key=f'mgc_save_{i}',
+                                         width='stretch'):
+                                try:
+                                    parts = [p.strip() for p in latlon.split(',')]
+                                    if len(parts) != 2:
+                                        raise ValueError('Format: "lat, lon"')
+                                    lat_f = float(parts[0])
+                                    lon_f = float(parts[1])
+                                    if not (-90 <= lat_f <= 90 and -180 <= lon_f <= 180):
+                                        raise ValueError('Wert außerhalb gültiger Bereiche')
+                                    from spielplan_multi.geocode import set_manual_coord
+                                    set_manual_coord(addr, lat_f, lon_f)
+                                    st.success(f'Gespeichert: {lat_f}, {lon_f}')
+                                    S.map_obj = None  # Karte beim nächsten Klick neu bauen
+                                except (ValueError, IndexError) as _e:
+                                    st.error(f'Eingabe ungültig: {_e}')
 
             if S.map_obj is not None:
                 st_folium(S.map_obj, height=520, width=None,

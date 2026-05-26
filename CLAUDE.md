@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.9.1 · Stand Mai 2026 · Status: Sprint A1 + Hotfix abgeschlossen — Karten-Visualisierung der Reiserouten (folium + streamlit-folium + Nominatim-Geocoding) mit defensivem Fallback, falls neue Dependencies (`folium`/`streamlit-folium`) in einer bestehenden Installation noch nicht installiert sind. Roadmap-Pfad A weiter mit A2 (Kalenderansicht); danach Pfad B (Gap-Monitoring, Doku, Real-World-Verifikation). Siehe ROADMAP.md.**
+> **Version 1.9.2 · Stand Mai 2026 · Status: Sprint A1 + Hotfix + Adressen-Editor abgeschlossen — Karten-Visualisierung der Reiserouten (folium + streamlit-folium + Nominatim-Geocoding) mit defensivem Fallback bei fehlenden Dependencies und manuellem Koordinaten-Editor für Adressen, die Nominatim nicht findet. Roadmap-Pfad A weiter mit A2 (Kalenderansicht); danach Pfad B (Gap-Monitoring, Doku, Real-World-Verifikation). Siehe ROADMAP.md.**
 
 ---
 
@@ -596,6 +596,8 @@ Erstes User-sichtbares Feature aus Roadmap-Pfad A. Spielplan-Reviewer können la
 **Verifikation:** 57/57 Tests grün (test_features), Smoke + Distances ebenfalls grün. Manuell in Browser noch zu testen: tatsächliche Map-Anzeige in Schritt 8.
 
 **Hotfix v1.9.0 → v1.9.1:** `app.py` prüft jetzt vor dem `from spielplan_multi.map_output import …` ob `folium` + `streamlit_folium` installiert sind. Fehlen die Pakete (Auto-Updater hat App-Code aktualisiert, Bootstrap-Installer mit gebundeltem Python jedoch noch v1.8.x-Pakete), wird statt eines Crashes eine `st.info`-Box mit der konkreten `pip install`-Anweisung angezeigt. Damit ist die App weiterhin nutzbar, nur das Karten-Feature ist deaktiviert bis die Pakete nachinstalliert sind. **Bootstrap-Installer muss bei Gelegenheit neu gebaut werden** (`installer\build_bootstrap.bat`) damit Neu-Installationen folium/streamlit-folium gebundelt erhalten.
+
+**Sprint A1 Folge-Iteration v1.9.1 → v1.9.2 – Adressen-Editor:** Wenn Nominatim eine Adresse nicht findet (z. B. unsauberer Eintrag in `clubs_db.csv`), wird die Liste der fehlenden Adressen im UI angezeigt. Ein neuer `st.expander` „📍 N Adresse(n) manuell ergänzen" bietet pro fehlende Adresse ein Eingabefeld für `lat, lon`-Koordinaten (z. B. aus Google Maps via Rechtsklick). Speichern landet im selben Cache wie automatisches Geocoding (`spielplan_multi/geocode.set_manual_coord`), nach Speichern wird `S.map_obj=None` gesetzt → Karte beim nächsten „Erstellen/Aktualisieren"-Klick neu gebaut. Validierung: Format „lat, lon" + Wertebereich (-90..90 / -180..180).
 
 ---
 

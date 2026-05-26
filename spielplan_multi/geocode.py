@@ -141,3 +141,14 @@ def clear_cache() -> None:
             _CACHE_FILE.unlink()
         except OSError:
             pass
+
+
+def set_manual_coord(addr: str, lat: float, lon: float) -> None:
+    """Setzt manuell Lat/Lon fuer eine Adresse im Cache.
+
+    Nuetzlich wenn Nominatim die Adresse nicht findet und der Nutzer
+    die Koordinaten z. B. aus Google Maps haendisch ergaenzt.
+    """
+    cache = _load_cache()
+    cache[_normalize(addr)] = (float(lat), float(lon))
+    _save_cache(cache)
