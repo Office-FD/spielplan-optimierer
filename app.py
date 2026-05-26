@@ -4576,6 +4576,51 @@ def _show_results():
                 st_folium(S.map_obj, height=520, width=None,
                           returned_objects=[], key='route_map')
 
+    # ── Interaktive Kalenderansicht (A2, v1.10.0) ───────────────────────────
+    if _valid_res_for_map:
+        st.subheader('📅 Kalenderansicht')
+
+        # Prüfung ob streamlit-calendar installiert ist
+        _cal_dep_ok = True
+        _cal_dep_err = ''
+        try:
+            from streamlit_calendar import calendar as _st_calendar  # noqa: F401
+        except ImportError as _e:
+            _cal_dep_ok = False
+            _cal_dep_err = str(_e)
+
+        if not _cal_dep_ok:
+            st.info(
+                'Die Kalenderansicht benötigt das Paket `streamlit-calendar`. '
+                'Im aktivierten venv ausführen:\n\n'
+                '```\n.venv\\Scripts\\python.exe -m pip install streamlit-calendar\n```'
+                f'\n\nFehler-Details: `{_cal_dep_err}`'
+            )
+        else:
+            from spielplan_multi.calendar_output import (
+                build_calendar_events, default_calendar_options
+            )
+
+            _events = build_calendar_events(
+                {lid: res for lid, res in _valid_res_for_map}
+            )
+
+            if not _events:
+                st.caption(
+                    'Keine Kalender-Daten verfügbar — '
+                    'Bitte zuerst in Schritt 2 einen Rahmenterminplan laden '
+                    'oder Kalenderwochen pro Spieltag setzen.'
+                )
+            else:
+                st.caption(
+                    f'{len(_events)} Spiele im Kalender. '
+                    'Wechsel zwischen Monats-, Wochen- und Listenansicht '
+                    'über die Buttons oben rechts. Wochennummer links.'
+                )
+                _opts = default_calendar_options()
+                _st_calendar(events=_events, options=_opts,
+                              key='spielplan_calendar')
+
     # ── Kalender-Export (.ics) ────────────────────────────────────────────────
     _valid_res = [(lid, res) for lid, res in S.results.items() if res is not None]
     if _valid_res:

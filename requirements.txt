@@ -6,3 +6,4 @@ requests>=2.34.2
 streamlit>=1.57.0
 folium>=0.18
 streamlit-folium>=0.21
+streamlit-calendar>=1.4

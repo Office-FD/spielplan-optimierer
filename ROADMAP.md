@@ -29,7 +29,7 @@
 - Click-to-Detail (Heim/Gast/Ort/Uhrzeit)
 - Wechsel zwischen Monaten/Wochen/Saison-Übersicht
 
-**Status:** Offen — nach A1
+**Status:** Erledigt in v1.10.0 — `streamlit-calendar` mit Monats-/Wochen-/Listenansicht, deutscher Lokalisierung, Wochennummern, Team-Farben. Siehe CLAUDE.md Section 9 für Details.
 
 ---
 

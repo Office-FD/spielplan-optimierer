@@ -64,7 +64,7 @@ Fix: Nach Konvertierung `if km < 0: warn(...)` ergänzen.
 **Aufwand:** Groß
 **Beschreibung:**
 Spielplan nach der Optimierung als klickbaren Monatskalender direkt in der App anzeigen (z. B. mit der Streamlit-Komponente `streamlit-calendar`). Spiele sind farblich nach Liga/Team kodiert, Klick zeigt Details (Heim/Gast/Ort). Ersetzt den Excel-Export nicht, bietet aber schnellen Überblick.
-**Status:** Offen
+**Status:** Erledigt – in v1.10.0 implementiert (`spielplan_multi/calendar_output.py`). Streamlit-Calendar mit Monats-/Wochen-/Listenansicht, deutscher Lokalisierung, Wochennummern, Team-Farben.
 
 ---
 

@@ -868,6 +868,105 @@ def main():
         return 'Teil-Geocodes -> kein Crash'
     check('build_route_map: fehlende Koordinaten ueberspringen', t_map_missing_coords)
 
+    # ── Feature 10: Interaktive Kalenderansicht (A2, v1.10.0) ─────────────
+    print('\n--- Feature 10: Kalenderansicht (calendar_output) ---')
+
+    from spielplan_multi.calendar_output import (
+        build_calendar_events, default_calendar_options, _parse_date
+    )
+
+    def t_parse_date_iso():
+        assert _parse_date('2026-09-07') == _dt.date(2026, 9, 7)
+        return 'ISO-Format YYYY-MM-DD geparst'
+    import datetime as _dt
+    check('_parse_date: ISO-Format', t_parse_date_iso)
+
+    def t_parse_date_de():
+        assert _parse_date('07.09.2026') == _dt.date(2026, 9, 7)
+        return 'DE-Format DD.MM.YYYY geparst'
+    check('_parse_date: DE-Format', t_parse_date_de)
+
+    def t_parse_date_invalid():
+        assert _parse_date(None) is None
+        assert _parse_date('') is None
+        assert _parse_date('foo') is None
+        assert _parse_date('99.99.9999') is None
+        return 'None/leer/garbage -> None'
+    check('_parse_date: Edge-Cases', t_parse_date_invalid)
+
+    def t_events_no_calendar():
+        """Wenn cfg.calendar leer ist, werden alle Events uebersprungen."""
+        # 'result' aus TEST-Liga hat CAL gesetzt (37-42)
+        # Hier baue ich ein result ohne calendar nach
+        cfg_no_cal = make_cfg('NC', TEAMS, dist=DIST)  # calendar default {}
+        r2 = solve_league_phase1(cfg_no_cal, time_limit=15, seed=42)
+        assert r2 is not None
+        r2.cfg = cfg_no_cal
+        events = build_calendar_events({'NC': r2})
+        assert events == [], f'erwartet leer, got {len(events)} events'
+        return 'Ohne Kalender -> []'
+    check('build_calendar_events: ohne Kalender -> leer', t_events_no_calendar)
+
+    def t_events_with_calendar():
+        """Mit CAL gesetzt: Events fuer alle Spiele."""
+        # TEST-Liga hat 4 Teams * 3 Spiele = 12 Spiele insgesamt
+        # CAL hat 6 Spieltage definiert, aber kein week_start -> Events leer
+        # Ergaenze week_start fuer alle Spieltage
+        cfg_w = make_cfg('WC', TEAMS, dist=DIST, calendar={
+            1: {'kw': 37, 'week_start': '2026-09-07', 'week_end': '2026-09-13'},
+            2: {'kw': 38, 'week_start': '2026-09-14', 'week_end': '2026-09-20'},
+            3: {'kw': 39, 'week_start': '2026-09-21', 'week_end': '2026-09-27'},
+            4: {'kw': 40, 'week_start': '2026-09-28', 'week_end': '2026-10-04'},
+            5: {'kw': 41, 'week_start': '2026-10-05', 'week_end': '2026-10-11'},
+            6: {'kw': 42, 'week_start': '2026-10-12', 'week_end': '2026-10-18'},
+        })
+        r3 = solve_league_phase1(cfg_w, time_limit=15, seed=42)
+        assert r3 is not None
+        r3.cfg = cfg_w
+        events = build_calendar_events({'WC': r3})
+        total_games = sum(len(g) for g in r3.schedule.values())
+        assert len(events) == total_games, f'erwartet {total_games}, got {len(events)}'
+        # Erstes Event prüfen
+        e0 = events[0]
+        assert 'title' in e0 and '–' in e0['title'], f'Title-Format falsch: {e0}'
+        assert e0['start'].startswith('2026-'), f'Start-Datum falsch: {e0["start"]}'
+        assert 'backgroundColor' in e0
+        assert 'extendedProps' in e0
+        return f'{len(events)} Events erzeugt'
+    check('build_calendar_events: mit Kalender -> Events', t_events_with_calendar)
+
+    def t_events_allday_vs_uhrzeit():
+        """Mit game_times: Events haben Uhrzeit, ohne: allDay=True."""
+        cfg_w = make_cfg('UT', TEAMS, dist=DIST, calendar={
+            1: {'kw': 37, 'week_start': '2026-09-07'},
+            2: {'kw': 38, 'week_start': '2026-09-14'},
+            3: {'kw': 39, 'week_start': '2026-09-21'},
+            4: {'kw': 40, 'week_start': '2026-09-28'},
+            5: {'kw': 41, 'week_start': '2026-10-05'},
+            6: {'kw': 42, 'week_start': '2026-10-12'},
+        })
+        r = solve_league_phase1(cfg_w, time_limit=15, seed=42)
+        assert r is not None
+        r.cfg = cfg_w
+        # game_times setzen: Spieltag 1 hat zwei Spiele um '14:00' und '16:00'
+        r.game_times = {d: ['14:00'] * len(r.schedule.get(d, []))
+                        for d in r.schedule}
+        events = build_calendar_events({'UT': r})
+        with_time = [e for e in events if not e.get('allDay', False)]
+        assert len(with_time) > 0, 'erwartet mindestens 1 Event mit Uhrzeit'
+        e = with_time[0]
+        assert 'T' in e['start'], f'Uhrzeit-Format falsch: {e["start"]}'
+        return f'{len(with_time)} Events mit Uhrzeit'
+    check('build_calendar_events: Uhrzeit setzt allDay=False', t_events_allday_vs_uhrzeit)
+
+    def t_default_options():
+        opts = default_calendar_options()
+        assert opts['initialView'] == 'dayGridMonth'
+        assert opts['locale'] == 'de'
+        assert opts['firstDay'] == 1
+        return 'Defaults: dayGridMonth, locale=de, firstDay=Mo'
+    check('default_calendar_options: vernuenftige Defaults', t_default_options)
+
     _summarize()
 
 

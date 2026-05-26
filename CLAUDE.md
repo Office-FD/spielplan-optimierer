@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.9.2 · Stand Mai 2026 · Status: Sprint A1 + Hotfix + Adressen-Editor abgeschlossen — Karten-Visualisierung der Reiserouten (folium + streamlit-folium + Nominatim-Geocoding) mit defensivem Fallback bei fehlenden Dependencies und manuellem Koordinaten-Editor für Adressen, die Nominatim nicht findet. Roadmap-Pfad A weiter mit A2 (Kalenderansicht); danach Pfad B (Gap-Monitoring, Doku, Real-World-Verifikation). Siehe ROADMAP.md.**
+> **Version 1.10.0 · Stand Mai 2026 · Status: Roadmap-Pfad A vollständig — A1 (Karten-Visualisierung) + A2 (Kalenderansicht) implementiert. 9 Dependabot-Updates gemerged (pandas 3.0, streamlit 1.57, numpy 2.4.6, ortools 9.15, requests 2.34.2, 4 Action-Bumps). Roadmap weiter mit Pfad B (B1 Gap-Monitoring, B2 Doku-Update, B3 Real-World-Verifikation). Siehe ROADMAP.md.**
 
 ---
 
@@ -598,6 +598,37 @@ Erstes User-sichtbares Feature aus Roadmap-Pfad A. Spielplan-Reviewer können la
 **Hotfix v1.9.0 → v1.9.1:** `app.py` prüft jetzt vor dem `from spielplan_multi.map_output import …` ob `folium` + `streamlit_folium` installiert sind. Fehlen die Pakete (Auto-Updater hat App-Code aktualisiert, Bootstrap-Installer mit gebundeltem Python jedoch noch v1.8.x-Pakete), wird statt eines Crashes eine `st.info`-Box mit der konkreten `pip install`-Anweisung angezeigt. Damit ist die App weiterhin nutzbar, nur das Karten-Feature ist deaktiviert bis die Pakete nachinstalliert sind. **Bootstrap-Installer muss bei Gelegenheit neu gebaut werden** (`installer\build_bootstrap.bat`) damit Neu-Installationen folium/streamlit-folium gebundelt erhalten.
 
 **Sprint A1 Folge-Iteration v1.9.1 → v1.9.2 – Adressen-Editor:** Wenn Nominatim eine Adresse nicht findet (z. B. unsauberer Eintrag in `clubs_db.csv`), wird die Liste der fehlenden Adressen im UI angezeigt. Ein neuer `st.expander` „📍 N Adresse(n) manuell ergänzen" bietet pro fehlende Adresse ein Eingabefeld für `lat, lon`-Koordinaten (z. B. aus Google Maps via Rechtsklick). Speichern landet im selben Cache wie automatisches Geocoding (`spielplan_multi/geocode.set_manual_coord`), nach Speichern wird `S.map_obj=None` gesetzt → Karte beim nächsten „Erstellen/Aktualisieren"-Klick neu gebaut. Validierung: Format „lat, lon" + Wertebereich (-90..90 / -180..180).
+
+**Dependabot-Update-Sprint (v1.9.2 → v1.10.0 Begleit-Merges):**
+
+9 offene Dependabot-PRs ausgewertet und gemerged. Tests grün geblieben mit allen Updates.
+
+| Bereich | Update | Risikobewertung |
+|---|---|---|
+| GitHub Actions | `actions/checkout` 4→6 | Niedrig (intern getestet) |
+| GitHub Actions | `actions/setup-python` 5→6 | Niedrig |
+| GitHub Actions | `github/codeql-action` 3→4 | Niedrig |
+| GitHub Actions | `softprops/action-gh-release` 2→3 | Niedrig |
+| Python | `requests` 2.32 → 2.34.2 | Niedrig (Patch/Minor) |
+| Python | `numpy` 2.0 → 2.4.6 | Niedrig (Minor) |
+| Python | `ortools` 9.14 → 9.15.6755 | Niedrig (Patch innerhalb 9.x) |
+| Python | `streamlit` 1.32 → 1.57.0 | Mittel — viele Minor-Versionen mit UI-Deprecations, aber Tests grün |
+| Python | `pandas` 2.0 → 3.0.3 | Hoch erwartet — Tests aber grün (Major-Bump akzeptiert) |
+
+**Sprint A2 — Interaktive Kalenderansicht (v1.9.2 → v1.10.0):**
+
+Zweites User-sichtbares Feature aus Roadmap-Pfad A. Ergänzt Excel-Export um interaktive Monats-/Wochen-/Listenansicht direkt im Browser.
+
+| Datei | Inhalt |
+|---|---|
+| `requirements.txt` | +`streamlit-calendar>=1.4` |
+| `spielplan_multi/calendar_output.py` (neu) | `build_calendar_events(results, include_uhrzeit=True)`: Konvertiert Spielpläne in FullCalendar-Event-Format. Pro Spiel ein Event mit `title='Heim – Gast'`, Datum aus `cfg.calendar[day]['week_start']`, Team-Farbe als `backgroundColor`. Mit `result.game_times` zusätzlich Uhrzeit → `allDay=False`, 2h-Default-Dauer. `default_calendar_options()` liefert deutsche Lokalisierung, Wochennummer, Montag als Wochenanfang. |
+| `app.py` | Neue Section „📅 Kalenderansicht" in Ergebnisansicht (nach Karten-Section, vor iCal-Export). Defensiver Fallback bei fehlendem `streamlit-calendar`-Paket (analog zur Karten-Sektion). Bei leerem `cfg.calendar` Hinweis „Bitte zuerst Rahmenterminplan laden". |
+| `test_features.py` | +7 Tests (Feature 10): `_parse_date` (ISO/DE/invalid), `build_calendar_events` (ohne/mit Kalender, allDay vs. Uhrzeit), `default_calendar_options`. |
+
+**Verifikation:** 64/64 Tests grün. UI-Sichtprüfung im Browser empfohlen (Monats-/Wochen-/Listenansicht, Klick auf Event zeigt Details).
+
+---
 
 ---
 
