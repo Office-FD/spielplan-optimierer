@@ -36,16 +36,43 @@ def _hex_color(idx: int) -> str:
     return f'#{get_team_color(idx)}'
 
 
+def _date_from_kw(year: int, kw: int) -> Optional[_dt.date]:
+    """ISO-Wochennummer + Jahr -> Samstag der Woche (typischer Spieltag)."""
+    try:
+        return _dt.date.fromisocalendar(int(year), int(kw), 6)
+    except (ValueError, TypeError):
+        return None
+
+
+def _guess_season_year(results: Dict[str, Optional[LeagueResult]]) -> int:
+    """Heuristik: Saison-Startjahr aus erstem gueltigen week_start ableiten."""
+    for res in results.values():
+        if res is None or not res.cfg:
+            continue
+        for entry in (res.cfg.calendar or {}).values():
+            d = _parse_date(entry.get('week_start') or entry.get('week_end') or '')
+            if d:
+                # Wenn KW <= 26 (1. Halbjahr): Saison startete im Vorjahr
+                kw = entry.get('kw')
+                if kw and int(kw) <= 26:
+                    return d.year - 1
+                return d.year
+    return _dt.date.today().year
+
+
 def build_calendar_events(
     results: Dict[str, Optional[LeagueResult]],
     *,
     include_uhrzeit: bool = True,
+    season_year: Optional[int] = None,
 ) -> List[dict]:
     """Erstellt Event-Liste fuer streamlit-calendar (FullCalendar-Format).
 
     Args:
         results: {lid: LeagueResult|None}
         include_uhrzeit: Wenn True, baue start/end mit Uhrzeit aus game_times
+        season_year: Saison-Startjahr fuer KW→Datum-Berechnung wenn week_start
+                     fehlt. Default: aus den vorhandenen Daten geschaetzt.
 
     Returns:
         Liste von Events. Jedes Event:
@@ -60,6 +87,9 @@ def build_calendar_events(
         }
     """
     events: List[dict] = []
+
+    if season_year is None:
+        season_year = _guess_season_year(results)
 
     for lid, res in results.items():
         if res is None or not res.cfg or not res.schedule:
@@ -76,8 +106,14 @@ def build_calendar_events(
                         cal_entry.get('week_end') or '')
             game_date = _parse_date(date_str)
 
-            # Wenn kein Datum bekannt: Event ueberspringen (kein sinnvoller
-            # Eintrag im Kalender)
+            # Fallback: aus KW + Saison-Jahr berechnen
+            if game_date is None:
+                kw = cal_entry.get('kw')
+                if kw:
+                    yr = season_year + 1 if int(kw) <= 26 else season_year
+                    game_date = _date_from_kw(yr, kw)
+
+            # Wenn weiterhin kein Datum bekannt: Event ueberspringen
             if game_date is None:
                 continue
 

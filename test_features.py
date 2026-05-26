@@ -967,6 +967,56 @@ def main():
         return 'Defaults: dayGridMonth, locale=de, firstDay=Mo'
     check('default_calendar_options: vernuenftige Defaults', t_default_options)
 
+    def t_events_kw_fallback():
+        """Bei fehlendem week_start aber vorhandener KW: Datum aus KW berechnet."""
+        # KW ohne Datum — soll trotzdem Events erzeugen
+        cfg_kw_only = make_cfg('KO', TEAMS, dist=DIST, calendar={
+            1: {'kw': 37, 'week_start': '', 'week_end': ''},
+            2: {'kw': 38, 'week_start': '', 'week_end': ''},
+            3: {'kw': 39, 'week_start': '', 'week_end': ''},
+            4: {'kw': 40, 'week_start': '', 'week_end': ''},
+            5: {'kw': 41, 'week_start': '', 'week_end': ''},
+            6: {'kw': 42, 'week_start': '', 'week_end': ''},
+        })
+        r = solve_league_phase1(cfg_kw_only, time_limit=15, seed=42)
+        assert r is not None
+        r.cfg = cfg_kw_only
+        # Heuristik schaetzt 2026 aus dem Default (today.year) wenn nichts gesetzt
+        events = build_calendar_events({'KO': r}, season_year=2026)
+        total = sum(len(g) for g in r.schedule.values())
+        assert len(events) == total, f'erwartet {total}, got {len(events)}'
+        return f'{len(events)} Events trotz fehlendem week_start (Fallback aus KW)'
+    check('build_calendar_events: KW-Fallback wenn week_start fehlt', t_events_kw_fallback)
+
+    def t_events_multi_liga_mixed():
+        """Multi-Liga: eine Liga mit Datum, andere nur mit KW -> alle Events."""
+        cfg_full = make_cfg('LF', TEAMS, dist=DIST, calendar={
+            1: {'kw': 37, 'week_start': '2026-09-07', 'week_end': '2026-09-13'},
+            2: {'kw': 38, 'week_start': '2026-09-14', 'week_end': '2026-09-20'},
+            3: {'kw': 39, 'week_start': '2026-09-21', 'week_end': '2026-09-27'},
+            4: {'kw': 40, 'week_start': '2026-09-28', 'week_end': '2026-10-04'},
+            5: {'kw': 41, 'week_start': '2026-10-05', 'week_end': '2026-10-11'},
+            6: {'kw': 42, 'week_start': '2026-10-12', 'week_end': '2026-10-18'},
+        })
+        cfg_kw_only = make_cfg('LK', TEAMS, dist=DIST, calendar={
+            1: {'kw': 37, 'week_start': ''},
+            2: {'kw': 38, 'week_start': ''},
+            3: {'kw': 39, 'week_start': ''},
+            4: {'kw': 40, 'week_start': ''},
+            5: {'kw': 41, 'week_start': ''},
+            6: {'kw': 42, 'week_start': ''},
+        })
+        r_full = solve_league_phase1(cfg_full, time_limit=15, seed=42)
+        r_kw = solve_league_phase1(cfg_kw_only, time_limit=15, seed=42)
+        assert r_full is not None and r_kw is not None
+        r_full.cfg = cfg_full
+        r_kw.cfg = cfg_kw_only
+        events = build_calendar_events({'LF': r_full, 'LK': r_kw})
+        ligas = {e['extendedProps']['liga'] for e in events}
+        assert ligas == {'LF', 'LK'}, f'erwartet beide Ligen, got {ligas}'
+        return f'Beide Ligen im Kalender: {sorted(ligas)}'
+    check('build_calendar_events: Multi-Liga mit gemischtem Kalender', t_events_multi_liga_mixed)
+
     _summarize()
 
 

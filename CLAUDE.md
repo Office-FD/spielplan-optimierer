@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.10.0 · Stand Mai 2026 · Status: Roadmap-Pfad A vollständig — A1 (Karten-Visualisierung) + A2 (Kalenderansicht) implementiert. 9 Dependabot-Updates gemerged (pandas 3.0, streamlit 1.57, numpy 2.4.6, ortools 9.15, requests 2.34.2, 4 Action-Bumps). Roadmap weiter mit Pfad B (B1 Gap-Monitoring, B2 Doku-Update, B3 Real-World-Verifikation). Siehe ROADMAP.md.**
+> **Version 1.10.1 · Stand Mai 2026 · Status: Roadmap-Pfad A vollständig + Hotfix für Multi-Liga-Kalender — A1 (Karten-Visualisierung) + A2 (Kalenderansicht) implementiert. Kalender zeigt jetzt auch Ligen ohne explizites `week_start`-Datum (Fallback aus KW + Saison-Jahr). 9 Dependabot-Updates gemerged. Roadmap weiter mit Pfad B (B1 Gap-Monitoring, B2 Doku-Update, B3 Real-World-Verifikation).**
 
 ---
 
@@ -627,6 +627,8 @@ Zweites User-sichtbares Feature aus Roadmap-Pfad A. Ergänzt Excel-Export um int
 | `test_features.py` | +7 Tests (Feature 10): `_parse_date` (ISO/DE/invalid), `build_calendar_events` (ohne/mit Kalender, allDay vs. Uhrzeit), `default_calendar_options`. |
 
 **Verifikation:** 64/64 Tests grün. UI-Sichtprüfung im Browser empfohlen (Monats-/Wochen-/Listenansicht, Klick auf Event zeigt Details).
+
+**Hotfix v1.10.0 → v1.10.1 – Multi-Liga-Kalender:** Bei Multi-Liga-Optimierungen werden Ligen ohne explizites `week_start`-Datum nicht mehr stillschweigend ausgelassen. `build_calendar_events` erhält neuen `season_year`-Parameter mit Auto-Erkennung via `_guess_season_year()` (erstes vorhandenes Datum mit KW-Saison-Logik). Fehlt `week_start`, aber `kw` ist gesetzt, wird das Datum aus `date.fromisocalendar(yr, kw, 6)` (Samstag) berechnet. Behebt das Problem dass nur die erste Liga im Kalender erschien, wenn der Rahmenterminplan-Import oder die manuelle Cal-Table-Eingabe nur für eine Liga Daten gesetzt hat. Tests +2: `t_events_kw_fallback`, `t_events_multi_liga_mixed`.
 
 ---
 
