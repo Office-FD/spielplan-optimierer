@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.12.1 · Stand Mai 2026 · Status: F1-Verifikation abgeschlossen (B3 ✅) — Gap-Reduktion 19,96 % → 15,35 % gemessen (−23,1 % relativ, Prognose war ~25 %). Roadmap-Pfad A+B vollständig abgeschlossen. Nächste Aktivität: Code-Review Runde 7 für die seit v1.6.2 neu hinzugekommenen Module (geocode, map_output, calendar_output, Telemetrie-Felder, UX-Translator, SA-Hotfix).**
+> **Version 1.13.0 · Stand Mai 2026 · Status: Code-Review Runde 7 abgeschlossen — 1 Hoch + 6 Mittel + 12 von 22 Niedrig-Prio-Befunden in 4 Sammel-Commits gefixt (v1.12.1 → v1.13.0). Nicht-gefixt: 10 Niedrig-Prio-Polishings (Doku-Auslagerung, Screenshots, Bootstrap-SHA-Sync, …) — bleiben im BACKLOG. F1-Verifikation (B3 ✅, −23,1 % Gap-Reduktion) bleibt Basis.**
 
 ---
 
@@ -701,6 +701,25 @@ Beim 8h-Verifikations-Lauf vom 26.05.2026 wurde im JSON-Export beobachtet: `best
 | `spielplan_multi/sa_refine.py` | Im Final-`LeagueResult` werden `gap_history=list(result.gap_history or [])`, `best_bound=result.best_bound`, `final_gap=result.final_gap` durchgereicht. Damit überleben die Phase-2-Telemetrie-Werte den SA-Pass (SA optimiert nur Heimrecht-Tauschmöglichkeiten, ohne eigenen LP-Bound — daher kann die Phase-2-Berechnung als Approximation des verbleibenden Optimierungs-Gaps stehen bleiben). |
 
 **Bekannte Einschränkung:** Da SA die `objective` aktualisiert (km-Reduktion), ist die direkte Gap-Berechnung `|bound - SA-objective| / |bound|` nur eine Annäherung. Der `best_bound` stammt aus dem Phase-2-Modell vor SA. Für striktere Auswertung müsste man `phase2_objective` separat speichern (Future-Item).
+
+**Code-Review Runde 7 abgeschlossen (v1.12.1 → v1.13.0):**
+
+5 Blöcke (A-E), 37 Befunde, 19 davon in 4 Sammel-Commits gefixt. Übrige 18 (alle Niedrig-Prio) bleiben in `BACKLOG.md` als Future-Polishing.
+
+| Commit | Inhalt |
+|---|---|
+| `647c02b` FIX-1 | D7-H1 + 4 Quick-Wins (coverage.yml@v6, switch-Hint-Skip-bei-TT, final_gap ohne abs, User-Agent dynamisch, liga_idx weg) |
+| `8d1f575` FIX-2 | A7-M1 (gap_history-Kopie pro Liga), A7-M3 (`phase2_objective`-Feld + Gap-Berechnung) |
+| `3083683` FIX-3 | B7-M1 (atomic write), C7-M1 (Log-Cache via `S._translog_cache`), E7-M1 (requirements Upper-Bounds) |
+| `edb43a7` FIX-4 | B7-L2/L5/L6 (Umlaute, HTML-Escape, 2-stelliges Jahr), A7-L3/L5 (Comments), E7-L1 (ISS-Default) |
+
+**Nicht gefixt (bleibt im BACKLOG):**
+- A7-M2 (Phase-1-Seed-History): größerer Refactor mit zusätzlichem `seed_histories`-Feld
+- A7-L2 (history-Determinismus): Wandzeit vs. Iteration — Trade-off
+- C7-L1/L2 (Markdown-Escape, [OK]-Replace): bei FLVD-Daten irrelevant
+- D7-L1/L2/L3 (Coverage-Threshold, Pre-Commit, Parallel-Tests): Trade-offs
+- E7-L2 (telemetrie/-Daten ins Repo): Diskussionspunkt
+- E7-L3/L4/L5 (CLAUDE.md-Aufteilung, Screenshots, Versions-Sync): manuelle Aufgaben
 
 **Sprint B3 abgeschlossen (27.05.2026) — F1-Verifikation real bestätigt:**
 
