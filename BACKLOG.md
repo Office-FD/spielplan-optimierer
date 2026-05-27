@@ -1612,6 +1612,63 @@ Wenn der Rahmenterminplan-Excel mehrere Sheets hat und das relevante Sheet nicht
 
 **Block-C-Fazit:** Datenmodell und Validator sind sehr gut entwickelt — nach mehreren Code-Reviews ist der Validator besonders gründlich (deckt B-M1/M2/M3 ab, plus alle Standard-Konfig-Fehler). Die Edge-Cases in R8-C-M1 sind seltene Konfigurationen, die in der Praxis selten auftreten; der Solver fängt sie via INFEASIBLE-Diagnose ab.
 
+---
+
+### [intern] Code-Review Runde 8 – Block D: Export + Visualisierung
+
+**Geprüft:** `spielplan_multi/excel_output.py`, `spielplan_multi/map_output.py`, `spielplan_multi/calendar_output.py`, `spielplan_multi/geocode.py`
+**Datum:** 27.05.2026, Stand v1.13.0
+
+**Show-Stopper:** **0** | **Hoch:** **0** | **Mittel:** **1** | **Niedrig:** **4**
+
+#### Mittel
+
+**🟡 R8-D-M1 — `build_overview_excel._parse_date` hat 2-stelliges-Jahr-Bug**
+`excel_output.py` Z. 1002-1014 enthält eine **eigene** `_parse_date`-Funktion:
+```python
+parts = s.split('.')
+if len(parts) >= 3:
+    return _dt.date(int(parts[2]), int(parts[1]), int(parts[0]))
+```
+Bei einem Excel-Eintrag wie „07.09.26" wäre `int(parts[2]) = 26` → Jahr 26 (statt 2026).
+
+**Kontrast:** In R7-Sprint wurde dieser Bug in `calendar_output._parse_date` gefixt (B7-L6 in v1.13.0). Die `excel_output`-Version hat den Fix nicht bekommen — **Code-Duplikation = vergessener Sync**.
+
+**Risiko:** Wenn ein FLVD-Rahmenterminplan mal mit 2-stelligem Jahr exportiert wird, wäre die Datums-Sortierung in der Gesamtübersicht falsch (Jahr 26 ≪ Jahr 2026).
+**Fix:** Selber Fix wie in calendar_output (siehe `_parse_date` dort), oder noch besser: die calendar_output-Version importieren statt zu duplizieren.
+**Produktions-Blocker?** Nein (FLVD-Rahmenpläne haben ISO oder 4-stelliges Jahr-Format)
+
+#### Niedrig
+
+**🟢 R8-D-L1 — `build_league_excel` zeigt aggregierten objective im pro-Liga-Sheet**
+Z. 110: `kv(r, 'Objective Value:', round(result.objective, 2))`. Bei Phase-2-Modell ist `result.objective` für alle Ligen gleich (gemeinsamer Wert). In einem pro-Liga-Excel wird also der Aggregat-Wert angezeigt — wenig aussagekräftig für eine einzelne Liga.
+**Fix-Idee:** Bei `result.phase2_objective is not None` (Phase 2 lief) zusätzlich „Phase-2-Aggregat: X" und „Pre-SA-Wert: Y" anzeigen.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-D-L2 — `build_hall_schedule` Sortierung bei Jahreswechsel**
+Z. 884: `_sort_key` sortiert nach KW (numerisch). Bei jahresübergreifenden Saisons (z. B. KW 37 → 52 → 1 → 26) würde KW 1 vor KW 37 sortiert.
+**Risiko:** Bei FLVD-Saisons mit Spielen in 2 Kalenderjahren falsche Halle-Reihenfolge.
+**Fix-Idee:** Sortierung primär nach `week_start`-Datum statt KW.
+**Produktions-Blocker?** Nein (Hallenbelegung kann auch nach Sortier-Reihenfolge im Excel manuell sortiert werden)
+
+**🟢 R8-D-L3 — Code-Duplikation `_parse_date` in 2 Modulen**
+`excel_output.py:1002` und `calendar_output.py:19` haben fast identische `_parse_date`. R7-Fixes greifen nur im calendar_output. Konsolidierung wäre sauberer.
+**Fix-Idee:** Eine gemeinsame Helper-Funktion in `schedule_utils.py` oder neuer `_date_utils.py`-Modul.
+
+**🟢 R8-D-L4 — Map/Kalender/Geocode bereits in R7 ausführlich reviewed**
+B7-M1 (Cache-File-Lock), B7-L1/L2/L5/L6 schon in v1.13.0 gefixt. Keine neuen Befunde in R8 — Module sind solide.
+
+---
+
+**Block-D-Fazit:** Export-Module sind solide, aber `_parse_date`-Code-Duplikation ist ein latenter Sync-Punkt. Die anderen Module wurden in R7 schon abgedeckt.
+
+**Geprüfte Bereiche** ✓:
+- `build_league_excel` (9 Sheets: Konfig, Spielplan, Gruppen, Heatmap, Kilometer, Distanzmatrix, Fahrtkostenausgleich, Team-Ansichten, Fairness)
+- `build_cohome_summary` + `build_hall_schedule` + `build_overview_excel`
+- `map_output` (CircleMarker + PolyLines + LayerControl)
+- `calendar_output` (FullCalendar-Events + KW-Fallback)
+- `geocode` (Cache + atomic-write + Umlaut-Norm in v1.13.0)
+
 **Geprüfte Bereiche** ✓:
 - `LeagueConfig`-Properties (n_matchdays, hinrunde_end, n_games_per_day, dst_days) konsistent für alle Format-Varianten
 - Validator deckt: n<2, n_md=0, Distanzmatrix leer/NaN, DST außerhalb, Sperrtage außerhalb/>50%/100%, Pflichtspiel-Konflikte, Einfachrunde-doppelte-Paarung, n_rounds≥2-Pin-in-selber-Runde, B-M1 (Pin+Sperrtag), B-M3 (Pflichtheim-Team-unbekannt), forced_home + DST + Sperrtag + Pin-away
