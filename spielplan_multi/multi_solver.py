@@ -249,9 +249,11 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
         p2_bound = float(solver.BestObjectiveBound())
     except Exception:
         p2_bound = None
+    # A7-L4: Maximize -> bound >= obj, abs() nicht noetig; Schutz gegen
+    # pathologische bound = 0 oder negativ.
     p2_gap = None
-    if p2_bound is not None and abs(p2_bound) > 1e-9:
-        p2_gap = abs(p2_bound - p2_obj) / abs(p2_bound)
+    if p2_bound is not None and p2_bound > 1e-9:
+        p2_gap = (p2_bound - p2_obj) / p2_bound
     p2_history = list(getattr(_p2_cb, 'history', []))
 
     results: Dict[str, Optional[LeagueResult]] = {}

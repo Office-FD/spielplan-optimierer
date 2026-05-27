@@ -62,7 +62,7 @@ def build_route_map(
         # Leere Karte ist ok
         return m
 
-    for liga_idx, (lid, res) in enumerate(valid_results):
+    for lid, res in valid_results:
         cfg = res.cfg
         liga_group = folium.FeatureGroup(name=f'Liga {lid}', show=True)
 

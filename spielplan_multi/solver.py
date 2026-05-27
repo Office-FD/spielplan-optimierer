@@ -769,9 +769,13 @@ def set_hints(model: cp_model.CpModel,
         if k in lv.x:
             model.AddHint(lv.x[k], val)
 
-    # Abgeleitete switch-Variablen (aus home_vals errechnet)
-    # switch[ti, d] = 1 wenn home_vals[ti,d] != home_vals[ti,d+1], sonst 0
-    if result.home_vals and lv.switch:
+    # Abgeleitete switch-Variablen (aus home_vals errechnet) — nur Standard-Format.
+    # Bei Turniertag (gpd > 1) wird switch[ti,d] == 0 als Constraint erzwungen,
+    # daher waeren Hints redundant / wuerden ignoriert (A7-L1).
+    _is_turniertag = (result.cfg is not None and
+                       (result.cfg.games_per_team_per_day > 1
+                        or result.cfg.n_teams_per_group > 0))
+    if result.home_vals and lv.switch and not _is_turniertag:
         for (ti, d), sw_var in lv.switch.items():
             v1 = result.home_vals.get((ti, d))
             v2 = result.home_vals.get((ti, d + 1))
@@ -779,8 +783,8 @@ def set_hints(model: cp_model.CpModel,
                 continue
             model.AddHint(sw_var, 1 if v1 != v2 else 0)
 
-    # Abgeleitete sw_count-Variablen (aus result.sw_counts)
-    if result.sw_counts and lv.sw_count:
+    # Abgeleitete sw_count-Variablen (aus result.sw_counts) — auch nur Standard-Format
+    if result.sw_counts and lv.sw_count and not _is_turniertag:
         for ti, sc_var in lv.sw_count.items():
             if 0 <= ti < len(result.sw_counts):
                 model.AddHint(sc_var, int(result.sw_counts[ti]))
@@ -893,15 +897,17 @@ def solve_league_phase1(cfg: LeagueConfig,
     home_vals, h_vals, x_vals   = extract_hints(solver, lv)
     groups              = extract_groups(schedule, cfg)
 
-    # B1 (v1.11.0): Gap-Telemetrie
+    # B1 (v1.11.0): Gap-Telemetrie. Maximize: bound >= obj_val, bound > 0.
+    # A7-L4: abs() nicht noetig, aber Schutz gegen pathologische Faelle
+    # (bound = 0 oder negativ).
     obj_val = float(solver.ObjectiveValue())
     try:
         bound = float(solver.BestObjectiveBound())
     except Exception:
         bound = None
     gap = None
-    if bound is not None and abs(bound) > 1e-9:
-        gap = abs(bound - obj_val) / abs(bound)
+    if bound is not None and bound > 1e-9:
+        gap = (bound - obj_val) / bound
 
     return LeagueResult(
         league_id=cfg.league_id,

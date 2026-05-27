@@ -18,11 +18,21 @@ from typing import Dict, List, Optional, Tuple
 import requests
 
 
-_CACHE_DIR = Path(__file__).resolve().parent.parent / '.cache'
+_ROOT_DIR = Path(__file__).resolve().parent.parent
+_CACHE_DIR = _ROOT_DIR / '.cache'
 _CACHE_FILE = _CACHE_DIR / 'geocodes.json'
 
-# Nominatim verlangt einen UA-Header mit Kontakt-Info
-_USER_AGENT = 'spielplan-optimierer/1.9 (it@floorball.de)'
+
+def _read_version() -> str:
+    """Liest VERSION-Datei (Fallback: 'dev')."""
+    try:
+        return (_ROOT_DIR / 'VERSION').read_text(encoding='utf-8').strip()
+    except OSError:
+        return 'dev'
+
+
+# Nominatim verlangt einen UA-Header mit Kontakt-Info (B7-L1: dynamisch aus VERSION)
+_USER_AGENT = f'spielplan-optimierer/{_read_version()} (it@floorball.de)'
 _NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
 _RATE_LIMIT_SEC = 1.1  # leicht über 1.0 um sicher zu sein
 
