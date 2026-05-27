@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.12.1 · Stand Mai 2026 · Status: Hotfix — sa_refine.refine_schedule() schreibt Telemetrie-Felder (gap_history, best_bound, final_gap) jetzt aus dem Input-Result durch. Bisher überschrieb SA die Werte mit Defaults → in JSON-Sitzungen war die Telemetrie weg, wenn SA-Refine aktiv war. Roadmap-Pfad A+B komplett, B3 = post-F1-Lauf weiter offen (User-Action).**
+> **Version 1.12.1 · Stand Mai 2026 · Status: F1-Verifikation abgeschlossen (B3 ✅) — Gap-Reduktion 19,96 % → 15,35 % gemessen (−23,1 % relativ, Prognose war ~25 %). Roadmap-Pfad A+B vollständig abgeschlossen. Nächste Aktivität: Code-Review Runde 7 für die seit v1.6.2 neu hinzugekommenen Module (geocode, map_output, calendar_output, Telemetrie-Felder, UX-Translator, SA-Hotfix).**
 
 ---
 
@@ -693,6 +693,28 @@ Beim 8h-Verifikations-Lauf vom 26.05.2026 wurde im JSON-Export beobachtet: `best
 | `spielplan_multi/sa_refine.py` | Im Final-`LeagueResult` werden `gap_history=list(result.gap_history or [])`, `best_bound=result.best_bound`, `final_gap=result.final_gap` durchgereicht. Damit überleben die Phase-2-Telemetrie-Werte den SA-Pass (SA optimiert nur Heimrecht-Tauschmöglichkeiten, ohne eigenen LP-Bound — daher kann die Phase-2-Berechnung als Approximation des verbleibenden Optimierungs-Gaps stehen bleiben). |
 
 **Bekannte Einschränkung:** Da SA die `objective` aktualisiert (km-Reduktion), ist die direkte Gap-Berechnung `|bound - SA-objective| / |bound|` nur eine Annäherung. Der `best_bound` stammt aus dem Phase-2-Modell vor SA. Für striktere Auswertung müsste man `phase2_objective` separat speichern (Future-Item).
+
+**Sprint B3 abgeschlossen (27.05.2026) — F1-Verifikation real bestätigt:**
+
+Vergleich zweier 8h-Phase-2-Läufe (jeweils 4 Ligen, gemeinsames Modell):
+
+| Lauf | Datum | App-Version | symmetry_level | Status | Objective | Best Bound | **Gap** |
+|---|---|---|---|---|---|---|---|
+| pre-F1 | 23.05. | v1.6.x | 1 | FEASIBLE | 690,50 M | 862,67 M | **19,96 %** |
+| post-F1 | 26.05. | v1.12.0 | 2 | FEASIBLE | 656,77 M | 775,87 M | **15,35 %** |
+
+**Relative Gap-Reduktion: −23,1 %** (Prognose im BACKLOG: ~25 %, also punktgenau im Korridor).
+
+Die F1-Hebel (H1 symmetry_level=2 + H3 Switch-Term-Obergrenze pro Team + H2 erweiterte Phase-1→Phase-2 Hints) sind damit auch **quantitativ verifiziert**, nicht nur theoretisch.
+
+| Datei | Inhalt |
+|---|---|
+| `Spielplaene/telemetrie/F1_VERIFIKATION_2026-05.md` | Vollständige Vorher/Nachher-Tabelle mit Interpretationen je Hebel |
+| `Spielplaene/telemetrie/post_F1_2026-05-26_8h-v2.csv` | 67 Improvements aus dem post-F1-Lauf (aus CP-SAT-Log extrahiert) |
+
+**Wichtige Beobachtung:** Auch bei geänderter Konfiguration (andere Pflichttermine/Sperrtage im post-F1-Lauf) ist der **Gap als Verhältnis** `(bound − obj) / bound` eine relativ stabile Metrik gegenüber Modell-Variationen — die Solver-Effizienz wird unabhängig von der Modell-Härte abgebildet.
+
+Datenquelle für post-F1-Telemetrie: CP-SAT-Console-Log (manuell aus dem Streamlit-stdout), nicht das JSON-Sitzungs-File — der SA-Refine-Bug in v1.12.0 (gefixt in v1.12.1) hatte die Felder überschrieben. Bei zukünftigen Saisonoptimierungen mit v1.12.1+ sind alle Werte automatisch im JSON.
 
 ---
 

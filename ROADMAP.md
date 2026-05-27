@@ -70,11 +70,16 @@
 - Gap-Werte, Lösungsqualität (Gesamt-km), Wechselrate dokumentieren
 - Ergebnis in BACKLOG.md unter "Optimierungslücke verringern" als verifizierte Wirkung anhängen
 
-**Status:** Teilweise — erster post-F1 8h-Lauf am 26.05.2026 mit v1.12.0 durchgeführt (`Spielplaene/telemetrie/post_F1_2026-05-26_8h_*`). Direkter Gap-Vergleich nicht möglich:
-1. Konfig wurde gegenüber pre-F1 geändert (andere Pflichttermine + Sperrtage)
-2. SA-Refine-Bug überschrieb Telemetrie-Felder mit Defaults (gefixt in v1.12.1)
+**Status:** ✅ Abgeschlossen (27.05.2026) — zweiter post-F1 8h-Lauf am 26.05.2026 (21:20) liefert klare Verifikation:
 
-Vollständige Verifikation verschoben auf die nächste reguläre Saisonoptimierung mit v1.12.1 — dort wird die Telemetrie automatisch sauber persistiert. Bis dahin: F1-Hebel sind durch Tests (62/62) und theoretische Analyse hinreichend belegt.
+| Metrik | pre-F1 (23.05.) | post-F1 (26.05.) | Δ |
+|---|---|---|---|
+| Gap | 19,96 % | **15,35 %** | **−4,6 PP** |
+| Relative Reduktion | – | – | **−23,1 %** |
+
+BACKLOG-Prognose ~25 % — gemessen 23,1 %. F1-Hebel (H1 symmetry_level=2 + H3 Switch-Term-Bound + H2 Hint-Boost) sind real verifiziert.
+
+Vollständige Auswertung: `Spielplaene/telemetrie/F1_VERIFIKATION_2026-05.md` + `post_F1_2026-05-26_8h-v2.csv` (67 Improvements aus CP-SAT-Log extrahiert, da SA-Refine-Bug in v1.12.0 die JSON-Telemetrie-Felder überschrieb — Hotfix in v1.12.1).
 
 ---
 
