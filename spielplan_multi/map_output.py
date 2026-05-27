@@ -13,12 +13,18 @@ Verwendung:
 """
 from __future__ import annotations
 
+import html as _html
 from typing import Dict, List, Optional, Tuple
 
 import folium
 
 from .league_types import LeagueResult
 from .config import get_team_color
+
+
+def _esc(s: str) -> str:
+    """HTML-escape fuer Tooltip-Strings (B7-L5)."""
+    return _html.escape(str(s), quote=True)
 
 
 # Deutschland-geografisches Zentrum (etwa Niederdorla, Thueringen)
@@ -89,7 +95,7 @@ def build_route_map(
                 fill=True,
                 fill_color=color,
                 fill_opacity=0.9,
-                tooltip=f'<b>{team}</b><br>{cfg.locations[ti]}<br>Liga {lid}',
+                tooltip=f'<b>{_esc(team)}</b><br>{_esc(cfg.locations[ti])}<br>Liga {_esc(lid)}',
             ).add_to(liga_group)
 
         # Distanz-Matrix fuer km-Anzeige
@@ -126,10 +132,10 @@ def build_route_map(
                 except (KeyError, IndexError, ValueError):
                     pass
 
-            # Tooltip: alle Begegnungen dieser Paarung
-            tooltip_lines = [f'<b>{ta} ↔ {tb}</b>{km_str}']
+            # Tooltip: alle Begegnungen dieser Paarung (B7-L5: HTML-escaped)
+            tooltip_lines = [f'<b>{_esc(ta)} ↔ {_esc(tb)}</b>{km_str}']
             for day, ht, at in sorted(occurrences):
-                tooltip_lines.append(f'ST {day}: {ht} (H) – {at}')
+                tooltip_lines.append(f'ST {day}: {_esc(ht)} (H) – {_esc(at)}')
             tooltip = '<br>'.join(tooltip_lines)
 
             # Liniendicke = Anzahl Begegnungen

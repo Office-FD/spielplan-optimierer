@@ -5,7 +5,8 @@
 #ifndef MyAppVersion
   ; Fallback-Wert, wenn iscc.exe direkt ohne /DMyAppVersion= aufgerufen wird.
   ; Normalerweise setzt build_bootstrap.bat /DMyAppVersion="$(cat VERSION)".
-  #define MyAppVersion "1.4.0"
+  ; E7-L1: bei VERSION-Bump auch hier nachziehen.
+  #define MyAppVersion "1.13.0"
 #endif
 
 #define MyAppName "Spielplan-Optimierer"

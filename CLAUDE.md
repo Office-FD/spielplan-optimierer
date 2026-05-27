@@ -116,6 +116,14 @@ game_times: Dict[int,List[str]]    # Tag → [Uhrzeiten je Spiel]
 
 ## 4. 3-Phasen-Pipeline (multi_solver.py)
 
+> **Telemetrie-Verhalten pro Phase (A7-L5, v1.13.0):**
+> - **Phase 1** schreibt `gap_history`, `best_bound`, `final_gap`, `phase2_objective = objective` ins `LeagueResult`.
+> - **Phase 2** überschreibt alle Felder mit den Phase-2-Werten (gemeinsames Modell, alle Ligen teilen `best_bound`/`final_gap`/`gap_history`; `phase2_objective = p2_obj`).
+> - **SA-Refine** aktualisiert nur `objective` (km-Reduktion); `phase2_objective`, `best_bound`, `gap_history`, `final_gap` werden unverändert durchgereicht (Hotfix v1.12.1 + v1.13.0).
+> - Bei Phase-2-INFEASIBLE-Fallback bleiben die Phase-1-Werte in jedem `LeagueResult`.
+
+
+
 ```
 Phase 1: solve_league_phase1()
   – Jede Liga unabhängig, n Seeds parallel (ThreadPoolExecutor)

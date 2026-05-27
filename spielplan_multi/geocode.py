@@ -73,7 +73,17 @@ def _save_cache(cache: Dict[str, Optional[Tuple[float, float]]]) -> None:
 
 
 def _normalize(addr: str) -> str:
-    return ' '.join(addr.strip().split()).lower()
+    """Adress-Key fuer den Cache.
+
+    B7-L2: Umlaut-Normalisierung — "Köln" und "Koeln" sollen denselben
+    Cache-Eintrag teilen. NFKD + ASCII-Approximation: ä→a, ö→o, ü→u, ß→ss.
+    Eszett wird separat behandelt (NFKD wuerde nur "ß"→"ss" indirekt).
+    """
+    import unicodedata
+    s = addr.strip().replace('ß', 'ss')
+    s = unicodedata.normalize('NFKD', s)
+    s = ''.join(c for c in s if not unicodedata.combining(c))
+    return ' '.join(s.split()).lower()
 
 
 def _query_nominatim(addr: str) -> Optional[Tuple[float, float]]:

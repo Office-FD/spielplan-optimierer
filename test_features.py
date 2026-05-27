@@ -808,11 +808,15 @@ def main():
     from spielplan_multi.map_output import build_route_map
 
     def t_geocode_normalize():
+        # B7-L2 (v1.13.0): Umlaute werden ASCII-normalisiert,
+        # damit "Köln" und "Koeln" denselben Cache-Eintrag teilen
         assert _normalize('  Berlin  ') == 'berlin'
         assert _normalize('Hamburg   Hbf') == 'hamburg hbf'
-        assert _normalize('KÖLN') == 'köln'
-        return 'Trim + lowercase + whitespace-collapse'
-    check('geocode._normalize: trimmt + lowercase', t_geocode_normalize)
+        assert _normalize('KÖLN') == 'koln'
+        assert _normalize('Köln') == _normalize('Koln')
+        assert _normalize('Straße') == 'strasse'
+        return 'Trim + lowercase + whitespace-collapse + Umlaut-Norm'
+    check('geocode._normalize: trimmt + lowercase + ASCII-Norm', t_geocode_normalize)
 
     def t_geocode_cache_roundtrip():
         """Cache write+read mit Tuples roundtrip."""

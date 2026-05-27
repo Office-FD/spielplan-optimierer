@@ -128,7 +128,10 @@ def build_league_vars(model: cp_model.CpModel,
     # H3 (F1): Switch-Term-Obergrenze pro Team — verbessert LP-Untergrenze.
     # Konsekutive DST-Blöcke (d2 = d1+1) erzwingen home[ti,d1] == home[ti,d2],
     # also switch[ti, d1] = 0 (1 erzwungener Nicht-Wechsel pro konsekutivem Block).
-    # Nicht-konsekutive Blöcke (d2 > d1+1) constraint switch nicht direkt.
+    # Nicht-konsekutive Blöcke (d2 > d1+1) schränken switch indirekt ein, weil
+    # `home[d1] == home[d2]` die Auswahlmöglichkeiten reduziert — aber nicht so,
+    # dass ein einfacher Bound-Decrement berechenbar wäre. Hier wird daher nur
+    # die strikte, konservative Konsekutiv-Reduktion angewandt (A7-L3).
     _consecutive_dst = sum(1 for d1, d2 in cfg.dst_blocks if d2 == d1 + 1)
     _max_sw_per_team = max(0, n_transitions - _consecutive_dst)
 

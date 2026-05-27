@@ -17,7 +17,12 @@ from .config import get_team_color
 
 
 def _parse_date(s) -> Optional[_dt.date]:
-    """Parst Datumsstring 'YYYY-MM-DD' oder 'DD.MM.YYYY'. None bei Fehler."""
+    """Parst Datumsstring 'YYYY-MM-DD' oder 'DD.MM.YYYY'. None bei Fehler.
+
+    B7-L6: 2-stelliges Jahr ('07.09.26') wird abgelehnt, weil unklar ist
+    ob '26' = 2026 oder 1926 gemeint ist. Excel exportiert manchmal so,
+    aber im Saison-Kontext typisch '07.09.2026'.
+    """
     if not s or str(s).strip() in ('', 'nan'):
         return None
     s = str(s).strip()
@@ -26,7 +31,10 @@ def _parse_date(s) -> Optional[_dt.date]:
             return _dt.date.fromisoformat(s[:10])
         parts = s.split('.')
         if len(parts) >= 3:
-            return _dt.date(int(parts[2][:4]), int(parts[1]), int(parts[0]))
+            year_part = parts[2][:4]
+            if len(year_part) < 4:
+                return None  # 2-stelliges Jahr nicht eindeutig
+            return _dt.date(int(year_part), int(parts[1]), int(parts[0]))
     except (ValueError, TypeError, IndexError):
         pass
     return None
