@@ -1565,6 +1565,59 @@ Z. 65-75 nutzt `result.home_vals` für Switch-Zählung. Wenn `home_vals` stale i
 
 **Block-B-Fazit:** Nachbearbeitung ist solide. SA hat klare Determinismus-Garantie (gleicher Seed + gleiche Maschine = gleiche Lösung). Mutations-Funktionen sind nach R6 mit Turniertag-Guards versehen. Einziger latenter Punkt ist die fehlende DST-Konsistenz-Warnung in move/reschedule — bei der aktuellen UI nicht direkt triggerbar, aber als Defensive-Maßnahme empfehlenswert.
 
+---
+
+### [intern] Code-Review Runde 8 – Block C: Datenmodell + Eingabe-Validierung
+
+**Geprüft:** `spielplan_multi/league_types.py`, `spielplan_multi/config.py`, `spielplan_multi/config_validator.py`, `spielplan_multi/calendar_parser.py`, `spielplan_multi/distances.py`
+**Datum:** 27.05.2026, Stand v1.13.0
+
+**Show-Stopper:** **0** | **Hoch:** **0** | **Mittel:** **1** | **Niedrig:** **4**
+
+#### Mittel
+
+**🟡 R8-C-M1 — Validator-Lücken für seltene Edge-Cases**
+`config_validator.py` deckt die häufigen Konfig-Probleme ab (Pflichtspiele, Sperrtage, DST-Range, forced_home-Konflikte), aber einige Edge-Cases werden nicht abgefangen:
+
+1. **DST-Block mit `d1 == d2`** wäre kein DST sondern Einzeltag. Im Solver wird `home[ti, d1] == home[ti, d2]` zu einer trivialen Identität, kein direkter Bug, aber sinnloser Eintrag.
+2. **Zwei DST-Blöcke mit überlappendem Tag** (z. B. `(3,4)` und `(3,5)`): solver setzt beide DST-Constraints → erzwingt `home[3]=home[4]=home[5]`, also de facto 3-Tage-Block. User-Erwartung anders.
+3. **Spielfrei + Pflichtspiel-Konflikt** (n_active < n_teams + Pflichtspiel an einem Tag mit Team das gerade Bye haben sollte): nicht explizit geprüft. Solver findet INFEASIBLE.
+4. **forced_home an JEDEM Spieltag** bei `n_rounds=2`: ein Team kann maximal `n-1` Heimspiele pro Saison haben. Wenn forced_home > `n-1` Tage hat → unlösbar. Validator zählt forced_home nicht gegen max-Heimspiele.
+
+**Risiko:** Bei seltenen Konfigurationen liefert der Validator „OK" aber Solver dann INFEASIBLE. Die App hat zwar INFEASIBLE-Diagnose als Fallback, aber ein klarer Validator-Hinweis vorab wäre user-freundlicher.
+**Fix-Idee:** Pro Fall einen Check + warning ergänzen — Aufwand ~30 min insgesamt.
+**Produktions-Blocker?** Nein (Solver fängt die Fälle ab, nur UX-Verbesserung)
+
+#### Niedrig
+
+**🟢 R8-C-L1 — `validate_cfgs()` (CLI) deckt Routing-Konflikte nicht**
+Die UI-`validate()` prüft DST-Routing-Toleranz (verhindert INFEASIBLE), die CLI-`validate_cfgs()` macht das nicht. Im Wizard-CLI-Pfad könnte ein Routing-Konflikt erst zur Solver-Zeit auffallen.
+**Produktions-Blocker?** Nein (CLI ist Nicht-Hauptpfad)
+
+**🟢 R8-C-L2 — `calculate_distance_matrix` Symmetrisierung mit `np.maximum`**
+`dist = np.maximum(dist, dist.T)` (Z. 143) wählt den größeren Wert. Bei echten Einbahnstraßen (z. B. Stadt-Center) wird der längere Umweg für beide Richtungen angesetzt. Konservativ, aber kann km überschätzen.
+**Risiko:** Geringe Überschätzung der Gesamtkilometer. Bei FLVD-Saison-Routen wahrscheinlich unter 1 % Effekt.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-C-L3 — `UNREACHABLE_KM = 9999` als Magic Number**
+Wenn echte Distanzen ≥ 9999 km vorkommen würden, würde der Solver sie als unreachable interpretieren. Bei Deutschland-Saisonplanung (max ~1000 km) komplett unkritisch.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-C-L4 — `parse_rahmenterminplan` liest immer Sheet-Index 0**
+Wenn der Rahmenterminplan-Excel mehrere Sheets hat und das relevante Sheet nicht das erste ist, wird falsch gelesen. Aktuell unkritisch (FLVD-Rahmenpläne haben 1 Sheet).
+**Fix-Idee:** Optionaler `sheet_name`-Parameter. Aktuell aus app.py mit Default 0.
+**Produktions-Blocker?** Nein
+
+---
+
+**Block-C-Fazit:** Datenmodell und Validator sind sehr gut entwickelt — nach mehreren Code-Reviews ist der Validator besonders gründlich (deckt B-M1/M2/M3 ab, plus alle Standard-Konfig-Fehler). Die Edge-Cases in R8-C-M1 sind seltene Konfigurationen, die in der Praxis selten auftreten; der Solver fängt sie via INFEASIBLE-Diagnose ab.
+
+**Geprüfte Bereiche** ✓:
+- `LeagueConfig`-Properties (n_matchdays, hinrunde_end, n_games_per_day, dst_days) konsistent für alle Format-Varianten
+- Validator deckt: n<2, n_md=0, Distanzmatrix leer/NaN, DST außerhalb, Sperrtage außerhalb/>50%/100%, Pflichtspiel-Konflikte, Einfachrunde-doppelte-Paarung, n_rounds≥2-Pin-in-selber-Runde, B-M1 (Pin+Sperrtag), B-M3 (Pflichtheim-Team-unbekannt), forced_home + DST + Sperrtag + Pin-away
+- Calendar-Parser mit DST-Erkennung, KW-Text-Datum-Extraktion, B-L3-Warning für doppelte Spieltage
+- Distance-Loader: Google Maps API, CSV-Matrix, CSV-Paarliste, Excel, manuell, mit Symmetrisierung + Cache
+
 **Geprüfte Bereiche** ✓:
 - SA-Akzeptanz-Kriterium (Metropolis), Cooling (geometrisch), Reset (kein expliziter Reset, läuft aus)
 - SA-Verbote (pinned, DST, blocked, forced_home)
