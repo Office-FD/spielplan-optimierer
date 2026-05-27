@@ -1337,3 +1337,133 @@ Bei Phase-2-Fallback (`return phase1_results`) erbt jedes Liga-Result die Phase-
 **Hoch-Prio-Befunde:** keine.
 
 **Status:** Offen — kann lokal abgearbeitet werden, ist nicht zeitkritisch (alle Bugs latent, nicht aktiv).
+
+---
+
+### [intern] Code-Review Runde 7 – Block B: Karte + Kalender Module
+
+**Geprüft:** `spielplan_multi/geocode.py`, `spielplan_multi/map_output.py`, `spielplan_multi/calendar_output.py`
+
+**B7-M1 (Mittel): Geocode-Cache File-Lock-Risiko**
+`_save_cache` (Z. 42-50) öffnet/schreibt die JSON-Datei ohne File-Locking. Bei zwei parallelen Streamlit-Sitzungen, die gleichzeitig geocoden, kann ein Eintrag verloren gehen (Read-modify-write Race).
+**Fix-Idee:** `portalocker` oder `fcntl.flock`/`msvcrt.locking` einbauen. Bei FLVD-Setup mit nur 1 User wahrscheinlich nie problematisch — niedrige Priorität.
+
+**B7-L1 (Niedrig): User-Agent hardcoded auf veralteter Version**
+`_USER_AGENT = 'spielplan-optimierer/1.9 (it@floorball.de)'` — App ist v1.12.1. Nominatim nutzt UA nur zur Kontaktaufnahme, deshalb harmlos, aber konsistent wäre besser.
+**Fix:** Aus `VERSION`-Datei dynamisch lesen.
+
+**B7-L2 (Niedrig): `_normalize` ohne Umlaut-Normalisierung**
+„Köln" und „Koeln" haben unterschiedliche Cache-Keys. Bei FLVD-Daten wahrscheinlich gelegentliches Issue (manchmal mit Umlaut, manchmal ohne).
+**Fix:** `unicodedata.normalize('NFKD', s).encode('ascii', 'ignore')` als optionaler Schritt.
+
+**B7-L3 (Niedrig): `time.sleep` blockiert Streamlit-Thread**
+Beim Geocoding mit 50 Adressen blockiert 50 × 1.1s = 55s die UI (Spinner sichtbar, aber sonst unresponsiv). Bei Erstaufruf akzeptabel, später aus Cache instant.
+**Fix-Idee:** Asynchroner Worker-Thread + Progress-Updates via Queue. Aufwand mittel, Nutzen klein.
+
+**B7-L4 (Niedrig): `liga_idx` unused in `build_route_map`**
+`for liga_idx, (lid, res) in enumerate(valid_results)` — `liga_idx` wird nicht verwendet. Ruff toleriert es (F841 ignored). Idee dahinter war evtl. eine liga-spezifische Farbe — aktuell wird `get_team_color(ti)` benutzt, was bei Multi-Liga zu Farb-Kollisionen führt.
+**Fix:** Entweder `_ = liga_idx` oder die Variable nutzen für Liga-spezifische Marker-Form.
+
+**B7-L5 (Niedrig): HTML im Folium-Tooltip nicht escaped**
+`tooltip=f'<b>{team}</b>...'` — wenn ein Team-Name HTML-Special-Chars enthielte, würden sie als HTML interpretiert. Bei FLVD-Daten unkritisch (Vereine haben keine HTML-Namen), aber defensiv könnte man `html.escape` nutzen.
+
+**B7-L6 (Niedrig): `_parse_date` bei 2-stelligem Jahr**
+`_dt.date(int(parts[2][:4]), ...)` — wenn `parts[2] = "26"` (statt "2026"), wird Jahr 26 verwendet. Bei FLVD-Excel-Exports unwahrscheinlich (ISO-Format wird genutzt), aber defensive Validierung fehlt.
+
+---
+
+### [intern] Code-Review Runde 7 – Block C: UI + JSON-Persistenz
+
+**Geprüft:** `app.py` neue UI-Sections (Karte, Kalender, Telemetrie, Adressen-Editor), `_session_to_json`/`_session_from_json` (Schema 1.0/1.1), `_translate_solver_log` + `_BEST_LINE_RE`
+
+**C7-M1 (Mittel): `_translate_solver_log` Performance bei langen Läufen**
+Bei jedem Streamlit-Rerun (alle ~2 Sek) wird die gesamte `S.opt_log`-Liste re-iteriert und Regex-gematcht. Bei 8h-Lauf × 14.400 Reruns × 10.000+ Log-Lines = hunderte Millionen Match-Operationen. Aktuell zeigt nur Letztes 12 — aber durchgegangen wird alles.
+**Fix:** Caching mit `(log_len, last_translated_idx)` → nur neu hinzugekommene Zeilen verarbeiten. Aufwand klein, Performance-Impact bei langen Läufen messbar.
+
+**C7-L1 (Niedrig): HTML-Escaping in Translator**
+Liga-Namen werden direkt in Markdown eingebettet (`**{name}**`). Bei Namen mit `*`, `_` oder anderen Markdown-Sonderzeichen würde das Layout brechen. FLVD-Namen sind harmlos.
+
+**C7-L2 (Niedrig): `[OK]`-Replace string-basiert**
+`txt.replace('FEASIBLE', 'Lösung gefunden')` — würde auch in Liga-Namen ersetzen, die zufällig „FEASIBLE" enthielten. Edge-Case bei FLVD nicht relevant.
+
+**C7-L3 (Niedrig): JSON-Lader nutzt `.get()` für Telemetrie-Felder**
+Backward-compat zu Schema 1.0 ist sauber (`.get()` mit None-Defaults). Wenn ein User eine sehr alte Sitzung lädt, fehlt Telemetrie — wird korrekt mit None gefüllt, kein Crash.
+
+---
+
+### [intern] Code-Review Runde 7 – Block D: CI + Tests
+
+**Geprüft:** `.github/workflows/{test,coverage,codeql,release}.yml`, `.github/dependabot.yml`, `.pre-commit-config.yaml`, `ruff.toml`, `.coveragerc`, `run_coverage.py`, `test_pytest_runner.py`, neue Test-Funktionen
+
+**D7-H1 (Hoch): Action-Versionen inkonsistent zwischen Workflows**
+- `test.yml` nutzt `actions/checkout@v6` + `actions/setup-python@v6` (Dependabot-Updates angewandt)
+- `coverage.yml` nutzt `actions/checkout@v4` + `actions/setup-python@v5` (alt!)
+- `actions/upload-artifact@v4` ebenfalls in coverage.yml
+
+Ursache: `coverage.yml` wurde NACH den Dependabot-Updates hinzugefügt → Dependabot kannte die Datei beim damaligen Lauf noch nicht.
+**Fix:** Versionen in `coverage.yml` auf `@v6` bzw. `@v6` bringen. Dependabot wird beim nächsten wöchentlichen Run auch von selbst greifen. Aufwand: 30 Sek.
+
+**D7-L1 (Niedrig): Coverage-Workflow ohne Quality-Gate**
+`run_coverage.py` schreibt Report + Artifact, failt aber nicht bei Coverage-Drop. Könnte `--fail-under=70` ergänzt werden.
+**Trade-off:** Striktes Threshold würde harmlose Refactorings rot färben — niedrige Prio.
+
+**D7-L2 (Niedrig): Pre-Commit-Hook optional**
+Wenn ein Dev `pre-commit install` nicht ausführt, gibt's keinen lokalen Ruff-Check. Im CI wird's dann gefangen. → OK so, aber Hinweis in CLAUDE.md könnte stärker sein.
+
+**D7-L3 (Niedrig): `run_coverage.py` sequenziell**
+4 Test-Scripts werden nacheinander ausgeführt (smoke + features + distances + test_all). `test_all` dominiert die Laufzeit (~14 min mit Coverage-Instrumentation). Parallel laufen geht prinzipiell, aber `coverage combine` wird komplexer.
+**Trade-off:** Bei Hosted-Runner (2 Core) wenig Gewinn — niedrige Prio.
+
+---
+
+### [intern] Code-Review Runde 7 – Block E: Doku + Distribution + Memory
+
+**Geprüft:** `CLAUDE.md`, `BENUTZERHANDBUCH.md`, `INSTALLATION.md`, `README.md`, `ROADMAP.md`, `SPRINT_SNAPSHOT.md`, `requirements.txt`, `installer/spielplan.iss`, Memory-Files
+
+**E7-M1 (Mittel): `requirements.txt` ohne Upper-Bound (außer ortools)**
+```
+numpy>=2.4.6
+pandas>=3.0.3
+streamlit>=1.57.0
+```
+Wenn z. B. pandas 4.0 mit Breaking Changes kommt, würde eine frische Installation crashen ohne Code-Änderung. Reproducibility-Risiko für Endnutzer.
+**Fix:** `<X.0` Upper-Bound pro Paket nach Major. Z. B. `pandas>=3.0.3,<4`. Dependabot bumpt dann nur Minor/Patch automatisch, Major-Bumps brauchen User-Review.
+
+**E7-L1 (Niedrig): `installer/spielplan.iss` Version-Default veraltet**
+ISS-Default ist (laut CR6 F-L4-Notiz) auf v1.4.0. Wird durch `/DMyAppVersion=` überschrieben — also kein Issue im Build, aber unsauber.
+**Fix:** Default-Wert auf aktuelle Version ziehen (oder besser: aus `VERSION`-Datei lesen via `#define`-Preprocessing).
+
+**E7-L2 (Niedrig): `Spielplaene/telemetrie/` gitignored**
+Pre/post-F1-Daten + Verifikations-MD sind lokal, nicht im Repo. Wenn der Test-Beleg verloren geht (z. B. Festplatten-Crash), ist die Doku der F1-Verifikation weg.
+**Fix-Idee:** Verifikations-MD und CSVs in `docs/verifikation/` checken (außerhalb von Spielplaene/), damit sie versioniert sind.
+
+**E7-L3 (Niedrig): CLAUDE.md sehr lang (~700 Zeilen)**
+Section 9 enthält chronologisch alle Sprints v1.3.0 → v1.12.1 als verschachtelte Tabellen. Für neue Mitarbeiter schwer überschaubar.
+**Fix-Idee:** Older Sprints (v1.3.x – v1.6.x) in separate `CHANGELOG_v1.x.md` auslagern, CLAUDE.md fokussiert auf aktuelle Architektur.
+
+**E7-L4 (Niedrig): `BENUTZERHANDBUCH` Screenshots fehlen**
+Karten-Visualisierung und Kalenderansicht wurden in Text dokumentiert, aber kein Screenshot. Endnutzer würden visuelle Beispiele schätzen.
+**Fix:** 2-3 Screenshots der Schritt-9-UI nach Optimierung anhängen.
+
+**E7-L5 (Niedrig): `_USER_AGENT` in geocode.py + Bootstrap-Python-Hash veralten gemeinsam**
+Bei `VERSION`-Bump müssten 3 Stellen synchron geändert werden: VERSION, geocode.py `_USER_AGENT`, evtl. installer/build_bootstrap.bat SHA-Hash für Python-Embedded.
+**Fix:** Zentrale Versions-/Hash-Konstanten, die alle Stellen referenzieren.
+
+---
+
+**Block-Übersicht Code-Review Runde 7:**
+
+| Block | Hoch | Mittel | Niedrig | Befunde gesamt |
+|---|---|---|---|---|
+| A — Solver + Telemetrie | 0 | 3 | 5 | 8 |
+| B — Karte + Kalender Module | 0 | 1 | 6 | 7 |
+| C — UI + JSON-Persistenz | 0 | 1 | 3 | 4 |
+| D — CI + Tests | 1 | 0 | 3 | 4 |
+| E — Doku + Distribution + Memory | 0 | 1 | 5 | 6 |
+| **Gesamt** | **1** | **6** | **22** | **29** |
+
+**Wichtigste Findings:**
+- **D7-H1** (Hoch): Action-Versions-Inkonsistenz `coverage.yml` vs. `test.yml`. Quick-Fix in 30 Sek.
+- **A7-M1**, **A7-M3**, **B7-M1**, **C7-M1**, **E7-M1**: 5 Mittel-Prio-Befunde — alle latent/Robustheit, nicht zeitkritisch.
+
+**Status:** Offen — bei Reaktivierung der GitHub Actions in einem Sammel-Commit angreifbar.
