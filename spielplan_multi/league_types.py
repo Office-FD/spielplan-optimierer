@@ -128,7 +128,11 @@ class LeagueResult:
     # Gap-Monitoring (B1, v1.11.0): Solver-Telemetrie
     #   gap_history: Liste (elapsed_sec, obj) bei jedem [BEST]-Callback
     #   best_bound:  finaler LP/CP-Bound nach Solver.Solve()
-    #   final_gap:   |best_bound - objective| / max(|best_bound|, 1e-9)
-    gap_history: List[Tuple[float, float]] = field(default_factory=list)
-    best_bound:  Optional[float]           = None
-    final_gap:   Optional[float]           = None
+    #   final_gap:   (best_bound - phase2_objective) / best_bound
+    #   phase2_objective (A7-M3, v1.13.0): CP-SAT-objective VOR SA-Refine.
+    #     SA aktualisiert nur `objective` (km-Reduktion); fuer Gap-Berechnung
+    #     muss aber der Pre-SA-Wert gegen den Phase-2-bound verglichen werden.
+    gap_history:      List[Tuple[float, float]] = field(default_factory=list)
+    best_bound:       Optional[float]           = None
+    final_gap:        Optional[float]           = None
+    phase2_objective: Optional[float]           = None

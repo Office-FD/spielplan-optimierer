@@ -363,4 +363,5 @@ def refine_schedule(result: LeagueResult,
         gap_history=list(result.gap_history or []),
         best_bound=result.best_bound,
         final_gap=result.final_gap,
+        phase2_objective=result.phase2_objective,  # A7-M3: Pre-SA-objective fuer Gap
     )

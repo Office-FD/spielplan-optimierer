@@ -926,4 +926,5 @@ def solve_league_phase1(cfg: LeagueConfig,
         gap_history=list(callback.history),
         best_bound=bound,
         final_gap=gap,
+        phase2_objective=obj_val,  # Phase 1: gleicher Wert; nach Phase 2 ueberschrieben
     )

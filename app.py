@@ -3256,6 +3256,9 @@ def _session_to_json() -> bytes:
                 'gap_history': [[float(t), float(o)] for t, o in (res.gap_history or [])],
                 'mins':        int(res.mins or 0),
                 'secs':        int(res.secs or 0),
+                # A7-M3 (v1.13.0): Phase-2-objective separat (Gap-Berechnung)
+                'phase2_objective': (float(res.phase2_objective)
+                                      if res.phase2_objective is not None else None),
             }
 
     data = {
@@ -3403,6 +3406,7 @@ def _session_from_json(raw: bytes) -> str:
         _telem_hist  = [(float(t), float(o)) for t, o in res_data.get('gap_history', [])]
         _telem_mins  = int(res_data.get('mins', 0) or 0)
         _telem_secs  = int(res_data.get('secs', 0) or 0)
+        _telem_p2obj = res_data.get('phase2_objective')  # A7-M3
 
         result = LeagueResult(
             league_id=lid,
@@ -3424,6 +3428,8 @@ def _session_from_json(raw: bytes) -> str:
             gap_history=_telem_hist,
             best_bound=float(_telem_bound) if _telem_bound is not None else None,
             final_gap=float(_telem_gap) if _telem_gap is not None else None,
+            phase2_objective=(float(_telem_p2obj) if _telem_p2obj is not None
+                              else float(_telem_obj) if _telem_obj is not None else None),
         )
         try:
             travels, sw_counts, sw_rates = _recompute_result_stats_fn(result, cfg)
@@ -4442,17 +4448,22 @@ def _show_results():
 
         if _all_same_p2 and _first_res.best_bound is not None:
             # Phase-2-Modus: alle Ligen teilen Gap (gemeinsames Modell)
+            # A7-M3: Phase-2-Objective separat anzeigen, wenn SA aktiv war
+            _p2_obj = _first_res.phase2_objective or _first_res.objective
+            _sa_changed = (_first_res.phase2_objective is not None and
+                           abs(_first_res.phase2_objective - _first_res.objective) > 0.5)
             _m_cols = st.columns(4)
             with _m_cols[0]:
-                st.metric('Objective',
-                          f'{_first_res.objective:.3g}')
+                _obj_label = 'Objective (Phase 2)' if _sa_changed else 'Objective'
+                _obj_help = ('Pre-SA-Wert für Gap-Berechnung; aktuelle SA-objective siehe Liga-Kennzahlen oben'
+                             if _sa_changed else None)
+                st.metric(_obj_label, f'{_p2_obj:.3g}', help=_obj_help)
             with _m_cols[1]:
-                st.metric('Best Bound',
-                          f'{_first_res.best_bound:.3g}')
+                st.metric('Best Bound', f'{_first_res.best_bound:.3g}')
             with _m_cols[2]:
                 gap_pct = (_first_res.final_gap or 0) * 100
                 st.metric('Gap', f'{gap_pct:.2f} %',
-                          help='|bound − obj| / |bound|')
+                          help='(bound − obj) / bound, mit obj = Phase-2-Wert')
             with _m_cols[3]:
                 st.metric('Improvements',
                           str(len(_first_res.gap_history or [])))

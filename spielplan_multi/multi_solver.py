@@ -282,8 +282,11 @@ def run_phase2(cfgs: Dict[str, LeagueConfig],
             groups=groups,
             hosts=_p1.hosts if _p1 else {},
             game_times=_p1.game_times if _p1 else {},
-            gap_history=p2_history,
+            # A7-M1: pro Liga eigene Liste, damit nachfolgende Mutationen
+            # (z.B. SA-Refine, manuelle Aenderungen) nicht alle Ligen betreffen.
+            gap_history=list(p2_history),
             best_bound=p2_bound,
+            phase2_objective=p2_obj,  # A7-M3: Pre-SA-objective fuer Gap-Berechnung
             final_gap=p2_gap,
         )
         _sw = sw_counts or [0]
