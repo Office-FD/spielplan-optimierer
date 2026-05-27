@@ -1466,4 +1466,70 @@ Bei `VERSION`-Bump müssten 3 Stellen synchron geändert werden: VERSION, geocod
 - **D7-H1** (Hoch): Action-Versions-Inkonsistenz `coverage.yml` vs. `test.yml`. Quick-Fix in 30 Sek.
 - **A7-M1**, **A7-M3**, **B7-M1**, **C7-M1**, **E7-M1**: 5 Mittel-Prio-Befunde — alle latent/Robustheit, nicht zeitkritisch.
 
-**Status:** Offen — bei Reaktivierung der GitHub Actions in einem Sammel-Commit angreifbar.
+**Status:** ✅ Großteils erledigt — 16/29 Befunde in v1.13.0 gefixt (siehe CLAUDE.md Section 9). 13 Befunde bleiben offen (alle Niedrig-Prio bzw. größere Refactors, alle dokumentiert oben).
+
+---
+
+### [intern] Code-Review Runde 8 – Block A: Solver-Modell + Pipeline
+
+**Final-Review für Produktiv-Freigabe.**
+**Geprüft:** `spielplan_multi/solver.py`, `spielplan_multi/multi_solver.py`
+**Datum:** 27.05.2026, Stand v1.13.0
+
+**Schweregrad-Skala:** 🛑 Show-Stopper / 🔴 Hoch / 🟡 Mittel / 🟢 Niedrig
+
+**Show-Stopper:** **0**
+**Hoch:** **0**
+**Mittel:** **1**
+**Niedrig:** **4**
+
+#### Mittel
+
+**🟡 R8-A-M1 — Co-Home-Gewicht-Skalierung kann bei sehr großen Werten Probleme verursachen**
+`_add_cohome_constraints` Z. 196: `w_cohome_int = int(round(w_cohome * 1000))`. Mit Default w_cohome=5 ergibt 5.000. CP-SAT-Objective-Range ist Int-domain (typisch ±2^31). Bei sehr großen w_cohome (z. B. ≥ 1000) und vielen Co-Home-Bonus-Variablen könnte das Objective überlaufen.
+**Risiko:** Bei FLVD-Default-Setup unkritisch (w_cohome typisch 5-10). Aber: kein Validierungs-Cap in der UI.
+**Fix-Idee:** Validator-Warnung wenn w_cohome > 50; oder Cap in der UI auf 20.
+**Produktions-Blocker?** Nein (Konfiguration mit Standard-Werten ist safe)
+
+#### Niedrig
+
+**🟢 R8-A-L1 — CP-SAT mit 1 num_search_worker bei vielen Phase-1-Jobs**
+`run_phase1` Z. 60-61: `workers_per = max(1, cpu // n_jobs)`. Bei 8 Cores + 4 Ligen × 2 Seeds = 8 Jobs → 1 worker pro Solver. Phase-1-Solver läuft single-threaded. Parallelität via Job-Pool ist gegeben.
+**Trade-off:** Mehr Worker pro Solver würden den Solver beschleunigen, weniger Parallelität wäre möglich. Aktuelles Setup balanciert Job-Throughput.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-A-L2 — Spielfrei-Modus ohne explizite Bye-Verteilungs-Balance**
+Bei n_active < n_teams kann ein Team theoretisch viele aufeinanderfolgende Bye-Tage haben (kein Constraint dagegen). Total-Spielzahl pro Team ist über round-Constraint geregelt, aber Verteilung über Saison nicht.
+**Risiko:** In Praxis löst der Solver implizit fair, weil Travel-Term spielfreie Teams nicht reduziert (ein Team ohne Spiele hat hohe travel-Differenz zu spielenden Teams).
+**Test:** Test 11 in test_all deckt „Bye fair verteilt" ab.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-A-L3 — Co-Home nutzt nur ersten Spieltag pro KW**
+`_add_cohome_constraints` Z. 141: `st = next((s for s in sts if s in days), None)` — bei DST-Wochenende mit 2 Spieltagen wird nur der erste betrachtet. Andere Spieltage in der KW haben keinen Co-Home-Bonus.
+**Risiko:** Co-Home-Effekt etwas schwächer als theoretisch möglich. Bei FLVD-Saisons mit selten DST in Co-Home-Liga unkritisch.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-A-L4 — Subprocess-Stacktrace im Streamlit-Warnung**
+`_phase1_worker` Z. 42 schreibt komplette Traceback in `status_name`, der via `warn()` in der UI angezeigt wird (kann 1000+ Zeichen sein). Bei echten Crashes verstopft das den Log-Bereich.
+**Fix-Idee:** Nur erste Zeile des Tracebacks anzeigen, vollen Stack in einer expandable-Section.
+**Produktions-Blocker?** Nein
+
+---
+
+**Block-A-Fazit:** Solver-Modell ist sehr solide — kein Show-Stopper, keine harten Bugs. Alle Constraint-Familien sind nach 3 Code-Reviews + R1-R3-Refactors + R7-Fixes konsistent. Die wenigen verbleibenden Befunde sind alle latent oder Trade-offs.
+
+**Geprüfte Bereiche** ✓:
+- Match-Eindeutigkeit + Phasen-Trennung (n_rounds 1/2/3)
+- Heimrecht-Balance pro Paarung
+- DST-Constraints (Heimrecht-Gleichheit, A/B/C-Nachbarschaft)
+- Sliding-Window 3er/4er (homeW-basiert seit v1.2.7)
+- Spielfrei-Modus (needs_bye) konditional in allen Constraints
+- Turniertag Stufe 1 + Stufe 2 (Gruppenformation)
+- Switch-Term mit H3-Obergrenze (R7-Fix)
+- Round-Balance (quadratische Strafe, opt-in)
+- Pflichtspiele + Sperrtage + Pflichtheim (mit Override-Warnung)
+- Phase 1 parallel mit Seeds + Crash-Handling
+- Phase 2 gemeinsames Modell + Co-Home-Bonus
+- Phase 1→2 set_hints (Primär + abgeleitet)
+- Phase-2-INFEASIBLE-Fallback auf Phase-1-Ergebnisse
+- Telemetrie-Persistenz durch alle Phasen (R7-Fix)
