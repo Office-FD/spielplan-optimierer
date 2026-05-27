@@ -1288,4 +1288,52 @@ Mit aktuellem Modell wird selbst ein 24h-Lauf wahrscheinlich nicht unter 17-18% 
 Zusätzliche Zwischen-Phase: erst nur KW-Zuteilung lösen (welcher Spieltag in welche KW), dann mit fixierter KW-Zuteilung den Heimrecht-Plan im 2. Schritt. ~2-3 Wochen Entwicklungsaufwand, Risiko dass Lösungsqualität sinkt, da Phasen nicht mehr gemeinsam optimiert werden. Erwartete Gap-Reduktion: 5-10%.
 
 **Empfehlung:** Mit H3 + H1 beginnen (kombiniert ~10% Gap erreichbar), H2 als Ergänzung wenn nötig.
-**Status:** Erledigt – H1 (symmetry_level=2) + H3 (Switch-Term-Obergrenze pro Team) in v1.8.0 implementiert, H2 (Phase-1→Phase-2 Hint-Boost mit switch/sw_count/travel/min-max) in v1.8.1. Erwartete kombinierte Gap-Reduktion ~25%. H4 (längere Laufzeit) und H5 (Phase-2-Dekomposition) blieben offen — H4 ist trivial einstellbar, H5 ist 2-3-Wochen-Refactor und nicht prio.
+**Status:** Erledigt – H1 (symmetry_level=2) + H3 (Switch-Term-Obergrenze pro Team) in v1.8.0 implementiert, H2 (Phase-1→Phase-2 Hint-Boost mit switch/sw_count/travel/min-max) in v1.8.1. Erwartete kombinierte Gap-Reduktion ~25%. **Real-Verifikation 27.05.2026:** Gap 19,96 % → 15,35 % = −23,1 % relative Reduktion gemessen (Datei `Spielplaene/telemetrie/F1_VERIFIKATION_2026-05.md`). H4 (längere Laufzeit) und H5 (Phase-2-Dekomposition) blieben offen.
+
+---
+
+### [intern] Code-Review Runde 7 – Block A: Solver-Erweiterungen + Telemetrie
+
+**Typ:** Code-Review-Befunde
+**Bereich:** Spielplan-Optimierung
+**Wichtigkeit:** siehe Einzel-IDs
+**Aufwand:** Niedrig pro Befund
+**Geprüft:** `solver.py`, `multi_solver.py`, `sa_refine.py`, `league_types.py` (alles seit v1.6.2 geänderten / neu hinzugekommenen Code)
+
+**Befunde:**
+
+**A7-M1 (Mittel): `gap_history` als geteilte Referenz in `multi_solver.run_phase2`**
+Zeile 283: `gap_history=p2_history` wird an alle Liga-`LeagueResult`-Objekte mit derselben Listen-Referenz übergeben. Wenn nachfolgender Code die Liste mutiert (z. B. in `app.py` beim JSON-Save), könnte das alle Ligen betreffen. Aktuell kein Bug, weil nirgends mutiert wird, aber latent.
+**Fix:** `gap_history=list(p2_history)` pro Liga.
+
+**A7-M2 (Mittel): Phase-1-Seed-Auswahl verwirft Telemetrie nicht-gewählter Seeds**
+`run_phase1` Z. 96: `best = max(candidates, key=lambda r: r.objective)` wählt den besten Seed. Die `gap_history` der anderen Seeds geht verloren. Bei Vergleichs-Analysen („welcher Seed konvergierte schneller?") nicht mehr nachvollziehbar.
+**Fix-Idee:** Optional `seed_histories: Dict[int, List]` in `LeagueResult` ergänzen — sammelt alle Seed-Verläufe. Aufwand mittel, Nutzen für Debugging.
+
+**A7-M3 (Mittel): SA-Refine schreibt eigene `objective`, aber Phase-2-`best_bound`**
+Nach Sprint B1-Hotfix v1.12.1 reicht SA die Telemetrie-Felder durch. `objective` wird aber von SA mit eigenem km-optimiertem Wert überschrieben (kann höher oder niedriger sein als Phase-2-Wert). `final_gap = |bound − new_obj|/|bound|` ist dann nicht mehr exakt der Phase-2-Gap.
+**Fix-Idee:** Zusätzliches Feld `phase2_objective` in `LeagueResult` einführen + UI/Excel zeigen explizit „Phase-2-Gap" vs. „SA-Endwert". Aufwand klein, Klarheit hoch.
+
+**A7-L1 (Niedrig): switch-Hint bei Turniertag**
+`set_hints` Z. 774-780 setzt `switch[ti, d]`-Hints aus `home_vals`, auch wenn `gpd > 1` (Turniertag). In diesem Modus ist `switch == 0` als Constraint erzwungen — Hint wird vom Solver ignoriert. Kein Bug, aber unnötiger Overhead.
+**Fix:** `if cfg.games_per_team_per_day > 1: skip switch/sw_count-Hints` im Helper.
+
+**A7-L2 (Niedrig): `_ProgressCallback.history` nicht deterministisch**
+`elapsed = time.time() - t0` ist Wandzeit, nicht reproduzierbar. Zwei identische Solver-Läufe haben unterschiedliche Zeitstempel pro Improvement. Für striktes A/B-Testing ein Detail-Problem.
+**Fix-Idee:** Optional `iteration` statt `elapsed` als Zeitachse (Solver gibt das nicht direkt, müsste man via callback-Zähler bauen). Nicht prio.
+
+**A7-L3 (Niedrig): Comment in solver.py Z. 131 leicht missverständlich**
+„Nicht-konsekutive Blöcke (d2 > d1+1) constraint switch nicht direkt" — korrekt formuliert, aber: die DST-Constraint `home[ti, d1] == home[ti, d2]` schränkt switch INDIREKT ein, wenn d1, d2 in derselben Phase liegen. Eine theoretisch tightere Bound-Formel wäre möglich (nicht-konsekutiv reduziert Switch-Maximum auch, wenn auch nicht um exakt 1).
+**Fix-Idee:** Comment präzisieren, Bound-Formel optional verbessern (klein, aber komplex).
+
+**A7-L4 (Niedrig): `final_gap`-Berechnung mit `abs()` redundant bei Maximize**
+solver.py:904 + multi_solver.py:254: `gap = abs(bound - obj_val) / abs(bound)`. Bei `model.Maximize(...)` ist `bound ≥ obj`, also `bound - obj ≥ 0`. `abs()` ist defensiv aber unnötig. Bei hypothetischem `bound < 0` würde `abs(bound)` den Nenner verfälschen.
+**Fix:** Bei reinen Maximize-Problemen: `gap = (bound - obj_val) / bound` ohne abs(). Kommentar im Code erklären.
+
+**A7-L5 (Niedrig): Pipeline-Doku-Hinweis fehlt**
+Bei Phase-2-Fallback (`return phase1_results`) erbt jedes Liga-Result die Phase-1-Telemetrie. Bei normalem Phase-2-Lauf erbt jedes Liga-Result die Phase-2-Telemetrie (gleicher Wert, weil gemeinsames Modell). Nach SA wird `objective` lokal überschrieben. Dieses Verhalten ist nirgends dokumentiert.
+**Fix:** Kurzer Absatz in `CLAUDE.md` Section „Pipeline" erklären, was wann in `gap_history`/`best_bound`/`final_gap` steht.
+
+**Hoch-Prio-Befunde:** keine.
+
+**Status:** Offen — kann lokal abgearbeitet werden, ist nicht zeitkritisch (alle Bugs latent, nicht aktiv).
