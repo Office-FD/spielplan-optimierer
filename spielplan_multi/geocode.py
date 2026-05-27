@@ -50,14 +50,26 @@ def _load_cache() -> Dict[str, Optional[Tuple[float, float]]]:
 
 
 def _save_cache(cache: Dict[str, Optional[Tuple[float, float]]]) -> None:
+    """Speichert Cache atomar (B7-M1: schuetzt vor Race-Bedingung bei concurrent Sessions).
+
+    Schreibt in eine .tmp-Datei und macht os.replace() — atomar auf Linux/Win.
+    """
+    import os
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     # Tuples → Listen für JSON-Serialisierung
     serializable = {k: (list(v) if v else None) for k, v in cache.items()}
+    tmp_path = _CACHE_FILE.with_suffix('.json.tmp')
     try:
-        with open(_CACHE_FILE, 'w', encoding='utf-8') as f:
+        with open(tmp_path, 'w', encoding='utf-8') as f:
             json.dump(serializable, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_path, _CACHE_FILE)
     except OSError:
-        pass
+        # Aufraeumen falls .tmp uebrig blieb
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
 
 
 def _normalize(addr: str) -> str:

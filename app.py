@@ -3532,15 +3532,19 @@ _BEST_LINE_RE = re.compile(
 )
 
 
-def _translate_solver_log(lines: List[str], leagues: dict) -> List[str]:
+def _translate_solver_log(lines: List[str], leagues: dict,
+                           start_idx: int = 0) -> List[str]:
     """Übersetzt Solver-Log-Zeilen ins Deutsche.
 
     [BEST]-Zeilen werden geparst und als verständliche Sätze formatiert.
     Andere Zeilen (Phase-Banner, [OK], [!!]) bleiben — sie sind schon lesbar.
     Gibt nur die übersetzten + relevanten Zeilen zurück.
+
+    C7-M1: `start_idx` erlaubt inkrementelles Übersetzen (nur neu hinzugekommene
+    Zeilen verarbeiten) — siehe `_translate_solver_log_cached` weiter unten.
     """
     out: List[str] = []
-    for raw in lines:
+    for raw in lines[start_idx:]:
         line = raw.rstrip()
         if not line:
             continue
@@ -3608,6 +3612,26 @@ def _translate_solver_log(lines: List[str], leagues: dict) -> List[str]:
         # Zeitlimit-Info
         elif line.lstrip().startswith('[..]') and 'Zeitlimit' in line:
             out.append(f'⏱ {line.strip()[5:]}')
+    return out
+
+
+def _translate_solver_log_cached(lines: List[str], leagues: dict) -> List[str]:
+    """C7-M1: Inkrementeller Wrapper mit Session-State-Cache.
+
+    Bei jedem Streamlit-Rerun (~alle 2 Sek waehrend Solver-Lauf) wuerde
+    `_translate_solver_log` die GESAMTE Log-Liste re-iterieren. Bei langen
+    Laeufen (8h, 10k+ Zeilen) wird das spuerbar. Loesung: nur die seit
+    letztem Aufruf hinzugekommenen Zeilen verarbeiten.
+    """
+    cache = getattr(S, '_translog_cache', None)
+    n = len(lines)
+    if cache is not None and cache.get('len') == n:
+        return cache['out']
+    last_n = cache['len'] if cache else 0
+    prev_out = cache['out'] if cache else []
+    new_translations = _translate_solver_log(lines, leagues, start_idx=last_n)
+    out = prev_out + new_translations
+    S._translog_cache = {'len': n, 'out': out}
     return out
 
 
@@ -3910,7 +3934,7 @@ def _step8():
                             help=f't={_bst["elapsed"]}  |  #{_bst["count"]} Lösung(en)',
                         )
             # UX Variante B: Laien-freundliche Live-Übersicht über dem Roh-Log
-            _readable = _translate_solver_log(S.opt_log, S.leagues)
+            _readable = _translate_solver_log_cached(S.opt_log, S.leagues)
             if _readable:
                 st.markdown('#### 📈 Was gerade passiert (Übersetzung)')
                 # Letzte 12 Übersetzungen, neuestes oben (rückwärts)
@@ -3950,6 +3974,7 @@ def _step8():
                 S.opt_process       = None
                 S.opt_result_holder = None
                 S.opt_log           = []
+                S._translog_cache   = None  # C7-M1: Cache zuruecksetzen bei neuem Lauf
                 S.opt_best          = {}
                 S.opt_warnings      = []
                 S.opt_start_time    = None
@@ -4173,6 +4198,7 @@ def _step8():
                 S.opt_start_time    = time.time()
                 S.opt_done          = False
                 S.opt_log           = []
+                S._translog_cache   = None  # C7-M1: Cache zuruecksetzen bei neuem Lauf
                 S.opt_warnings      = []
                 S.results           = None
                 S.excel_bytes    = {}
