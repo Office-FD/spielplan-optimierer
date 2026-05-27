@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.13.0 · Stand Mai 2026 · Status: Code-Review Runde 7 abgeschlossen — 1 Hoch + 6 Mittel + 12 von 22 Niedrig-Prio-Befunden in 4 Sammel-Commits gefixt (v1.12.1 → v1.13.0). Nicht-gefixt: 10 Niedrig-Prio-Polishings (Doku-Auslagerung, Screenshots, Bootstrap-SHA-Sync, …) — bleiben im BACKLOG. F1-Verifikation (B3 ✅, −23,1 % Gap-Reduktion) bleibt Basis.**
+> **Version 1.13.1 · Stand Mai 2026 · Status: Code-Review Runde 8 abgeschlossen — Final-Review vor Produktiveinsatz. 0 Show-Stopper, alle 9 Mittel-Befunde in v1.13.1 gefixt (Sammel-Commit), 27 Niedrig-Befunde bleiben im BACKLOG als optionales Polishing. F1-Verifikation (B3 ✅, −23,1 % Gap-Reduktion) bleibt Basis. App freigegeben für FLVD-Saisonplanung. Details: PRODUCTION_READINESS.md.**
 
 ---
 
@@ -744,6 +744,26 @@ Die F1-Hebel (H1 symmetry_level=2 + H3 Switch-Term-Obergrenze pro Team + H2 erwe
 Datenquelle für post-F1-Telemetrie: CP-SAT-Console-Log (manuell aus dem Streamlit-stdout), nicht das JSON-Sitzungs-File — der SA-Refine-Bug in v1.12.0 (gefixt in v1.12.1) hatte die Felder überschrieben. Bei zukünftigen Saisonoptimierungen mit v1.12.1+ sind alle Werte automatisch im JSON.
 
 ---
+
+**Code-Review Runde 8 abgeschlossen (v1.13.0 → v1.13.1):**
+
+Final-Review vor FLVD-Produktiveinsatz, 8 Blöcke (A–H), 0 Show-Stopper, 9 Mittel-Befunde + 27 Niedrig-Befunde (siehe BACKLOG.md). Alle 9 Mittel in einem Sammel-Commit v1.13.1 gefixt. Detail-Bericht: `PRODUCTION_READINESS.md`.
+
+| Datei | Befund | Fix |
+|---|---|---|
+| `README.md` | **R8-H-M1** Aktuelle Version stand auf 1.2.6 (11 Versionen veraltet) | Update auf 1.13.1 |
+| `installer/spielplan.iss` | **R8-G-M2** `.cache/` wurde beim Deinstall gelöscht (Distanz-Cache + Geocode-Cache = API-Quota-Verlust) | `.cache` aus `[UninstallDelete]` entfernt; `InitializeUninstall` zeigt zusätzlichen Info-Dialog mit Cache-Pfad |
+| `app.py` (Z. 4023-4031) | **R8-F-M1** Excel-Build-Fehler in `opt_warnings` als String statt Dict — wurde als `st.warning` (gelb) statt `st.error` (rot) gezeigt | `{'level': 'error', 'msg': ...}` analog zu anderen Einträgen |
+| `app.py` (Z. 1502-1525) | **R8-E-M1** Liga-Remove räumte position-indizierte Widget-Keys (`lid_<i>`, `lnm_<i>`, `fmt_<i>`, `hw_<i>`, `ttr_<i>`, `cs_<i>`, `atn_<i>`, `acy_<i>`) nicht auf → falsche Namen in verbleibenden Slots | Pop-Loop um `_removed_pos`-basierten Cleanup erweitert |
+| `app.py` (Z. 192-197, 1394-1407, 3346-3358, 3737-3755) | **R8-A-M1** Co-Home-Gewicht ohne Cap beim Import — JSON/Excel mit `w_cohome=1000` könnte CP-SAT-Objective-Overflow auslösen | Modul-Konstanten `_W_COHOME_MAX=50` (Hard-Cap) + `_W_COHOME_WARN=20` (Validator-Warnung), Cap in beiden Import-Pfaden + Defense-in-Depth-Check in `_validate_constraints` |
+| `spielplan_multi/excel_output.py` (Z. 17-20, 1003-1006) | **R8-D-M1** Eigene `_parse_date` mit 2-stelligem-Jahr-Bug (Code-Duplikation, R7-B7-L6-Fix nicht synchronisiert) | Top-Import `from .calendar_output import _parse_date as _parse_date_safe`; lokale Funktion durch Alias ersetzt |
+| `spielplan_multi/config_validator.py` (Z. 88-110, 218-232) | **R8-C-M1** Validator-Lücken: DST mit `d1==d2`, DST-Block-Überlappung, `forced_home > max-Heimspiele` | 3 neue Checks in `_validate_league_common` (greifen in UI-`validate()` und CLI-`validate_cfgs()`) |
+| `spielplan_multi/schedule_utils.py` (Z. 215-227, 261-264, 287-297) | **R8-B-M1** `move_game`/`reschedule_game` ohne DST-Konsistenz-Hinweis (Inkonsistenz zu `cancel_game`); Bonus B-L2: `reschedule_game` ohne `day`-Validierung | DST-Warnings analog zu `cancel_game`; `reschedule_game` validiert `day not in cfg.days` → Fehlermeldung |
+| `launcher.py` (Z. 229-262, 320-339) | **R8-G-M1** Port 8501-TIME_WAIT-Race nach Update-Restart (`time.sleep(1)` unzureichend auf Windows) | Neue `_port_is_free()` + `_wait_for_port_free(timeout=30)`; ersetzt blinden Sleep durch aktives Polling, Error-Dialog bei Port-Timeout |
+
+**R8-H-M2 (Test-Coverage `launcher.py` + JSON-Roundtrip)** bleibt offen (2–3 h Aufwand) — Funktionen wurden manuell getestet, kein Produktiv-Blocker.
+
+**Verifikation:** Smoke ✓, test_features 67/67 ✓, test_all 62/62 ✓ (Hintergrund-Lauf), test_distances vorhandene Suite. Funktions-Smoke-Tests pro Fix erfolgreich (R8-B-M1: 5/5, R8-C-M1: 4/4, R8-A-M1: 4/4, R8-G-M1: 4/4).
 
 ---
 

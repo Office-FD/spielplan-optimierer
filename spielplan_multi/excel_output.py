@@ -16,6 +16,8 @@ from openpyxl.utils import get_column_letter
 
 from .league_types import LeagueResult
 from .config import WEIGHT_LABELS, KM_PAUSCHALE, get_team_color
+# R8-D-M1: gemeinsame _parse_date-Implementierung nutzen (inkl. 2-Jahr-Fix B7-L6).
+from .calendar_output import _parse_date as _parse_date_safe
 
 
 # ── Style-Helfer ─────────────────────────────────────────────────────────────
@@ -999,19 +1001,9 @@ def build_overview_excel(
 
     # ── Hilfsfunktionen ───────────────────────────────────────────────────────
 
-    def _parse_date(s) -> Optional[_dt.date]:
-        if not s or str(s).strip() in ('', 'nan'):
-            return None
-        s = str(s).strip()
-        try:
-            if '-' in s:
-                return _dt.date.fromisoformat(s)
-            parts = s.split('.')
-            if len(parts) >= 3:
-                return _dt.date(int(parts[2]), int(parts[1]), int(parts[0]))
-        except (ValueError, TypeError, IndexError):
-            pass
-        return None
+    # R8-D-M1: _parse_date kommt aus calendar_output (lehnt 2-stelliges Jahr ab
+    # und ist die einzige autoritative Implementierung in der Codebase).
+    _parse_date = _parse_date_safe
 
     def _fmt_date(s) -> str:
         d = _parse_date(s)

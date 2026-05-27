@@ -90,6 +90,25 @@ def _validate_league_common(
             _err(lid, f'{name}: DST-Block ST{d1}+ST{d2} liegt außerhalb des gültigen '
                        f'Bereichs (1–{n_md}).')
 
+    # R8-C-M1.1: DST-Block mit d1 == d2 ist kein DST, sondern Einzeltag
+    for d1, d2 in ctx.dst_blocks:
+        if d1 == d2:
+            _warn(lid, f'{name}: DST-Block ST{d1}+ST{d2} hat identische Tage – '
+                        f'das ist kein Doppelspieltag und wird vom Solver als sinnloser '
+                        f'Eintrag behandelt.')
+
+    # R8-C-M1.2: Zwei DST-Blöcke mit überlappendem Tag → de-facto 3-Tage-Block
+    _dst_day_owner: dict = {}
+    for d1, d2 in ctx.dst_blocks:
+        for d in (d1, d2):
+            if d in _dst_day_owner and _dst_day_owner[d] != (d1, d2):
+                _warn(lid, f'{name}: Spieltag ST{d} ist in mehreren DST-Blöcken enthalten '
+                            f'({_dst_day_owner[d]} und ({d1}, {d2})). Solver erzwingt dann '
+                            f'gleiche Heimrechte über alle beteiligten Tage – das ist '
+                            f'wahrscheinlich nicht gewollt.')
+            else:
+                _dst_day_owner[d] = (d1, d2)
+
     # Sperrtage
     _teams_set = set(teams)
     for team, bdays in ctx.blocked.items():
@@ -214,12 +233,27 @@ def _validate_league_common(
                     'kann eingeschränkt sein.')
 
     # Pflichtheim
+    # R8-C-M1.3: max-Heimspiele pro Team berechnen (für Anzahl-Check).
+    # Bei n_rounds=2 muss jede Paarung 1x Heim + 1x Auswärts pro Team → genau n-1
+    # Heimspiele pro Team. Bei n_rounds=1 max. n-1 (alle Heim), aber Solver-Constraints
+    # (max 2 konsekutiv) machen das praktisch unmöglich → realistisch ~n/2.
+    if n_rounds == 2:
+        _max_home_per_team = n - 1
+    elif n_rounds == 3:
+        _max_home_per_team = 2 * (n - 1)  # jede Paarung 2x Heim + 1x Auswärts (oder umgekehrt)
+    else:
+        _max_home_per_team = n - 1  # Einfachrunde: max alle Spiele Heim
     for team, fdays in ctx.forced_home.items():
         # B-M3: Pflichtheim-Team gegen Teamliste validieren
         if team not in _teams_set:
             _warn(lid, f'{name}: Pflichtheim-Team «{team}» nicht in der Teamliste – wird ignoriert.')
             continue
         frc_set = set(fdays)
+        # R8-C-M1.3: Pflichtheim-Anzahl gegen max-Heimspiele
+        if len(frc_set) > _max_home_per_team:
+            _err(lid, f'{name} – Team «{team}»: {len(frc_set)} Pflichtheim-Tage eingetragen, '
+                       f'aber bei {n_rounds}-Runden-Format kann das Team maximal '
+                       f'{_max_home_per_team} Heimspiele haben → unlösbar.')
         blk_set = set(blk.get(team, []))
         conflict = blk_set & frc_set
         if conflict:

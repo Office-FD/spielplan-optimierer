@@ -213,6 +213,15 @@ def move_game(result, cfg, old_day: int, match_idx: int, new_day: int) -> str:
     result.travels   = travels
     result.sw_counts = sw_counts
     result.sw_rates  = sw_rates
+    # R8-B-M1: Hinweis wenn alter oder neuer Tag Teil eines DST-Blocks ist —
+    # DST-Invariante (gleiches Heimrecht beider DST-Tage) wird durch das
+    # Verschieben gebrochen, weil nur der eine Tag bewegt wird.
+    if old_day in cfg.dst_days or new_day in cfg.dst_days:
+        import sys as _sys
+        print(f'  [!!]  Spiel von ST{old_day} auf ST{new_day} verschoben: '
+              f'mindestens einer der beiden Tage ist Teil eines DST-Blocks. '
+              f'Heimrecht-Invariante zwischen DST-Tagen ggf. nicht mehr gegeben.',
+              file=_sys.stdout, flush=True)
     return ''
 
 
@@ -255,6 +264,9 @@ def reschedule_game(result, cfg, day: int, home_team: str, away_team: str) -> st
     """
     if cfg.games_per_team_per_day > 1:
         return 'Nachholspiele bei Turniertag nicht unterstützt.'
+    # R8-B-L2: day gegen gueltige Spieltage validieren (analog zu move_game)
+    if day not in cfg.days:
+        return f'Spieltag {day} existiert nicht im Spielplan.'
     if home_team not in cfg.teams:
         return f'Team "{home_team}" nicht in der Liga.'
     if away_team not in cfg.teams:
@@ -278,6 +290,15 @@ def reschedule_game(result, cfg, day: int, home_team: str, away_team: str) -> st
     result.travels   = travels
     result.sw_counts = sw_counts
     result.sw_rates  = sw_rates
+    # R8-B-M1: Hinweis wenn day Teil eines DST-Blocks ist — DST-Invariante
+    # (gleiches Heimrecht beider DST-Tage) wird durch den neuen Eintrag
+    # moeglicherweise gebrochen, weil der Partner-Tag unveraendert bleibt.
+    if day in cfg.dst_days:
+        import sys as _sys
+        print(f'  [!!]  Nachholspiel an DST-Tag {day} eingeplant: DST-Partner-Tag '
+              f'bleibt unveraendert. Heimrecht-Invariante zwischen DST-Tagen '
+              f'ggf. nicht mehr gegeben.',
+              file=_sys.stdout, flush=True)
     return ''
 
 

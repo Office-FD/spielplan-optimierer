@@ -226,6 +226,42 @@ def _wait_for_server(timeout: int = 45) -> bool:
     return False
 
 
+def _port_is_free() -> bool:
+    """Prueft, ob Port PORT auf 127.0.0.1 bindbar ist.
+
+    R8-G-M1: Auf Windows kann ein gerade beendeter Server-Socket noch 30-60 s
+    im TIME_WAIT-State sein. Bind-Versuch ist verlaesslicher als _server_ready().
+    """
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        # Ohne SO_REUSEADDR — Streamlit setzt das auch nicht.
+        sock.bind(("127.0.0.1", PORT))
+        return True
+    except OSError:
+        return False
+    finally:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
+
+def _wait_for_port_free(timeout: int = 30) -> bool:
+    """Wartet bis Port frei ist (TIME_WAIT abgeklungen). True wenn frei,
+    False bei Timeout.
+
+    R8-G-M1: Ersatz fuer ein blindes time.sleep(1) nach Server-terminate vor
+    Neustart. Polling alle 0.5 s.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if _port_is_free():
+            return True
+        time.sleep(0.5)
+    return False
+
+
 def _start_streamlit_server() -> Optional[subprocess.Popen]:
     """Startet den Streamlit-Subprocess; gibt das Process-Objekt zurueck."""
     CREATE_NO_WINDOW = 0x08000000
@@ -313,16 +349,31 @@ def main():
                     server_proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     server_proc.kill()
+                    try:
+                        server_proc.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        pass
             except Exception:
                 pass
-            # Kurz warten, damit Port freigegeben wird
-            time.sleep(1)
-            if _apply_update(dl_url, new_version):
+            # R8-G-M1: Aktiv warten bis Port wieder bindbar ist (Windows-TIME_WAIT
+            # kann 30-60 s dauern). Ersetzt blindes time.sleep(1).
+            if not _wait_for_port_free(timeout=30):
+                _msgbox(
+                    "Spielplan-Optimierer – Update",
+                    f"Der Port {PORT} ist nach 30 Sekunden noch belegt.\n\n"
+                    "Update wird nicht installiert; bitte das Programm beenden\n"
+                    "und in 1–2 Minuten erneut starten.",
+                    _MB_OK | _MB_ICONERROR,
+                )
+                # Fallback: alten Server moeglichst weiter nutzen — versuche Restart.
                 server_proc = _start_streamlit_server()
-            # Bei Update-Fail laeuft die App mit der alten Version weiter
-            # → neuen Server starten
             else:
-                server_proc = _start_streamlit_server()
+                if _apply_update(dl_url, new_version):
+                    server_proc = _start_streamlit_server()
+                # Bei Update-Fail laeuft die App mit der alten Version weiter
+                # → neuen Server starten
+                else:
+                    server_proc = _start_streamlit_server()
 
     # 6. Warten bis Server bereit, dann Browser oeffnen
     if _wait_for_server(timeout=60):

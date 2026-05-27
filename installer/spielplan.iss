@@ -6,7 +6,7 @@
   ; Fallback-Wert, wenn iscc.exe direkt ohne /DMyAppVersion= aufgerufen wird.
   ; Normalerweise setzt build_bootstrap.bat /DMyAppVersion="$(cat VERSION)".
   ; E7-L1: bei VERSION-Bump auch hier nachziehen.
-  #define MyAppVersion "1.13.0"
+  #define MyAppVersion "1.13.1"
 #endif
 
 #define MyAppName "Spielplan-Optimierer"
@@ -55,16 +55,16 @@ Name: "{userprograms}\{#MyAppName} deinstallieren"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [UninstallDelete]
-; Entfernt alle Dateien die nachträglich per ZIP entpackt wurden (app.py, spielplan_multi/, etc.)
-; sowie zur Laufzeit erstellte Verzeichnisse (.cache/).
+; Entfernt alle Dateien die nachträglich per ZIP entpackt wurden (app.py, spielplan_multi/, etc.).
 ; F-L3: Spielplaene/ bleibt explizit erhalten - Nutzer-Daten gehen so beim Deinstallieren
 ; NICHT verloren. InitializeUninstall warnt sicherheitshalber zusätzlich.
+; R8-G-M2: .cache/ ebenfalls erhalten (enthält Google-Maps-Distanz-Cache und Geocode-Cache,
+; die API-Quota kosten); InitializeUninstall warnt auch hier zusätzlich.
 Type: filesandordirs; Name: "{app}\app.py"
 Type: filesandordirs; Name: "{app}\launcher.py"
 Type: filesandordirs; Name: "{app}\spielplan_multi"
 Type: filesandordirs; Name: "{app}\assets"
 Type: filesandordirs; Name: "{app}\python"
-Type: filesandordirs; Name: "{app}\.cache"
 Type: files; Name: "{app}\*.md"
 Type: files; Name: "{app}\*.txt"
 Type: files; Name: "{app}\*.csv"
@@ -81,6 +81,7 @@ var
 function InitializeUninstall(): Boolean;
 var
   SpielplaenePath: String;
+  CachePath: String;
   Answer: Integer;
   ResultCode: Integer;
 begin
@@ -102,7 +103,27 @@ begin
     begin
       ShellExec('explore', SpielplaenePath, '', '', SW_SHOW, ewNoWait, ResultCode);
       Result := False;
+      Exit;
     end;
+  end;
+
+  // R8-G-M2: Hinweis auf .cache/ (Distanzmatrizen + Geocode-Cache).
+  // .cache/ bleibt nach Deinstall stehen, damit API-Quota nicht verloren geht.
+  // Hinweis ist nur informativ.
+  CachePath := ExpandConstant('{app}\.cache');
+  if DirExists(CachePath) then
+  begin
+    MsgBox(
+      'Hinweis: Der Cache-Ordner mit Distanzmatrizen und Geocode-Daten' + #13#10 +
+      'wird beim Deinstallieren NICHT geloescht:' + #13#10 + #13#10 +
+      '  ' + CachePath + #13#10 + #13#10 +
+      'Damit bleiben Ihre bereits berechneten Distanzen erhalten und' + #13#10 +
+      'koennen bei einer Neuinstallation wiederverwendet werden.' + #13#10 + #13#10 +
+      'Falls Sie den Cache manuell loeschen moechten, koennen Sie das' + #13#10 +
+      'nach der Deinstallation im Datei-Explorer tun.',
+      mbInformation,
+      MB_OK
+    );
   end;
 end;
 

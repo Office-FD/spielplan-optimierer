@@ -1701,3 +1701,224 @@ B7-M1 (Cache-File-Lock), B7-L1/L2/L5/L6 schon in v1.13.0 gefixt. Keine neuen Bef
 - Phase 1→2 set_hints (Primär + abgeleitet)
 - Phase-2-INFEASIBLE-Fallback auf Phase-1-Ergebnisse
 - Telemetrie-Persistenz durch alle Phasen (R7-Fix)
+
+---
+
+### [intern] Code-Review Runde 8 – Block E: UI Wizard-Schritte 1-7
+
+**Geprüft:** `app.py` Schritte 1–7 (`_step0` Ligen & Teams, `_step1` Distanzmatrizen, `_step2` Kalender & DST, `_step3` Routing & Gewichte, `_step4` Pflichtspiele, `_step5` Sperrtage & Pflichtheim, `_step6` Co-Home)
+**Datum:** 27.05.2026, Stand v1.13.0
+
+**Show-Stopper:** **0** | **Hoch:** **0** | **Mittel:** **1** | **Niedrig:** **3**
+
+#### Mittel
+
+**🟡 R8-E-M1 — Liga-Remove räumt position-indizierte Widget-Keys nicht auf**
+`_step0` Z. 1502-1515: Beim Reduzieren der Liga-Anzahl werden zwar Liga-ID-indizierte Widget-Keys (`cal_editor_<lid>`, `de_<lid>`, `_exp_<lid>`, …) gelöscht, aber **position-indizierte** Keys (`lid_<i>`, `lnm_<i>`, `fmt_<i>`, `hw_<i>`, `ttr_<i>`, `cs_<i>`) bleiben im Session-State. Wenn z. B. Liga 3 von 4 entfernt wird, bleibt `lnm_3` (= Name der entfernten Liga) im State — bei nächstem Render zeigt das Textfeld der „neuen Liga 3" (vorher Liga 4) den falschen Namen. **Aber:** Z. 1583-1585 setzt `lnm_<i>` nur, wenn der Key noch nicht existiert → der alte (falsche) Wert wird zur Anzeige genommen.
+**Erkenntnis:** Liga-Rename (Z. 1992-1997) hat denselben Pfad, aber dort werden nur LID-Präfixe übertragen, weil `i` unverändert bleibt.
+**Risiko:** User reduziert Liga-Anzahl und sieht plötzlich Namen aus entfernten Ligen in den verbleibenden Slots — verwirrend.
+**Fix:** Im Remove-Loop (Z. 1502) auch position-indizierte Keys für entfernte Position löschen, oder besser: alle `lid_*`, `lnm_*`, `fmt_*`, `hw_*`, `ttr_*`, `cs_*` Keys ab Index `n` (= neue Liga-Anzahl) löschen.
+**Produktions-Blocker?** Nein (Funktion läuft, nur UX-Verwirrung)
+
+#### Niedrig
+
+**🟢 R8-E-L1 — Pflichtspiel-UI prüft keine Konflikte mit Sperrtagen/Pflichtheim live**
+`_step4` Pflichtspiele-Add (Z. 2739-2752) validiert nur Duplikate (gleiche Paarung + gleicher Tag). Konflikte mit `blocked[home_team]` oder `forced_home[away_team]` werden erst vom Validator/Solver erkannt — User sieht den Fehler erst nach Klick auf „Optimierung starten". `_step5` hat dafür schon einen Live-Konflikt-Check (Sperrtag vs. Pflichtheim, Z. 2874-2887) — dasselbe Pattern fehlt in Schritt 4.
+**Fix:** Beim Pflichtspiel-Add prüfen ob `home_sel` in `blocked.get(home_sel, [])` für `day` enthalten ist, oder ob es einen `forced_home[away]`-Konflikt gibt → Warning vor `pinned.append`.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-E-L2 — Kalender-Editor: > 2 Spieltage pro KW nur als Tabellen-Zelleninhalt markiert**
+`_step2` Z. 2542-2543: Drei oder mehr Spieltage in derselben KW erzeugen `dst_col = '> 2 ⚠'` in der „DST"-Spalte des data_editors — aber **keine** explizite `st.error`/`st.warning` außerhalb. Für den User ist das leicht zu übersehen, obwohl die Konfiguration INFEASIBLE wäre (DST darf nur 2 aufeinanderfolgende Tage haben).
+**Fix:** Nach der DST-Erkennung in Z. 2557 ein `st.warning(f'KW {kw} hat {kw_count[kw]} Spieltage — DST-Blöcke dürfen nur 2 sein.')` ausgeben.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-E-L3 — `_session_from_json` ignoriert Schema-Version stillschweigend**
+Z. 3288-3353: Lädt Felder selektiv per `if 'foo' in cfg_data:` — keine Prüfung der `schema_version` oder `app_version` im JSON. Wenn ein User-JSON aus einer **viel neueren** App-Version Felder enthält, die in dieser Version anders interpretiert werden (z. B. neues `routing`-Tupel-Format), könnte das stille Datenverluste oder Fehler erzeugen.
+**Risiko:** Gering im aktuellen Stand (Schema 1.0/1.1 sind kompatibel), aber bei zukünftigen Schema-Updates relevant.
+**Fix:** Am Anfang von `_session_from_json` `schema_v = data.get('schema_version', '1.0')` lesen und bei Versionen, die größer als die App-Version sind, eine Warnung anzeigen.
+**Produktions-Blocker?** Nein
+
+---
+
+**Block-E-Fazit:** Die 7 Wizard-Schritte sind nach R6-Sprint-3 (State-Sync) und R6-R3 (D-L1 Liga-Rename-Form) reif. Nur Position-indizierte Widget-Keys (M1) sind ein offenes UX-Detail.
+
+**Geprüfte Bereiche** ✓:
+- Liga Add/Remove/Rename: alle State-Dicts (`dist_matrices`, `dst_per_liga`, `routing`, `weights`, `pinned`, `blocked`, `forced_home`, `cal_table`, `time_templates`, `opt_best`, `clubs`) synchron beim Rename — Widget-Keys mit LID-Präfix konsistent (M1: nur position-indizierte fehlen)
+- Distance-Matrix-Editor: NaN-Handling (Z. 2067), Symmetrisierung Upper→Lower, Fallback bei Cache-Reset bei JSON-Restore (D-L2)
+- Calendar-Editor: cal_table-Tabellen-Roundtrip Excel-Save/Load via `_apply_weekend_dates` + `_cal_table_to_kw_compat`, DST-Erkennung über gleiche KW
+- Pflichtspiele: Duplikat-Check vorhanden (L1: keine Konflikt-Live-Detection mit Sperrtagen/Pflichtheim)
+- Sperrtage + Pflichtheim: Live-Konflikt-Check zwischen beiden vorhanden (Z. 2874-2887), Range-Validierung 1–N
+- Co-Home-Auto-Detection via `_autodetect_cohome`, manuell + Auto-Übernahme-Workflow
+- JSON-Save/Load: Schema 1.0 + 1.1, `home_vals` Rekonstruktion (Z. 3389-3400), Telemetrie-Felder (Z. 3402-3409), Fallback `kw_compat` → `cal_table` (Z. 3331)
+
+---
+
+### [intern] Code-Review Runde 8 – Block F: UI Wizard-Schritte 8-9 + Mutationen
+
+**Geprüft:** `app.py` Schritte 7–8 (`_step7` Solver-Konfiguration, `_step8` Optimierung & Ergebnisse), Mutations-Section, Live-Log-Übersetzung, Telemetrie-Section, Downloads
+**Datum:** 27.05.2026, Stand v1.13.0
+
+**Show-Stopper:** **0** | **Hoch:** **0** | **Mittel:** **1** | **Niedrig:** **3**
+
+#### Mittel
+
+**🟡 R8-F-M1 — Inkonsistenter `opt_warnings`-Typ: Excel-Fehler als String, sonst Dict**
+Z. 3989-3996 baut `opt_warnings` aus `S.opt_log` mit dict-Form `{'level': 'error'/'warn', 'msg': ...}` auf. Aber Z. 4025 fügt bei Excel-Erzeugungs-Fehlern einen **plain string** an: `S.opt_warnings.append(f'Excel-Erzeugung fehlgeschlagen: {_exc_excel}')`. `_show_results` Z. 4421-4429 hat zwar Backward-Compat (string → `st.warning`), aber:
+1. Excel-Fehler sollten als `level: 'error'` markiert werden, damit sie `st.error` auslösen statt `st.warning` (Excel-Build-Fehler bedeutet: User kann nicht herunterladen).
+2. Stil-Inkonsistenz erschwert spätere Wartung.
+
+**Fix:** Z. 4025 ersetzen durch:
+```python
+S.opt_warnings.append({'level': 'error', 'msg': f'Excel-Erzeugung fehlgeschlagen: {_exc_excel}'})
+```
+**Produktions-Blocker?** Nein (Warnung wird angezeigt, nur Severity unklar)
+
+#### Niedrig
+
+**🟢 R8-F-L1 — Phase-2-Fallback-Heuristik via exaktem Vergleich `best_bound == best_bound`**
+Z. 4469-4473: `_all_same_p2` prüft, ob alle Ligen denselben `best_bound` und `final_gap` haben — dann wird ein **gemeinsames** Phase-2-Panel angezeigt; sonst pro-Liga-Panels. Bei Phase-2-Modus sind die Werte tatsächlich exakt identisch, weil Phase 2 ein gemeinsames Modell ist. Aber:
+- Falls Phase 2 fehlschlägt und Phase 1 als Fallback genutzt wird, **können** zwei Ligen zufällig denselben `best_bound` haben (z. B. wenn Solver `_AUTO` für beide auf dieselbe Schranke kommt) → falsche Erkennung als „Phase 2".
+- Floating-Point-Vergleich mit `==` ist generell fragil.
+
+**Fix-Idee:** Statt Heuristik ein explizites Feld in `LeagueResult` setzen: `is_phase2_result: bool` oder `objective_source: 'p1' | 'p2'`. Solver schreibt das beim Schreiben, nicht in der UI raten.
+**Produktions-Blocker?** Nein (Edge-Case)
+
+**🟢 R8-F-L2 — Mutation-Buttons (📅 ❌) ohne `disabled`-Flag für Turniertag-Spiele**
+Z. 5221-5237: Move-Button (`📅`) und Cancel-Button (`❌`) sind für Turniertag-Ligen (gpd>1) immer aktiv, obwohl `move_game`/`cancel_game` mit Turniertag-Guard (C-M1, R6) sofort abbrechen. User klickt → sieht eine schlecht formulierte Fehlermeldung. Besser: Buttons als `disabled=True` mit erklärendem `help`-Tooltip.
+**Fix-Idee:** `_is_tt = _cfg_mv.games_per_team_per_day > 1` vor Z. 5217 berechnen, dann beide Buttons mit `disabled=_is_tt, help='Mutationen bei Turniertag-Format nicht unterstützt — bitte komplette Optimierung neu starten'`.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-F-L3 — `any('PHASE 3' in l for l in S.opt_log)` skaliert linear bei langem Log**
+Z. 3904, 3906: Wird bei jedem 0.5s-Rerun ausgewertet (`time.sleep(0.5)`). Bei einem 8-h-Nachtlauf wächst `S.opt_log` auf ~10.000+ Zeilen → jeder Rerun scannt den kompletten Log zweimal.
+**Fix-Idee:** Phase-Detection-Cache: bei Eintreffen einer `PHASE 3`-Zeile in der Queue-Loop direkt `S._phase_seen.add('p3')`, dann nur das Set prüfen.
+**Risiko:** Sehr gering — selbst bei 10k Log-Zeilen sind 2× `any()` < 1 ms.
+**Produktions-Blocker?** Nein
+
+---
+
+**Block-F-Fazit:** Ergebnisansicht ist sehr solide nach R6-Sprint-3 (D-M1/M2 State-Sync) und R7 (Telemetrie-Pass-Through, Live-Log-Übersetzung). Die 3 Niedrig-Befunde sind allesamt UX-Polishing.
+
+**Geprüfte Bereiche** ✓:
+- `_step7` (Solver-Konfig): Slider mit ETA-Anzeige, korrekte Zeitschätzung `(seeds * p1) + p2 + (sa * n_lig)`, `nm`-Flag bei Nachtlauf-Modus
+- `_step8` Pickle-Recovery: vollständiger Excel-Rebuild bei Wiederherstellung, atomare bytes-Reset
+- Live-Log: Queue-Sync mit `__DONE__`/`__RESULTS__`-Markern, Crash-Handling über `queue.Empty/EOFError/OSError`, Cancel-Button mit terminate→kill-Fallback
+- Phase-Detection: textuelle Heuristik in `S.opt_log` (L3)
+- Telemetrie-Section: Phase-2 vs. Phase-1 Aggregat-Anzeige (L1), Chart + CSV-Download (Suffix mit Gewichten und Laufzeit), Improvements-Counter
+- Plan-Qualitätshinweise via `find_schedule_warnings`
+- Fairness-Tabelle pro Liga: km, Abw%, Heim, Heim%, Wechsel, Quote
+- Mutations: Move/Cancel mit Pending-States, DST-Hinweis (E-L1), Nachholtermin-Workflow, Liga-Wechsel räumt Pending-States
+- Excel-Regenerierung nach jeder Mutation (`_regen_league_excel`)
+- Downloads: Liga-ZIP, Co-Home, Hall, Overview, iCal, HTML, Telemetrie-CSV, Sitzung-JSON — alle mit `_result_fname_suffix` für Gewichte/Laufzeit im Filename
+- Spielplan-Vergleich: Excel-Upload + Delta-Tabelle
+
+---
+
+### [intern] Code-Review Runde 8 – Block G: Distribution + CLI
+
+**Geprüft:** `launcher.py`, `installer/spielplan.iss`, `installer/build_bootstrap.bat`, `spielplan_multi/wizard.py`, `spielplan_multi/main.py`, `build_release.py`, `.github/workflows/release.yml`
+**Datum:** 27.05.2026, Stand v1.13.0
+
+**Show-Stopper:** **0** | **Hoch:** **0** | **Mittel:** **2** | **Niedrig:** **3**
+
+#### Mittel
+
+**🟡 R8-G-M1 — Port 8501-TIME_WAIT-Race nach Update-Restart**
+`launcher.py` Z. 311-325: Bei verfügbarem Update wird `server_proc.terminate()` → `wait(timeout=5)` → `time.sleep(1)` → `_apply_update()` → neuer `_start_streamlit_server()`. Auf Windows kann der TCP-Port 8501 nach `terminate()` noch 30-60 s im `TIME_WAIT`-State sein. Ein `time.sleep(1)` ist meist ausreichend, aber nicht garantiert — der neue Server-Start könnte mit `Address already in use` fehlschlagen.
+
+**Risiko:** Wenn User Update annimmt, könnte neuer Server nicht starten → `_wait_for_server(timeout=60)` schlägt fehl → Error-Dialog. User muss App neu starten.
+**Fix-Idee:** Statt `time.sleep(1)` aktiv prüfen `_server_ready() == False` bis 30 s, oder neuer Streamlit-Server mit `--server.port=0` automatisch freien Port wählen lassen (bricht aber Bookmark-URLs).
+**Produktions-Blocker?** Nein (selten — Update-Pfad ist nicht der Standard-Fall, App lässt sich neu starten)
+
+**🟡 R8-G-M2 — Inno-Uninstaller löscht `.cache/` ohne Backup-Warnung**
+`installer/spielplan.iss` Z. 67: `Type: filesandordirs; Name: "{app}\.cache"`. Beim Deinstall wird `.cache/` mit `last_result.pkl` (letztes Optimierungsergebnis!), `dist_<lid>.json` (Google-Maps-Distanz-Cache, kostet API-Quota wenn neu berechnet) und `geocode_cache.json` (Nominatim-Cache, durch Rate-Limit teuer) entfernt. `InitializeUninstall` warnt nur explizit für `Spielplaene/` (F-L3 in v1.4.1), nicht für `.cache/`.
+
+**Risiko:** User deinstalliert (z. B. zum Reset, vor Neu-Install), verliert dabei seine ~20 Cache-Dateien mit API-Quota-Wert.
+**Fix:** Entweder `.cache` aus `[UninstallDelete]` entfernen (analog zu `Spielplaene/`) oder `InitializeUninstall` um `.cache/`-Hinweis erweitern.
+**Produktions-Blocker?** Nein (nur bei Deinstall relevant, aber bei Reset-Versuch ärgerlich)
+
+#### Niedrig
+
+**🟢 R8-G-L1 — `wizard.py` step1/step2-Signaturen mit veraltetem Tuple-Type-Hint**
+Z. 382, 444-445: Type-Hint `Dict[str, Tuple[List[str], List[str], str, float, int, int]]` ist Pre-R6-R1-Refactor (vor v1.6.0). Tatsächlich wird `WizardLeagueDef` übergeben und im Code mit `.teams`, `.locations`, `.name` zugegriffen (Z. 410). Korrekter Code, falsche Annotation. Lint-Tool oder IDE-Inspection würde stolpern.
+**Fix:** Annotationen auf `Dict[str, WizardLeagueDef]` umstellen.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-G-L2 — `build_release.py` EXCLUDE_DIRS ohne `Output` / `dist`**
+Z. 14-17: `EXCLUDE_DIRS = {".venv", ".cache", "Spielplaene", "__pycache__", ".git", "installer", "memory", ".pytest_cache"}`. Falls jemand `pyinstaller` direkt im Repo-Root laufen lässt, wandert `dist/` und `build/` ins ZIP (build startet mit kleinem b, wird nicht durch `startswith(".")` ausgeschlossen).
+**Fix-Idee:** `EXCLUDE_DIRS.update({"dist", "build", "Output", "node_modules"})`.
+**Risiko:** Sehr gering — `build/` wird im Standard-Workflow nicht im Root erzeugt (nur in `installer/build/`, und `installer/` ist schon ausgeschlossen).
+**Produktions-Blocker?** Nein
+
+**🟢 R8-G-L3 — Launcher-Timeout `_wait_for_server(timeout=60)` reicht eventuell nicht bei langsamen Systemen**
+Z. 328: 60 s Timeout. Auf älteren Notebooks (Windows-Updates, Antivirus-Scan beim Start) kann ein Streamlit-Cold-Start 90+ s dauern (Numpy + Streamlit-Initialisierung). Bei Timeout sieht der User die Error-Dialog-Box, obwohl der Server kurz danach bereit wäre.
+**Fix-Idee:** Timeout auf 120 s erhöhen oder noch besser: dynamisch (z. B. zeit-stempel anhand letztem Streamlit-Server-Boot speichern und Faktor 2 für Toleranz).
+**Produktions-Blocker?** Nein
+
+---
+
+**Block-G-Fazit:** Launcher mit R6-R2 (F-M1 Backup/Rollback, F-L2 Background-Update-Check) und Installer mit F-L3-Schutz sind solide. M1 (Port-Race) und M2 (.cache-Löschung) sind beide latente Edge-Cases bei seltenen Pfaden (Update-Restart, Deinstall).
+
+**Geprüfte Bereiche** ✓:
+- `launcher.py`: Update-Check mit Background-Thread, atomarer `_apply_update` mit Backup-Rollback, semantischer Versionsvergleich, ZIP-Path-Traversal-Guard, sauberer Server-Lifecycle (terminate→kill-Fallback)
+- `installer/spielplan.iss`: Per-User-Install in LocalAppData (kein Admin nötig), F-L3-Spielplaene-Schutz, Tasks/Icons sauber
+- `installer/build_bootstrap.bat`: Python-Embedded SHA256-Pinning (F-L6, v1.4.1), PyInstaller + Inno-Setup-Workflow
+- `wizard.py`: WizardLeagueDef-Refactor seit R1 (G-L1/L2/L3 erledigt), CLI-Pfade analog zu UI
+- `main.py`: ruft `build_overview_excel` (G-L4 erledigt), KeyboardInterrupt-Handler, Print-Mode für stdin.isatty
+- `build_release.py`: Sanity-Check min 10 Dateien (F-L5)
+- `release.yml`: Tag-vs-VERSION-Validation (F-M2), Test-Gate (F-L8), Actions @v6 pinned
+
+---
+
+### [intern] Code-Review Runde 8 – Block H: Tests + CI + Doku
+
+**Geprüft:** `test_*.py`, `.github/workflows/*.yml`, `CLAUDE.md`, `README.md`, `INSTALLATION.md`, `BENUTZERHANDBUCH.md`, `ROADMAP.md`, `ruff.toml`, `.coveragerc`
+**Datum:** 27.05.2026, Stand v1.13.0
+
+**Show-Stopper:** **0** | **Hoch:** **0** | **Mittel:** **2** | **Niedrig:** **3**
+
+#### Mittel
+
+**🟡 R8-H-M1 — README.md zeigt veraltete Version 1.2.6 statt 1.13.0**
+`README.md` Z. 7: „**Aktuelle Version:** 1.2.6". Das ist die Stand vom v1.2.6-Release (vor R6-Sprint-4). Seit ~11 Versionen nicht aktualisiert.
+**Risiko:** Externe Besucher der GitHub-Seite sehen veralteten Stand. Suggeriert Stillstand des Projekts.
+**Fix:** Z. 7 auf `1.13.0` aktualisieren. Besser: aus VERSION-Datei via CI-Pipeline ersetzen (jq-/sed-Substitution in einem release-Hook).
+**Produktions-Blocker?** Nein
+
+**🟡 R8-H-M2 — Test-Coverage-Lücke: `launcher.py` + `_session_from_json`-Roundtrip**
+Pytest-Wrapper deckt 150+ Tests in `test_all.py` (62), `test_features.py` (67), `test_distances.py` (18), `test_smoke.py` ab. Aber:
+- `launcher.py` (343 Z., kritisch für Endnutzer-Distribution): **kein Test**. `_parse_version`, `_apply_update`-Rollback, ZIP-Path-Traversal-Guard, atomarer Backup-Restore — alles ungetestet. Bug F-M1-Rollback in v1.6.1 wurde manuell getestet, kein Regression-Schutz.
+- `_session_from_json` (`app.py` Z. 3288-3460+): Schema-1.0/1.1-Backward-Compat, `home_vals`-Rekonstruktion, Telemetrie-Felder — **kein Round-Trip-Test**. Bei JSON-Schema-Updates besteht Regression-Risiko.
+- `_translate_solver_log_cached` (C7-M1): Cache-Logik ungetestet.
+
+**Fix-Idee:** Neue Test-Datei `test_launcher.py` mit Unit-Tests für `_parse_version`, `_apply_update`-Mock, `_should_include` (build_release). Plus ein `test_session_roundtrip.py` der `_session_to_json` → `_session_from_json` durchgeht.
+**Aufwand:** Mittel (2-3 h)
+**Produktions-Blocker?** Nein (Funktionen wurden manuell getestet)
+
+#### Niedrig
+
+**🟢 R8-H-L1 — `test_smoke.py` nicht im pytest-Wrapper-Output, nur als Pre-Check**
+`test_pytest_runner.py` ruft alle 4 Test-Scripts subprocess-basiert auf. Smoke-Test ist enthalten, aber pytest-Output zeigt `test_smoke` mit verkürzten Logs (subprocess-stdout). Für CI-Logs-Lesbarkeit wäre eine pytest-native Konvertierung (`pytest.mark.parametrize` für Sub-Tests) klarer. **Aufwand:** Hoch — kein quick-win, deshalb Niedrig.
+
+**🟢 R8-H-L2 — `coverage.yml` mit `actions/upload-artifact@v4` während andere Workflows `@v6`**
+`coverage.yml` Z. 43: `actions/upload-artifact@v4`. Andere Workflows nutzen `actions/checkout@v6`, `setup-python@v6`. v4 ist LTS und wird weiter unterstützt (kein Bug), aber stilistisch inkonsistent.
+**Fix:** Auf neueste Major-Version `@v5` umstellen, falls vorhandene Artefakte kompatibel bleiben.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-H-L3 — `CLAUDE.md` Status-Header noch auf R7-Sprint statt R8**
+`CLAUDE.md` Z. 3: „Status: Code-Review Runde 7 abgeschlossen". Nach Abschluss von R8 muss dieser Status aktualisiert werden, sonst sieht künftige Konversation den Stand falsch („R7 letzter Sprint" statt „R8 Final-Review komplett, Produktiv-Bereit").
+**Fix:** Header nach Abschluss aller R8-Blöcke updaten auf z. B. „Status: Code-Review Runde 8 abgeschlossen — Produktions-Freigabe vor FLVD-Saisonplanung. 0 Show-Stopper, 5 Mittel, 18 Niedrig — alle in BACKLOG.md".
+**Produktions-Blocker?** Nein (wird im R8-Abschluss erledigt)
+
+---
+
+**Block-H-Fazit:** Test-Coverage ist mit 150+ Tests sehr gut für Solver/Validator/Output-Module. Lücken bestehen für `launcher.py` (Distribution-Pfad) und `_session_from_json`-Roundtrip. Doku-Inkonsistenz ist auf README beschränkt — INSTALLATION + BENUTZERHANDBUCH sind aktuell (v1.9-v1.11-Referenzen).
+
+**Geprüfte Bereiche** ✓:
+- `test_all.py`: 62 Tests — Solver-Constraints (1-13), Validator (14)
+- `test_features.py`: 67 Tests — Excel/HTML/iCal/Hall/Overview/Calendar/Map/Geocode
+- `test_distances.py`: 18 Tests — Distanz-Loader inkl. ExcelFile-Lock-Fix
+- `test_smoke.py`: schneller Smoke-Test im pytest-Wrapper
+- 4 Workflows: `test.yml` (push/PR, Ruff+Tests), `coverage.yml` (push:main, manual), `release.yml` (tags v*, Tag-Validation, Test-Gate), `codeql.yml` (security scan)
+- `ruff.toml`: strikte F/E4/E9/W6, tolerante E701/E702/E741/F841, per-file-ignores für app.py/main.py/tests
+- `.coveragerc`: include/omit konsistent
+- Doku: `BENUTZERHANDBUCH.md` deckt v1.9 (Karten), v1.10 (Kalender), v1.11 (Telemetrie) ab; `INSTALLATION.md` deckt Auto-Update-Dialog ab; `ROADMAP.md` zeigt Pfad A/B Status

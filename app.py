@@ -189,6 +189,13 @@ _FMT_ALIAS = {'Turniertag (2 Spiele/Tag)': 'Turniertag'}
 # D-L1: Liga-ID-Format (analog CLI-Wizard); Rename erst nach expliziter Bestätigung
 _LID_RE = re.compile(r'[A-Z0-9_\-]{1,20}')
 
+# R8-A-M1: Co-Home-Gewicht-Schwellwerte. Der Slider gibt 0–10 vor, aber JSON-/Excel-
+# Imports koennen beliebige Werte enthalten. Bei sehr hohen Werten droht ein
+# CP-SAT-Objective-Overflow (Int-Domain ±2^31). Cap beim Import auf 50, Warnung
+# ab 20 im Validator.
+_W_COHOME_MAX  = 50.0   # hartes Cap beim Import
+_W_COHOME_WARN = 20.0   # ab hier Validator-Warnung
+
 
 def _get_n_rounds_gpd(ld: dict) -> tuple:
     """Gibt (n_rounds, gpd) für ein Liga-Dict zurück."""
@@ -1390,7 +1397,18 @@ def _step0():
                             S.same_weights = s['same_weights'].strip().upper() == 'J'
                         if 'w_cohome' in s:
                             try:
-                                S.w_cohome = float(s['w_cohome'])
+                                _wch_raw = float(s['w_cohome'])
+                                # R8-A-M1: hard-cap auf _W_COHOME_MAX
+                                if _wch_raw > _W_COHOME_MAX:
+                                    st.warning(
+                                        f'Co-Home-Gewicht aus Datei ({_wch_raw}) '
+                                        f'überschreitet das Maximum ({_W_COHOME_MAX:.0f}) — '
+                                        f'wurde auf {_W_COHOME_MAX:.0f} begrenzt.'
+                                    )
+                                    _wch_raw = _W_COHOME_MAX
+                                elif _wch_raw < 0:
+                                    _wch_raw = 0.0
+                                S.w_cohome = _wch_raw
                             except Exception:
                                 pass
                         sol = dict(S.solver)
@@ -1501,6 +1519,9 @@ def _step0():
         S.leagues[lid] = dict(name=f'Liga {_i}', teams=[], fmt=FMT_OPTIONS[0], hw=1.0)
     while len(S.league_order) > n:
         _removed = S.league_order.pop()
+        # Nach .pop() ist len(S.league_order) der alte Index der entfernten Liga
+        # (z. B. 4 → 3, entfernt war Index 3).
+        _removed_pos = len(S.league_order)
         S.leagues.pop(_removed, None)
         for _sd in (S.dist_matrices, S.dst_per_liga, S.routing,
                     S.weights, S.pinned, S.blocked, S.forced_home,
@@ -1513,6 +1534,13 @@ def _step0():
                         '_exp_blk_', '_exp_frc_', '_exp_tt_',
                         'tt_hmode_', 'tt_mingap_', 'tt_maxgap_'):
             st.session_state.pop(f'{_wk_pfx}{_removed}', None)
+        # R8-E-M1: position-indizierte Widget-Keys (lid_<i>, lnm_<i>, fmt_<i>,
+        # hw_<i>, ttr_<i>, cs_<i>, atn_<i>, acy_<i>) der entfernten Position
+        # ebenfalls löschen, sonst zeigt das Textfeld bei späterer Wieder-
+        # Anlage einer Liga an dieser Position den alten Namen.
+        for _pos_pfx in ('lid_', 'lnm_', 'fmt_', 'hw_', 'ttr_',
+                          'cs_', 'atn_', 'acy_'):
+            st.session_state.pop(f'{_pos_pfx}{_removed_pos}', None)
 
     club_records = load_club_db()
     club_adresse  = {(r['verein'] or r['teamname']): r['adresse']  for r in club_records}
@@ -3331,7 +3359,17 @@ def _session_from_json(raw: bytes) -> str:
         # Ältere Sitzung ohne cal_table: aus kw_compat migrieren
         _migrate_cal_table_from_kw_compat()
     if 'w_cohome' in cfg_data:
-        S.w_cohome = float(cfg_data['w_cohome'])
+        # R8-A-M1: hard-cap auf _W_COHOME_MAX (analog zum Excel-Import)
+        _wch_raw = float(cfg_data['w_cohome'])
+        if _wch_raw > _W_COHOME_MAX:
+            st.warning(
+                f'Co-Home-Gewicht aus Sitzung ({_wch_raw}) überschreitet das '
+                f'Maximum ({_W_COHOME_MAX:.0f}) — wurde auf {_W_COHOME_MAX:.0f} begrenzt.'
+            )
+            _wch_raw = _W_COHOME_MAX
+        elif _wch_raw < 0:
+            _wch_raw = 0.0
+        S.w_cohome = _wch_raw
     if 'weights' in cfg_data:
         S.weights = cfg_data['weights']
     if 'solver' in cfg_data:
@@ -3719,7 +3757,7 @@ def _build_league_configs() -> Dict[str, LeagueConfig]:
 
 def _validate_constraints() -> List[dict]:
     """Prüft die Konfiguration auf häufige Probleme vor dem Solver-Start."""
-    return _validate_cfg(
+    issues = _validate_cfg(
         league_order  = S.league_order,
         leagues       = S.leagues,
         dst_per_liga  = S.dst_per_liga,
@@ -3733,6 +3771,23 @@ def _validate_constraints() -> List[dict]:
         routing       = S.routing,
         forced_home   = S.forced_home,
     )
+    # R8-A-M1: Co-Home-Gewicht-Sanity-Check (UI-Slider 0–10, aber Imports koennen
+    # hoehere Werte einschleusen). Bei sehr grossen Werten droht CP-SAT-Overflow.
+    try:
+        _wch = float(S.w_cohome)
+    except (TypeError, ValueError):
+        _wch = 0.0
+    if _wch > _W_COHOME_MAX:
+        issues.append({'level': 'error', 'lid': None,
+                       'msg': f'Co-Home-Gewicht ({_wch}) überschreitet das erlaubte '
+                              f'Maximum ({_W_COHOME_MAX:.0f}). Bitte in Schritt 4 reduzieren.'})
+    elif _wch > _W_COHOME_WARN:
+        issues.append({'level': 'warning', 'lid': None,
+                       'msg': f'Co-Home-Gewicht ({_wch:.1f}) ist ungewöhnlich hoch '
+                              f'(> {_W_COHOME_WARN:.0f}). Standardwert ist 5; sehr hohe '
+                              f'Werte können den Solver dominieren und andere Ziele '
+                              f'(Reise-km, Fairness) verdrängen.'})
+    return issues
 
 
 def _step8():
@@ -4022,7 +4077,13 @@ def _step8():
                     S.overview_bytes = buf_ov.getvalue()
             except Exception as _exc_excel:
                 import traceback as _tb_excel
-                S.opt_warnings.append(f'Excel-Erzeugung fehlgeschlagen: {_exc_excel}')
+                # R8-F-M1: dict mit level='error' statt String, damit _show_results
+                # st.error (rot) statt st.warning (gelb) zeigt — Excel-Build-Fehler
+                # bedeutet: kein Download moeglich, also harter Fehler.
+                S.opt_warnings.append({
+                    'level': 'error',
+                    'msg': f'Excel-Erzeugung fehlgeschlagen: {_exc_excel}',
+                })
                 S.opt_log.append(f'[!!] Excel-Fehler: {_tb_excel.format_exc()}')
             st.rerun()
         else:
