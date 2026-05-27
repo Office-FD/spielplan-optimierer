@@ -1,190 +1,156 @@
 # Code-Review Plan – Spielplan-Optimierer
 
-> **Status:** Vorbereitet Mai 2026 – nächste vollständige Review-Runde noch nicht gestartet.
-> Erstellt nach Abschluss Code-Review Runde 5 (Mai 2026, alle Blöcke erledigt).
-> Diese Datei beschreibt einen sinnvoll aufgeteilten Review-Plan für die nächste Runde, sodass jeder Block eigenständig (in einer Session) durchführbar ist.
+> **Status:** Runde 7 vorbereitet 27.05.2026 — Fokus auf alles, was seit v1.6.2 dazugekommen ist.
+> **Vorheriger Stand:** Runde 6 (Mai 2026) komplett abgeschlossen — 67/73 Items + R1-R3-Refactors.
+> **Aktuelle App-Version:** v1.12.1 (lokal). 9 Tag-Pushes seit Runde 6: v1.7.0 → v1.12.1.
 
 ---
 
 ## Prinzip der Aufteilung
 
-Statt das gesamte Projekt in einem Marathon zu reviewen, ist es in **7 Blöcke** geteilt – nach Komponente/Verantwortlichkeit, nicht nach Datei-Größe. Jeder Block:
+Statt das gesamte Projekt nochmal von vorne zu reviewen (alte Module wurden in Runde 6 gründlich geprüft + R1-R3-Refactor), fokussiert Runde 7 auf die **neuen / stark veränderten Module**. 5 Blöcke, jeder eigenständig in ~30-60 min reviewbar.
 
-- Hat einen klaren thematischen Fokus
-- Ist in einer Session (~30-60 min) abschließbar
-- Hat eine eigene Checkliste mit konkreten Fragestellungen
-- Mündet in einen Backlog-Eintrag mit Befunden
-
-Reihenfolge ist nicht zwingend, aber **Block A → B → C → D/E → F → G** ist sinnvoll: erst die Pipeline-Korrektheit prüfen, dann die UI, dann das Drumherum.
+Reihenfolge-Empfehlung: **A → B → C → D → E**, weil jede Stufe auf der vorigen aufbaut.
 
 ---
 
-## Block A: Solver-Modell (Constraints & Performance)
+## Block A: Solver-Erweiterungen (F1 + Telemetrie)
 
 **Dateien:**
-- `spielplan_multi/solver.py`
-- `spielplan_multi/multi_solver.py`
-- `spielplan_multi/sa_refine.py`
-- `spielplan_multi/tt_scheduler.py`
+- `spielplan_multi/solver.py` (H3 Switch-Bound, H1 symmetry_level, Telemetrie in `_ProgressCallback` + `solve_league_phase1`)
+- `spielplan_multi/multi_solver.py` (H1 symmetry_level, set_hints-Erweiterung H2, Phase-2-Telemetrie)
+- `spielplan_multi/sa_refine.py` (v1.12.1-Hotfix: Telemetrie durchreichen)
+- `spielplan_multi/league_types.py` (`gap_history`, `best_bound`, `final_gap`)
 
-**Fokus:** Korrektheit der CP-SAT-Constraints, Edge-Cases im Solver-Modell, Performance/Modellgröße.
+**Fokus:** Korrektheit der F1-Hebel + Telemetrie-Persistenz durch alle 3 Phasen.
 
 **Checkliste:**
-- [ ] DST-Constraints: Was passiert bei DST-Block am Saisonende? DST + Sperrtag-Kombinationen?
-- [ ] Ungerade Teamzahl (`needs_bye`): Sind alle Sliding-Window-Constraints konsistent?
-- [ ] `n_rounds=3` (Dreifachrunde): Hin-/Rück-/Dritt-Phasen-Trennung korrekt?
-- [ ] `gpd > 1` (Turniertag): Werden alle Stats-Funktionen geguarded?
-- [ ] Phase-2-Modell: ist das KW-Mapping wirklich gemeinsam optimiert oder gibt es stille Entkopplungen?
-- [ ] SA-Phase: Akzeptanzkriterium, Cooling-Schedule, Reset-Verhalten — alles deterministisch?
-- [ ] Symmetry-Level: noch der richtige Wert nach OOM-Fix?
-- [ ] `bool_core`-Verhalten: tritt die Klausel-Kaskade unter neuen Parametern wieder auf?
-- [ ] Logging: Werden `[FEHLER]`-Pfade in allen Subprocess-/Thread-Pfaden abgefangen?
+- [ ] H3-Bound `_max_sw_per_team = n_transitions - consecutive_dst`: ist die Berechnung für n_rounds=3 oder Turniertag korrekt? Was bei `dst_blocks[(d1, d2)]` wo `d2 > d1+1`?
+- [ ] symmetry_level=2: bool_core-OOM-Risiko bei seltsamen Configs noch denkbar? `max_memory_in_mb=4096` als Schutz ausreichend?
+- [ ] set_hints H2: werden die abgeleiteten `switch`-Werte korrekt aus `home_vals` berechnet, auch bei Turniertag (`gpd > 1`)?
+- [ ] sa_refine Telemetrie-Pass-Through: was, wenn Input-`gap_history` None ist statt `[]`? Defaults sauber?
+- [ ] `final_gap`-Berechnung bei `best_bound = 0` oder negativ — Division-by-zero geguarded?
+- [ ] Pipeline-Konsistenz: Phase 1 → Phase 2 → SA → Telemetrie-Werte sollten am Ende NICHT verloren sein (war v1.12.0-Bug)
+- [ ] `_ProgressCallback.history`-Wachstum: bei sehr langen Läufen (~24h, >1000 Improvements) RAM-Bedenken?
+
+**Mündung:** Befunde in `BACKLOG.md` als „Code-Review Runde 7 – Block A".
 
 ---
 
-## Block B: Datenmodell & Eingabe-Validierung
+## Block B: Neue Datenmodule (Karte + Kalender)
 
 **Dateien:**
-- `spielplan_multi/league_types.py`
-- `spielplan_multi/config.py`
-- `spielplan_multi/config_validator.py`
-- `spielplan_multi/calendar_parser.py`
-- `spielplan_multi/distances.py`
+- `spielplan_multi/geocode.py` (Nominatim, Cache, set_manual_coord)
+- `spielplan_multi/map_output.py` (build_route_map)
+- `spielplan_multi/calendar_output.py` (build_calendar_events, _date_from_kw, _guess_season_year)
 
-**Fokus:** Type-Konsistenz, Validierungs-Coverage, Defaults, NaN/Edge-Cases.
+**Fokus:** Korrektheit + Robustheit der neu hinzugekommenen Module.
 
 **Checkliste:**
-- [ ] `LeagueConfig`: alle computed properties korrekt für ungerade n + gpd>1?
-- [ ] `validate_cfgs()`: deckt alle hart-INFEASIBLE-machenden Eingaben ab?
-- [ ] Pflichtspiel-Validierung: doppelte Paare bei n_rounds>1 möglich, aber nicht beliebig oft?
-- [ ] Distanzmatrix-Loader: Symmetrie geprüft? Diagonale = 0 erzwungen?
-- [ ] Kalender-Parser: Was bei lückenhaftem Excel? Gemischten Datumsformaten?
-- [ ] `clubs_db.csv`-Format: Was bei Sonderzeichen, BOM, Umlauten?
-- [ ] Default-Werte: gibt es noch `defaultdict`-Fallen wie in CR4-D2?
+- [ ] Geocode-Cache: was passiert bei concurrent Schreibzugriff (mehrere Streamlit-Sitzungen)? File-Locking nötig?
+- [ ] `_normalize`: Behandelt Umlaute (ä, ö, ü) konsistent? Mehrere Whitespace-Arten?
+- [ ] Nominatim-API-Vertrag: User-Agent ok, rate-limit 1.1s reicht laut Policy?
+- [ ] `set_manual_coord`: Validierung (Wertebereich) liegt nur in der UI, nicht im Helper — bewusst?
+- [ ] `build_route_map` bei leeren Schedule, Single-Team-Liga, allen Teams am selben Ort: alle 3 Fälle?
+- [ ] `build_calendar_events` `_guess_season_year`-Heuristik: was bei einem Lauf der über 2 Saisons geht?
+- [ ] DST-Block (z. B. 2 Tage in 2 verschiedenen Wochen): wird er korrekt im Kalender dargestellt oder als 2 Events?
+- [ ] Calendar mit `include_uhrzeit=True`: Uhrzeit `'24:00'` oder leerstring?
+- [ ] Default-Calendar-Options `firstDay=1` für DE — korrekt für FullCalendar v5+?
+
+**Mündung:** Befunde als „Code-Review Runde 7 – Block B".
 
 ---
 
-## Block C: Spielplan-Nachbearbeitung & Export
+## Block C: UI-Erweiterungen + JSON-Persistenz
 
 **Dateien:**
-- `spielplan_multi/schedule_utils.py`
-- `spielplan_multi/excel_output.py`
+- `app.py` (neue Sections: Karte, Kalender, Telemetrie, missing_geocodes-Editor)
+- `app.py` `_session_to_json` + `_session_from_json` (Schema 1.1)
+- `app.py` `_translate_solver_log` + `_BEST_LINE_RE`
 
-**Fokus:** Konsistenz von Mutationen (move/cancel/reschedule/swap), Excel-Layout, iCal/HTML-Export.
+**Fokus:** UX-Korrektheit der neuen Sektionen, Save/Load-Roundtrip, Log-Parser-Robustheit.
 
 **Checkliste:**
-- [ ] `recompute_result_stats()`: Transitions-Modell für alle Liga-Formate korrekt?
-- [ ] `move_game` / `cancel_game` / `reschedule_game`: hinterlassen sie konsistente `home_vals`?
-- [ ] `swap_home_away`: DST-Block-Partner wirklich immer mitgetauscht?
-- [ ] Excel-Spaltenbreiten für n_rounds>2 (Dreifachrunde): alle Sheets korrekt?
-- [ ] Heatmap: zeigt sie nach Mutationen aktuelle Werte?
-- [ ] Co-Home-Excel: korrekt bei Mehrspartenvereinen die nur in 1 Liga aktiv sind?
-- [ ] Übersichts-Excel: Sortierung jahresübergreifender Saisons?
-- [ ] iCal: alle Pflichtfelder (DTSTAMP, UID-Eindeutigkeit) für jeden Eintrag?
-- [ ] HTML-Druck: korrekte Darstellung bei sehr großen Ligen (>20 Teams)?
+- [ ] JSON Schema 1.0 → 1.1: Lade-Test mit alten Sessions? Crash-frei?
+- [ ] `S.map_obj`-Cache: wird er bei jeder Liga-/Schedule-Änderung wirklich invalidiert?
+- [ ] Adressen-Editor: was, wenn User Liga-Konfiguration ändert WÄHREND ein Geocoding-Lauf läuft?
+- [ ] `_BEST_LINE_RE`: gibt es CP-SAT-Output-Varianten die nicht matchen (`[combined with: ...]`-Suffix)?
+- [ ] Live-Log-Übersetzung bei sehr großem `S.opt_log` (>10k Zeilen): Performance?
+- [ ] Telemetrie-Section bei Phase-1-only-Modus (Phase 2 failed → Fallback): wird korrekt der pro-Liga-Modus aktiviert?
+- [ ] CSV-Export: Encoding (utf-8 vs. utf-8-sig für Excel-Kompatibilität)? Spalten-Namen mit Umlauten?
+- [ ] Defensive Fallbacks (folium/streamlit-folium/streamlit-calendar fehlen): Info-Boxen erscheinen korrekt?
+- [ ] `missing_geocodes` Session-State: kollidiert mit anderen Wizard-Schritten?
+
+**Mündung:** Befunde als „Code-Review Runde 7 – Block C".
 
 ---
 
-## Block D: UI – Wizard-Schritte 0-7
+## Block D: CI-Quality + Test-Coverage
 
 **Dateien:**
-- `app.py` Zeilen 0 – ca. 2600 (Schritte 0-7)
-- `spielplan_multi/_worker.py` (Subprocess-Aufruf)
+- `.github/workflows/test.yml`, `coverage.yml`, `codeql.yml`, `release.yml`
+- `.github/dependabot.yml`, `.pre-commit-config.yaml`, `ruff.toml`, `.coveragerc`
+- `run_coverage.py`, `test_pytest_runner.py`
+- Neue Tests in `test_all.py` (Test 14) und `test_features.py` (Feature 7-10)
 
-**Fokus:** Session-State-Konsistenz, Validierungsflow, Datei-Upload, Konfigurations-Persistenz.
+**Fokus:** CI-Infrastruktur-Korrektheit, Test-Aussagekraft, Edge-Cases bei Workflows.
 
 **Checkliste:**
-- [ ] Session-State-Reset: alle `S.*`-Schlüssel beim „Neuen Spielplan erstellen" korrekt zurückgesetzt?
-- [ ] Konfigurations-Upload: deckt Excel + JSON gleichermaßen alle Felder ab?
-- [ ] Konfigurations-Download/Upload-Round-Trip: bleiben alle Werte erhalten?
-- [ ] Distanzmatrix-Editor: synchron mit `S.dist_matrices` nach Upload?
-- [ ] Pflichtspiele/Sperrtage: Validierung gegen aktuelle Teamliste konsistent?
-- [ ] Co-Home-Auto-Erkennung: korrekt bei Vereinsnamen mit Sonderzeichen?
-- [ ] Solver-Konfiguration: alle Presets (90 min / 3h / 8h) konsistent in Phase 1/2/SA?
-- [ ] Streamlit-Deprecation-Warnings: gibt es weitere `use_container_width`-Reste?
+- [ ] Ruff-Config: deckt sie auch `_translate_solver_log` (neu, regex-heavy) korrekt ab?
+- [ ] Test-Coverage: noch ≥ 70 % für die neuen Module (geocode, map_output, calendar_output)?
+- [ ] CodeQL-Findings: bei letztem grünen Lauf — gab es ignored alerts?
+- [ ] Dependabot: alle Major-Updates seit v1.7.0 sauber durchgegangen (`pandas 3.0` insbesondere)?
+- [ ] Release-Workflow F-M2 (Tag-VERSION-Konsistenz): noch aktiv und sauber?
+- [ ] `run_coverage.py`: Failed-Subprocess wird korrekt als Exit ≠ 0 propagiert?
+- [ ] Pre-Commit-Hook installiert auf Dev-Maschine? Falls nicht: ungeprüfte Lokal-Commits möglich
+
+**Mündung:** Befunde als „Code-Review Runde 7 – Block D".
 
 ---
 
-## Block E: UI – Ergebnisansicht & Aktionen (Schritt 8)
+## Block E: Dokumentation + Distribution + Memory
 
 **Dateien:**
-- `app.py` Zeilen ca. 2600 – Ende (Schritt 8, Result-View, Mutations, Downloads, Vergleich)
+- `CLAUDE.md`, `BENUTZERHANDBUCH.md`, `INSTALLATION.md`, `README.md`, `ROADMAP.md`, `SPRINT_SNAPSHOT.md`
+- `installer/spielplan.iss`, `installer/build_bootstrap.bat`
+- `requirements.txt`
+- `Spielplaene/telemetrie/*` (pre/post-F1-Daten)
+- Memory: `project_state.md`, `project_roadmap.md`, etc.
 
-**Fokus:** Result-Konsistenz nach manuellen Aktionen, Download-Korrektheit, Recovery-Flow.
-
-**Checkliste:**
-- [ ] Session-Recovery (`.cache/last_result.pkl`): funktioniert nach Browser-Refresh?
-- [ ] Spiel verschieben/absagen/nachholen: Stats werden überall mit-aktualisiert?
-- [ ] Heatmap-Aktualisierung nach manuellen Änderungen
-- [ ] Download-Dateinamen: alle Suffixe (Gewichte, Laufzeit) konsistent?
-- [ ] Spielplan-Vergleich: Delta-Berechnung korrekt bei unterschiedlicher Tagesreihenfolge?
-- [ ] Druckansicht (HTML): in allen gängigen Browsern korrekt?
-- [ ] Warnings-Banner: `[FEHLER]` UND `[!!]`-Zeilen sichtbar gemacht?
-- [ ] Hallenbelegungs-Sheet: korrekt für Turniertag mit/ohne Gruppen?
-
----
-
-## Block F: Distribution & Lifecycle
-
-**Dateien:**
-- `launcher.py`
-- `build_release.py`
-- `installer/` (alle Dateien)
-- `.github/workflows/release.yml`
-- `VERSION`
-- `_worker.py` (Subprocess-Side)
-
-**Fokus:** Update-Pfad, Versionierung, Path-Traversal, Atomarität.
+**Fokus:** Konsistenz der Dokumentation mit Code, Wartbarkeit, Endnutzer-Verständlichkeit.
 
 **Checkliste:**
-- [ ] Auto-Updater: was bei abgebrochenem Download nach erfolgreichem Tag-Read?
-- [ ] Versionsvergleich: ist `tuple(int(x) for x in v.split('.'))` ausreichend (z.B. für 1.2.10)?
-- [ ] ZIP-Path-Traversal-Guard: deckt symbolische Links ab?
-- [ ] `build_release.py`: ignoriert `.venv`, `.cache`, `Spielplaene/`, Logs?
-- [ ] GitHub Actions: erzeugt der Workflow korrekte `app-files.zip` ohne Build-Artefakte?
-- [ ] Bootstrap-Installer: Embedded Python noch aktuell (3.13 → ggf. 3.14)?
-- [ ] Launcher-Browser: korrekte Anzeige bei mehrfacher gleichzeitiger Instanz?
-- [ ] `_worker.py`: alle Streamlit-Warnungen unterdrückt? stderr-Redirect noch nötig?
+- [ ] BENUTZERHANDBUCH: alle neuen Buttons/Sections dokumentiert (Karte, Kalender, Telemetrie, Adressen-Editor)?
+- [ ] INSTALLATION: Hinweis auf folium/streamlit-folium/streamlit-calendar drin?
+- [ ] CLAUDE.md: Section 9 (Code-Reviews) hat eindeutige Reihenfolge der Sprints v1.3.0 → v1.12.1?
+- [ ] requirements.txt: Versionsbereiche (`>=`/`<`) sinnvoll für Endnutzer? Reproducibility-Risiken?
+- [ ] Bootstrap-Installer v1.11.3: enthält er alle Pakete für die UI-Features?
+- [ ] Memory-Konsistenz: `project_state.md` reflektiert wirklich v1.12.1?
+- [ ] `Spielplaene/telemetrie/`-Daten: sind gitignored (lokal) — bewusst, oder gehört das Verifikations-MD ins Repo (`docs/`)?
+- [ ] README.md: GitHub-Account-Suspension-Hinweis nötig oder verzichtbar?
+
+**Mündung:** Befunde als „Code-Review Runde 7 – Block E".
 
 ---
 
-## Block G: CLI-Wizard & Tests
+## Erwartete Befund-Größe
 
-**Dateien:**
-- `spielplan_multi/wizard.py`
-- `spielplan_multi/main.py`
-- `spielplan_multi/ui.py`
-- `spielplan_multi/__main__.py`, `__init__.py`
-- `test_all.py`, `test_smoke.py`, `test_distances.py`, `test_features.py`
+Runde 6 hatte 73 priorisierte Items. Runde 7 fokussiert auf 5 statt 7 Blöcke und betrachtet eine kleinere (frischere) Code-Basis — Erwartung: **20-30 Befunde**, davon vielleicht 1-3 wichtig (Hoch-Prio) und der Rest mittel/niedrig.
 
-**Fokus:** CLI-Pfad-Korrektheit, Test-Coverage-Audit.
+## Was nicht in dieser Runde
 
-**Checkliste:**
-- [ ] CLI-Wizard: läuft `python -m spielplan_multi` noch ohne Fehler durch?
-- [ ] CLI-Formel-Synchronität mit `app.py` (siehe B5-H1)?
-- [ ] Tests: laufen alle test_*.py durch? `pytest`-Output sauber?
-- [ ] Test-Coverage: welche Module sind ungetestet? (`tt_scheduler.py`, `sa_refine.py`?)
-- [ ] Smoke-Test deckt die wichtigsten Pipeline-Stationen ab?
-- [ ] Test für Spielfrei-Modus (ungerade Teamzahl) vorhanden?
-- [ ] Test für Turniertag (gpd > 1) vorhanden?
+Bewusst aus dem Scope:
+- `solver.py`-Constraints (außer F1-bedingt) — wurden in CR6 Block A vollständig geprüft
+- `tt_scheduler.py`, `excel_output.py`, `wizard.py` — wurden in CR6 ausführlich abgedeckt
+- Unveränderte UI-Wizard-Schritte 1-7 — in CR6 abgedeckt
+- `launcher.py` — in CR6-Block F + R2-Refactor durchgeprüft
 
----
+Falls in einem Block-Review ein Issue auf diese Module verweist, kann jederzeit nachgehakt werden — aber keine systematische Re-Review nötig.
 
-## Nach jedem Block
+## Aktueller Account-Status (27.05.2026)
 
-1. Befunde als neuen Eintrag in `BACKLOG.md` anhängen: `### [intern] Code-Review Runde 6 – Block X: <Thema>` mit Liste aller Befunde.
-2. Severity je Befund: Kritisch / Hoch / Mittel / Niedrig.
-3. Fixes nicht im Review-Block selbst — getrennte Aufgabe, nach Backlog-Eintrag.
-4. CLAUDE.md am Ende der Runde updaten (neue „Code-Review Runde 6"-Sektion).
-
----
-
-## Historische Reviews (zur Kontext-Erhaltung)
-
-- **Runde 1** (vor Mai 2026): erste systematische Durchsicht, ~10 Hauptbugs
-- **Runde 2** (Mai 2026): ~15 weitere Fixes, Heatmap-Spaltenindex, DST-Routing
-- **Runde 3** (Mai 2026): ~25 Fixes, Launcher-Sicherheit, defaultdict-Fix
-- **Runde 4** (Mai 2026): ~20 Fixes, Sys.stdout-Race, ZIP-Path-Traversal, Crashes
-- **Runde 5** (Mai 2026, abgeschlossen): 8 Blöcke, ~15 Fixes, recompute_result_stats Transitions-Modell, Sliding-Window für DST-Lücken
-
-**Nach Runde 5:** Optimierungslücke-Verringerung als großes Feature in BACKLOG.md (siehe Eintrag „Optimierungslücke (Optimality Gap) verringern"), nicht Teil dieser Review-Runde.
+GitHub-Account `Office-FD` ist seit 26.05.2026 ~12:00 UTC bei Actions blockiert (Anti-Abuse-Filter nach 18 Tag-Pushes in 24h). Support-Ticket läuft. Bis zur Reaktivierung:
+- ✅ Lokale Commits sind ok
+- ❌ Kein `git push` / `git tag` (würde nur main-Inhalt aktualisieren ohne CI)
+- ❌ Keine neuen Releases auf GitHub
+- → Review-Befunde lokal sammeln, Hotfixes lokal committen, später als Batch pushen
