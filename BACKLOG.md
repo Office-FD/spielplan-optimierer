@@ -1518,6 +1518,64 @@ Bei n_active < n_teams kann ein Team theoretisch viele aufeinanderfolgende Bye-T
 
 **Block-A-Fazit:** Solver-Modell ist sehr solide — kein Show-Stopper, keine harten Bugs. Alle Constraint-Familien sind nach 3 Code-Reviews + R1-R3-Refactors + R7-Fixes konsistent. Die wenigen verbleibenden Befunde sind alle latent oder Trade-offs.
 
+---
+
+### [intern] Code-Review Runde 8 – Block B: Nachbearbeitung
+
+**Geprüft:** `spielplan_multi/sa_refine.py`, `spielplan_multi/tt_scheduler.py`, `spielplan_multi/schedule_utils.py`
+**Datum:** 27.05.2026, Stand v1.13.0
+
+**Show-Stopper:** **0** | **Hoch:** **0** | **Mittel:** **1** | **Niedrig:** **4**
+
+#### Mittel
+
+**🟡 R8-B-M1 — `move_game` und `reschedule_game` ohne DST-Konsistenz-Check**
+`schedule_utils.move_game` Z. 174: verschiebt ein Spiel auf einen `new_day`, ohne zu prüfen ob `new_day` Teil eines DST-Blocks ist. Bei Move auf DST-Tag bleibt der DST-Partner-Tag mit alten Daten — die DST-Invariante (gleiches Heimrecht beider DST-Tage) kann gebrochen werden.
+`schedule_utils.reschedule_game` Z. 251: gleiches Problem (Spiel kann auf DST-Tag platziert werden).
+**Kontrast:** `cancel_game` Z. 243-247 gibt eine Warning aus, wenn DST-Tag betroffen ist. Move/reschedule machen das nicht.
+**Risiko:** Wenn User aus der UI ein Spiel auf einen DST-Tag verschiebt, kann der Spielplan inkonsistent werden (Excel-Heatmap zeigt falsches Heimrecht für den DST-Partner-Tag).
+**Fix-Idee:** Analoge Warning in move_game/reschedule_game wenn day in cfg.dst_days. UI könnte zusätzlich Buttons für DST-Tage deaktivieren.
+**Produktions-Blocker?** Nein — UI hat aktuell keine Option, ein Spiel direkt auf einen DST-Tag zu verschieben (Spieltage in UI sind eingeschränkt). Aber latent.
+
+#### Niedrig
+
+**🟢 R8-B-L1 — `_dt.datetime.utcnow()` in `build_ics_bytes` deprecated**
+Z. 348: `_dt.datetime.utcnow().strftime(...)`. Python 3.12+ markiert das als Deprecation-Warning. Modern: `_dt.datetime.now(_dt.timezone.utc)`.
+**Risiko:** Bei Python 3.14 würde es eventuell entfernt. Aktuell nur stille Warning.
+**Fix:** 1-Zeilen-Änderung.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-B-L2 — `reschedule_game` validiert `day` nicht gegen `cfg.days`**
+Im Gegensatz zu `move_game` (Z. 181: `if new_day not in cfg.days: return ...`) prüft `reschedule_game` Z. 251 nicht ob `day` ein gültiger Spieltag ist. Wenn ein User aus der UI einen Day außerhalb des Range einreicht, würde das Spiel an einen ungültigen Tag platziert.
+**Risiko:** UI begrenzt den Tag-Selector auf gültige Spieltage, daher in Praxis unwahrscheinlich.
+**Fix:** Validierungs-Check analog zu move_game.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-B-L3 — `sa_refine` mutiert `loc[ai][0]` bei Einfachrunde (Sentinel)**
+Bei `n_rounds=1` hat jede Paarung kein Rückspiel; `pair_info[pid] = (ai, bi, hd, 0)`. Im SA-Swap-Code Z. 230-231 wird `loc[ai][0]` mutiert (Position 0 = Sentinel). `_recompute_team` iteriert über Z. 34 `for d in range(1, N):` und ignoriert Position 0 → kein Schaden, aber unsauberer Code-Style.
+**Fix-Idee:** Sentinel-Erkennung im Swap-Code: `if rd > 0: loc[ai][rd] = ...`.
+**Produktions-Blocker?** Nein
+
+**🟢 R8-B-L4 — `recompute_result_stats` liest `result.home_vals` für sw_counts**
+Z. 65-75 nutzt `result.home_vals` für Switch-Zählung. Wenn `home_vals` stale ist (z. B. nach manueller Mutation ohne Update), sind sw_counts falsch. Aktuelle Mutations-Funktionen (move/cancel/reschedule/swap) aktualisieren home_vals — aber kein Schutz dagegen wenn der Code in Zukunft erweitert wird.
+**Fix-Idee:** sw_counts auch aus dem Schedule rekonstruieren (analog zu travels via loc-Modell).
+**Produktions-Blocker?** Nein
+
+---
+
+**Block-B-Fazit:** Nachbearbeitung ist solide. SA hat klare Determinismus-Garantie (gleicher Seed + gleiche Maschine = gleiche Lösung). Mutations-Funktionen sind nach R6 mit Turniertag-Guards versehen. Einziger latenter Punkt ist die fehlende DST-Konsistenz-Warnung in move/reschedule — bei der aktuellen UI nicht direkt triggerbar, aber als Defensive-Maßnahme empfehlenswert.
+
+**Geprüfte Bereiche** ✓:
+- SA-Akzeptanz-Kriterium (Metropolis), Cooling (geometrisch), Reset (kein expliziter Reset, läuft aus)
+- SA-Verbote (pinned, DST, blocked, forced_home)
+- `apply_tournament_ordering` mit Backtracking + MAX_NODES-Cap
+- `_balance_home_away` (post-TT-Ordering)
+- Ausrichter-Verteilung via `_assign_hosts` (deterministisch via seed)
+- Mutations: move/cancel/reschedule/swap mit Turniertag-Guard
+- DST-Warning in cancel_game
+- iCal: RFC 5545 Escaping + Line-Folding + DTSTAMP + Skip-no-date-Hint
+- HTML-Druckansicht (`build_print_html` nicht im Detail geprüft, aber strukturell ok)
+
 **Geprüfte Bereiche** ✓:
 - Match-Eindeutigkeit + Phasen-Trennung (n_rounds 1/2/3)
 - Heimrecht-Balance pro Paarung
