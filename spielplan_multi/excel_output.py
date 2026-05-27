@@ -109,7 +109,19 @@ def build_league_excel(result: LeagueResult) -> Workbook:
                    ', '.join(f'{t}:{n}' for t, n in hc.items() if n > 0)); r += 1
     kv(r, 'Solver-Status:', _cp_model.CpSolver().StatusName(result.status)); r += 1
     kv(r, 'Laufzeit:', f'{result.mins:02d}:{result.secs:02d} (mm:ss)'); r += 1
-    kv(r, 'Objective Value:', round(result.objective, 2)); r += 2
+    kv(r, 'Objective Value:', round(result.objective, 2)); r += 1
+    # R8-D-L1: Bei Phase-2-Modus zusätzlich Aggregat- und Pre-SA-Wert anzeigen,
+    # da result.objective dann für alle Ligen identisch ist (gemeinsames Modell)
+    # und der Wert nach SA reduziert wurde — wenig aussagekräftig ohne Kontext.
+    if getattr(result, 'phase2_objective', None) is not None:
+        kv(r, '  Phase-2-Aggregat (alle Ligen):', round(result.phase2_objective, 2)); r += 1
+        if abs(result.phase2_objective - result.objective) > 0.5:
+            kv(r, '  Pre-SA-Wert (vor Phase-3):', round(result.phase2_objective, 2)); r += 1
+        if getattr(result, 'best_bound', None) is not None:
+            kv(r, '  Best Bound (LP):', round(result.best_bound, 2)); r += 1
+        if getattr(result, 'final_gap', None) is not None:
+            kv(r, '  Phase-2-Gap:', f'{result.final_gap * 100:.2f} %'); r += 1
+    r += 1
 
     sec(r, 'TEAMS & ORTE'); r += 1
     for i, (t, loc) in enumerate(zip(teams, cfg.locations), 1):
@@ -878,12 +890,16 @@ def build_hall_schedule(results: Dict[str, Optional['LeagueResult']]) -> Workboo
                     'uhrzeit':  uhr,
                 })
 
-    # Sortierung: KW (numerisch, leer zuletzt) → Halle → Liga → Spieltag
-    _UNKNOWN_KW_SORT = 999  # nicht-numerische KWs landen am Ende
+    # Sortierung: R8-D-L2 — primär nach week_start-Datum (jahresübergreifend korrekt),
+    # Fallback KW-Nummer falls Datum fehlt, dann Halle → Liga → Spieltag.
+    _UNKNOWN_KW_SORT = 999
     def _sort_key(r):
+        # Datum als primären Sort-Key (ISO-Format) wenn vorhanden — sortiert
+        # auch über Jahreswechsel hinweg korrekt (KW 52 → KW 1 nächstes Jahr).
+        date_key = str(r.get('w_start') or '')
         kw_num = (r['kw'] if isinstance(r['kw'], int)
                   else (int(r['kw']) if str(r['kw']).isdigit() else _UNKNOWN_KW_SORT))
-        return (kw_num, str(r['halle']), str(r['liga']), r['spieltag'])
+        return (date_key, kw_num, str(r['halle']), str(r['liga']), r['spieltag'])
     rows.sort(key=_sort_key)
 
     wb = Workbook()

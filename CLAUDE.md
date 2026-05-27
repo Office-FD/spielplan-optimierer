@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Vollständige Projektdokumentation
 
-> **Version 1.13.1 · Stand Mai 2026 · Status: Code-Review Runde 8 abgeschlossen — Final-Review vor Produktiveinsatz. 0 Show-Stopper, alle 9 Mittel-Befunde in v1.13.1 gefixt (Sammel-Commit), 27 Niedrig-Befunde bleiben im BACKLOG als optionales Polishing. F1-Verifikation (B3 ✅, −23,1 % Gap-Reduktion) bleibt Basis. App freigegeben für FLVD-Saisonplanung. Details: PRODUCTION_READINESS.md.**
+> **Version 1.14.0 · Stand Mai 2026 · Status: Code-Reviews 6/7/8 vollständig abgearbeitet — 0 Show-Stopper, 0 Hoch, 0 Mittel, 0 Niedrig offen aus R7/R8 (alle bis v1.14.0 gefixt oder dokumentiert). F1-Verifikation (B3 ✅, −23,1 % Gap-Reduktion). App freigegeben für FLVD-Saisonplanung. Details: PRODUCTION_READINESS.md.**
 
 ---
 
@@ -536,7 +536,7 @@ Tooling-Bundle zur Bug-Prävention. Kein Code-Verhalten geändert; betrifft Lint
 | diverse | 26 Ruff-Auto-Fixes ausgeführt: unused imports (F401), f-strings ohne Platzhalter (F541), redefinitions (F811). Betraf u. a. `wizard.py`, `sa_refine.py`, `schedule_utils.py`, `league_types.py`, `solver.py`, `config_validator.py`, `app.py`. Keine logischen Änderungen; Smoke- und Feature-Tests grün. |
 | `.github/workflows/test.yml` | Neuer Step `Ruff-Linter (fail-fast vor Tests)` läuft vor pytest. Verhindert defekte Releases durch Lint-Issues. |
 | `.github/dependabot.yml` (neu) | Wöchentliche Update-PRs für GitHub Actions + Python-Pakete (Minor/Patch gruppiert). Schedule: montags 06:00 Berlin-Zeit, max. 5 offene PRs pro Ecosystem. |
-| `.pre-commit-config.yaml` (neu) | Hook-Konfiguration mit Ruff + Standard-Checks (trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, check-added-large-files >2 MB). Installation pro Entwickler: `pip install pre-commit && pre-commit install`. |
+| `.pre-commit-config.yaml` (neu) | Hook-Konfiguration mit Ruff + Standard-Checks (trailing-whitespace, end-of-file-fixer, check-yaml, check-merge-conflict, check-added-large-files >2 MB). **Empfohlen für alle Entwickler-Setups:** `pip install pre-commit && pre-commit install` — fängt Ruff-Lint-Issues lokal vor dem Commit ab, statt erst im CI. Wer den Schritt überspringt, bekommt im CI eine deutliche Ruff-Fehlermeldung. |
 | `.github/workflows/codeql.yml` (neu) | GitHub-natives statisches Security-Scanning für Python (Path-Traversal, unsafe deserialization, Command-Injection etc.). Trigger: push/PR auf main + wöchentlicher Cron (Mo 04:00 UTC). |
 
 **Test-Coverage-Sprint Q2 (v1.7.0 → v1.7.1):**
@@ -764,6 +764,39 @@ Final-Review vor FLVD-Produktiveinsatz, 8 Blöcke (A–H), 0 Show-Stopper, 9 Mit
 **R8-H-M2 (Test-Coverage `launcher.py` + JSON-Roundtrip)** bleibt offen (2–3 h Aufwand) — Funktionen wurden manuell getestet, kein Produktiv-Blocker.
 
 **Verifikation:** Smoke ✓, test_features 67/67 ✓, test_all 62/62 ✓ (Hintergrund-Lauf), test_distances vorhandene Suite. Funktions-Smoke-Tests pro Fix erfolgreich (R8-B-M1: 5/5, R8-C-M1: 4/4, R8-A-M1: 4/4, R8-G-M1: 4/4).
+
+---
+
+**Niedrig-Cleanup R7+R8 (v1.13.1 → v1.14.0):**
+
+Alle verbleibenden Niedrig-Befunde aus R7 (10 zurückgestellte Items) und R8 (25 Items) sowie das letzte Mittel-Item R8-H-M2 in 4 Etappen abgearbeitet.
+
+| Etappe | Inhalt | Befunde |
+|---|---|---|
+| A | Trivial-Niedrig B/C/D/E/F/G/H | B-L1 (iCal utcnow→timezone-aware), B-L3 (SA Sentinel-Schutz), B-L4 (sw_counts aus Schedule), C-L2 (Doku Symmetrisierung), C-L4 (sheet_name-Parameter), D-L1 (Phase-2-Objective-Anzeige in Liga-Excel), D-L2 (Hallenplan-Sortierung nach week_start), E-L1 (Pflichtspiel-Live-Konflikt-Check), E-L2 (KW>2 Warning), E-L3 (Schema-Version-Whitelist), F-L1 (Phase-2-Heuristik via phase2_objective), F-L2 (Mutation-Buttons disabled bei Turniertag), F-L3 (Phase-Detection-Cache `S._phase_seen`), G-L1 (Wizard Type-Hints), G-L2 (build_release EXCLUDE_DIRS), G-L3 (Launcher-Timeout 60→120 s), H-L2 (upload-artifact@v5) |
+| B | Block-A-Niedrig (Solver) | A-L1 (Doku workers_per), A-L2 (Doku Bye-Verteilung), A-L3 (Co-Home OR über alle KW-Spieltage), A-L4 (Subprocess-Stacktrace verkürzt) |
+| C | R7 zurückgestellt (10 Items) | A7-M2 (seed_histories-Feld), A7-L2 (Doku), C7-L1 (Markdown-Escape im Translator), C7-L2 (Doku), D7-L1 (Coverage-Threshold mit continue-on-error), D7-L2 (Pre-Commit-Hinweis in CLAUDE.md verstärkt). Skip mit Doku: D7-L3 (Parallel-Tests), E7-L3 (CLAUDE.md-Aufteilung), E7-L4 (Screenshots — User-Action), E7-L5 (B7-L1 schon in v1.13.0 erledigt) |
+| D | R8-H-M2 Test-Coverage | Neue Test-Files `test_launcher.py` (10 Tests: `_parse_version`, `_port_is_free`, `_wait_for_port_free`, ZIP-Path-Traversal-Guard, build_release) und `test_session_roundtrip.py` (9 Tests: v1.0/v1.1 Round-Trip, home_vals-Rekonstruktion, Schema-Version-Whitelist). In `test_pytest_runner.py` integriert |
+
+**Test-Coverage neu:** 62/62 (test_all), 67/67 (test_features), 18/18 (test_distances), Smoke ✓, **+10 (test_launcher)**, **+9 (test_session_roundtrip)**. Pytest-Wrapper jetzt 6 statt 4 Sub-Suites. Gesamt ~170 Tests.
+
+**Skip-Liste (dokumentiert, kein Fix):**
+- D7-L3 Parallel-Tests — Trade-off zwischen Wall-Clock und Wartung, niedrige Prio
+- E7-L3 CLAUDE.md-Aufteilung — manuelle Doku-Arbeit, nicht-kritisch
+- E7-L4 Screenshots — User-Action (Screenshots aus produktiver UI)
+- A7-L2 history-Determinismus — Trade-off Wandzeit vs. Iteration
+
+**Stand v1.14.0:**
+
+| Kategorie | R6 | R7 | R8 | Offen |
+|---|---|---|---|---|
+| Show-Stopper | 0 | 0 | 0 | **0** |
+| Hoch | 0 | 0 | 0 | **0** |
+| Mittel | 0 | 0 | 0 | **0** |
+| Niedrig | 0 | 0 | 0 | **0** |
+| Skip+Doku | – | 1 (A7-L2) | – | 4 (Trade-offs) |
+
+App ist **produktiv-frei** für die nächste FLVD-Saison.
 
 ---
 

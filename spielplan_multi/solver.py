@@ -183,6 +183,11 @@ def build_league_vars(model: cp_model.CpModel,
             model.Add(sum(x[m, d] for m in range(num_matches)) == n_gpd)
         # Gerade Teamzahl → jedes Team spielt exakt gpd Spiele pro Tag.
         # Ungerade Teamzahl → ein Team hat je Spieltag spielfrei (≤ gpd).
+        # R8-A-L2: Bye-Verteilung wird nicht hart constraint, sondern implizit fair
+        # durch trav_fair (Reise-Spread minimieren — Bye-Team hat 0 km, faellt auf).
+        # Test 11 (t11_odd_teams_fair_bye_distribution) verifiziert die Praxis-Fairness.
+        # Bei pathologischen Konfigurationen (sehr viele Sperrtage) koennte die
+        # Verteilung trotzdem schief werden — derzeit bekannt, kein Show-Stopper.
         needs_bye = (n * gpd) % 2 == 1
         for ti in range(n):
             for d in days:

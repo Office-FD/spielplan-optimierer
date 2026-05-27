@@ -83,3 +83,13 @@ def test_distances_script() -> None:
 def test_all_script() -> None:
     """Comprehensive: alle Solver-Features inkl. forced_home, Spielfrei, Mutationen."""
     _run_script('test_all.py', timeout=1200)
+
+
+def test_launcher_script() -> None:
+    """R8-H-M2: Launcher-Tests — _parse_version, _port_is_free, ZIP-Guards, build_release."""
+    _run_script('test_launcher.py', timeout=60)
+
+
+def test_session_roundtrip_script() -> None:
+    """R8-H-M2: JSON-Schema 1.0/1.1 Backward-Compat, home_vals-Rekonstruktion."""
+    _run_script('test_session_roundtrip.py', timeout=60)

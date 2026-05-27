@@ -101,7 +101,8 @@ def parse_rahmenterminplan(path: str | Path,
                             col_mapping: Dict[str, int],
                             kw_col: int = 16,
                             date_from_col: int = 17,
-                            date_to_col: int = 18) -> Optional[dict]:
+                            date_to_col: int = 18,
+                            sheet_name: int | str = 0) -> Optional[dict]:
     """Liest den Rahmenspielplan und gibt ein Dict zurueck.
 
     Args:
@@ -110,6 +111,8 @@ def parse_rahmenterminplan(path: str | Path,
         kw_col:      Spaltenindex der KW-Nummer
         date_from_col: Spaltenindex Wochen-Start
         date_to_col:   Spaltenindex Wochen-Ende
+        sheet_name:  R8-C-L4: Sheet-Index (int) oder -Name (str), Default 0 (erstes Sheet).
+                     Hilft wenn die Excel-Datei mehrere Sheets hat.
 
     Gibt zurueck:
     {
@@ -127,7 +130,7 @@ def parse_rahmenterminplan(path: str | Path,
         tmp.close()
         tmp_path = Path(tmp.name)
         shutil.copy2(path, tmp_path)
-        df = pd.read_excel(tmp_path, sheet_name=0, header=None)
+        df = pd.read_excel(tmp_path, sheet_name=sheet_name, header=None)
     except PermissionError:
         err(f'Zugriff verweigert: {path}')
         return None

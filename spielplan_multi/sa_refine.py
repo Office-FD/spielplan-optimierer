@@ -227,8 +227,12 @@ def refine_schedule(result: LeagueResult,
         if hd in forced_by.get(old_hv, set()) or rd in forced_by.get(old_rv, set()):
             continue
         # Probe-Swap
+        # R8-B-L3: rd==0 ist Sentinel für "kein Rückspiel" (Einfachrunde) —
+        # _recompute_team ignoriert Position 0 ohnehin, aber wir schreiben dort
+        # nichts hin, um nicht zu suggerieren, dass dort eine Venue stuende.
         loc[ai][hd] = loc[bi][hd] = new_hv
-        loc[ai][rd] = loc[bi][rd] = new_rv
+        if rd > 0:
+            loc[ai][rd] = loc[bi][rd] = new_rv
         ns_ai, nk_ai = _recompute_team(loc, ai, N, dist)
         ns_bi, nk_bi = _recompute_team(loc, bi, N, dist)
         ns = sw_count[:]; ns[ai] = ns_ai; ns[bi] = ns_bi
@@ -236,7 +240,8 @@ def refine_schedule(result: LeagueResult,
         samples.append(abs(_objective(ns, nk, cfg.w_scaled, dst_eff_total) - current_obj))
         # Revert
         loc[ai][hd] = loc[bi][hd] = old_hv
-        loc[ai][rd] = loc[bi][rd] = old_rv
+        if rd > 0:
+            loc[ai][rd] = loc[bi][rd] = old_rv
 
     mean_d = sum(samples) / len(samples) if samples else 1000.0
     T      = max(mean_d * 2.0, 1.0)
@@ -279,8 +284,10 @@ def refine_schedule(result: LeagueResult,
         old_rv = bi if a_home_hin[pid] else ai
 
         # Swap anwenden (temporaer)
+        # R8-B-L3: rd==0 = Sentinel (Einfachrunde, kein Rueckspiel) ueberspringen
         loc[ai][hd] = loc[bi][hd] = new_hv
-        loc[ai][rd] = loc[bi][rd] = new_rv
+        if rd > 0:
+            loc[ai][rd] = loc[bi][rd] = new_rv
 
         ns_ai, nk_ai = _recompute_team(loc, ai, N, dist)
         ns_bi, nk_bi = _recompute_team(loc, bi, N, dist)
@@ -307,7 +314,8 @@ def refine_schedule(result: LeagueResult,
                 best_km  = travel[:]
         else:
             loc[ai][hd] = loc[bi][hd] = old_hv
-            loc[ai][rd] = loc[bi][rd] = old_rv
+            if rd > 0:
+                loc[ai][rd] = loc[bi][rd] = old_rv
 
     # ── Schedule aus bestem Zustand rekonstruieren ────────────────────────────
     schedule: Dict[int, List[Tuple[str, str]]] = {d: [] for d in range(1, N + 1)}

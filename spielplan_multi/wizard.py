@@ -379,7 +379,7 @@ def step0_leagues() -> Dict[str, WizardLeagueDef]:
 
 # ── Schritt 1: Distanzmatrizen ────────────────────────────────────────────────
 
-def step1_distances(league_defs: Dict[str, Tuple[List[str], List[str], str, float, int, int]],
+def step1_distances(league_defs: Dict[str, 'WizardLeagueDef'],
                     cache_dir: Path) -> Optional[Dict[str, object]]:
     section('SCHRITT 1: DISTANZMATRIZEN')
     info('Fuer jede Liga wird eine NxN-Distanzmatrix (km) benoetigt.')
@@ -442,7 +442,7 @@ def step1_distances(league_defs: Dict[str, Tuple[List[str], List[str], str, floa
 # ── Schritt 2: Kalender und DST ───────────────────────────────────────────────
 
 def step2_calendar_and_dst(
-        league_defs: Dict[str, Tuple[List[str], List[str], str, float, int, int]]
+        league_defs: Dict[str, 'WizardLeagueDef']
 ) -> Tuple[Dict[str, List[Tuple[int, int]]], Dict[int, Dict[str, List[int]]]]:
     """Gibt (dst_per_liga, kw_compat) zurueck."""
     section('SCHRITT 2: KALENDER & DOPPELSPIELTAGE (DST)')

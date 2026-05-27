@@ -136,3 +136,7 @@ class LeagueResult:
     best_bound:       Optional[float]           = None
     final_gap:        Optional[float]           = None
     phase2_objective: Optional[float]           = None
+    # R7-A7-M2 (v1.14.0): seed_histories sammelt die gap_history aller Phase-1-Seeds
+    # vor der Best-Auswahl. Schluessel = Seed-Int, Wert = Liste (elapsed_sec, obj).
+    # Erlaubt Vergleichs-Analysen welcher Seed schneller konvergierte.
+    seed_histories:   Dict[int, List[Tuple[float, float]]] = field(default_factory=dict)

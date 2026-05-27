@@ -293,6 +293,7 @@ _DEFAULTS: dict = dict(
     opt_done=False,
     opt_log=[],
     opt_warnings=[],      # [!!]-Zeilen aus dem Log, persistent nach Abschluss
+    _phase_seen=set(),    # R8-F-L3: {'p2', 'p3'} — Cache für Phase-Detection, O(1)-Lookup
     results=None,
     excel_bytes={},       # {lid: bytes}
     cohome_bytes=None,
@@ -2635,6 +2636,15 @@ def _step2():
             if dst_blocks:
                 st.caption('Erkannte DST-Blöcke: ' +
                            ', '.join(f'ST {d1}+{d2}' for d1, d2 in dst_blocks))
+            # R8-E-L2: explizite Warnung wenn > 2 Spieltage pro KW konfiguriert sind
+            _kw_overfull = [kw for kw, cnt in kw_count.items() if cnt > 2]
+            if _kw_overfull:
+                st.warning(
+                    f'KW {", ".join(str(k) for k in sorted(_kw_overfull))} '
+                    f'hat mehr als 2 Spieltage. DST-Blöcke dürfen maximal 2 Tage umfassen — '
+                    f'der Solver wird das als unlösbare Konfiguration ablehnen. '
+                    f'Bitte überprüfe die KW-Zuweisungen.'
+                )
             missing = n_md - assigned
             if missing > 0:
                 st.caption(f'ℹ {missing} Spieltage ohne KW – Termin frei wählbar.')
@@ -2771,8 +2781,28 @@ def _step4():
                     p.get('teamA') == ta and p.get('teamB') == tb and int(p.get('day', 0)) == int(day)
                     for p in pinned
                 )
+                # R8-E-L1: Live-Konflikt-Check mit Sperrtagen und Pflichtheim
+                _day_int = int(day)
+                _home_team = None if home_sel == 'beliebig' else home_sel
+                _away_team = tb if _home_team == ta else (ta if _home_team == tb else None)
+                _conflict_msgs = []
+                if _home_team:
+                    _blk = S.blocked.get(lid, {}).get(_home_team, [])
+                    if _day_int in _blk:
+                        _conflict_msgs.append(
+                            f'{_home_team} hat ST{_day_int} als Sperrtag — Pflichtspiel mit Heimrecht '
+                            f'für {_home_team} würde zu unlösbarem Plan führen.')
+                if _away_team:
+                    _frc = S.forced_home.get(lid, {}).get(_away_team, [])
+                    if _day_int in _frc:
+                        _conflict_msgs.append(
+                            f'{_away_team} hat ST{_day_int} als Pflichtheim — kann an diesem Tag '
+                            f'nicht auswärts spielen.')
                 if _is_dup:
                     st.warning(f'Pflichtspiel {ta} – {tb} an Spieltag {int(day)} ist bereits eingetragen.')
+                elif _conflict_msgs:
+                    for _m in _conflict_msgs:
+                        st.error(_m)
                 else:
                     pinned.append(_new_pin)
                     S.pinned[lid] = pinned
@@ -3322,6 +3352,19 @@ def _session_from_json(raw: bytes) -> str:
     except Exception as exc:
         return f'JSON-Lesefehler: {exc}'
 
+    # R8-E-L3: Schema-Version-Check. App kennt v1.0 (alt) und v1.1 (Telemetrie).
+    # Wenn ein JSON aus einer deutlich neueren App-Version geladen wird, koennte
+    # das Schema inkompatibel sein → Warnung, aber kein hard-fail (best-effort).
+    _KNOWN_SCHEMA_VERSIONS = {'1.0', '1.1'}
+    _file_schema = str(data.get('version', '1.0'))
+    if _file_schema not in _KNOWN_SCHEMA_VERSIONS:
+        st.warning(
+            f'Sitzungs-Datei hat Schema-Version {_file_schema} — diese App-Version '
+            f'unterstützt nur {sorted(_KNOWN_SCHEMA_VERSIONS)}. Unbekannte Felder '
+            f'werden ignoriert; bei Schema-Inkompatibilität können Daten verloren gehen. '
+            f'Bitte App aktualisieren falls die Datei aus einer neueren Version stammt.'
+        )
+
     cfg_data = data.get('config', {})
     results_data = data.get('results', {})
 
@@ -3604,6 +3647,9 @@ def _translate_solver_log(lines: List[str], leagues: dict,
                 name = 'Phase 2 (gemeinsam alle Ligen)'
             else:
                 name = leagues.get(liga, {}).get('name', liga)
+            # R7-C7-L1: Markdown-Sonderzeichen im Liga-Namen escapen, damit
+            # `*`, `_`, `` ` ``, `[` etc. nicht das Layout brechen.
+            name = re.sub(r'([\\`*_{}\[\]()#+!|<>~])', r'\\\1', name)
 
             # Objective verständlich in Millionen
             if abs(obj_v) >= 1_000_000:
@@ -3636,6 +3682,10 @@ def _translate_solver_log(lines: List[str], leagues: dict,
         elif line.startswith('  [OK]'):
             # "  [OK]    1. FBL HERREN: FEASIBLE  obj=127690450  t=15:00"
             txt = line.replace('  [OK]', '✅').strip()
+            # R7-C7-L2: String-replace ist semantisch grob — würde auch in Liga-
+            # Namen ersetzen, die zufällig 'FEASIBLE'/'OPTIMAL' enthielten.
+            # Bei FLVD-Daten unkritisch (keine solchen Namen), aber bei Bedarf
+            # exakter via Whole-Word-Regex umstellbar.
             txt = txt.replace('FEASIBLE', 'Lösung gefunden')
             txt = txt.replace('OPTIMAL', 'optimale Lösung gefunden')
             out.append(txt)
@@ -3933,6 +3983,12 @@ def _step8():
                     S.opt_result_holder = {'results': _line[1]}
                     continue
                 S.opt_log.append(_line)
+                # R8-F-L3: Phase-Marker beim Eintreffen setzen statt spaeter
+                # ueber das gesamte Log zu scannen (Performance bei langen Laeufen).
+                if 'PHASE 3' in _line:
+                    S._phase_seen.add('p3')
+                elif _line.startswith('[BEST] P2'):
+                    S._phase_seen.add('p2')
                 if _line.startswith('[BEST]'):
                     _parts = _line.split()
                     if len(_parts) >= 4:
@@ -3956,9 +4012,10 @@ def _step8():
         _p3_tot  = S.solver['sa'] * len(S.league_order)
         _total   = max(_p1_tot + _p2_tot + _p3_tot, 1)
         _pct     = min(_elapsed / _total, 0.99)
-        if any('PHASE 3' in l for l in S.opt_log):
+        # R8-F-L3: O(1)-Lookup im Phase-Cache statt linearer any()-Scan ueber S.opt_log.
+        if 'p3' in S._phase_seen:
             _phase_name = 'Phase 3 – SA-Nachbearbeitung'
-        elif any(l.startswith('[BEST] P2') for l in S.opt_log):
+        elif 'p2' in S._phase_seen:
             _phase_name = 'Phase 2 – Kalender-Koordination'
         else:
             _phase_name = 'Phase 1 – Heimrecht-Optimierung'
@@ -4030,6 +4087,7 @@ def _step8():
                 S.opt_result_holder = None
                 S.opt_log           = []
                 S._translog_cache   = None  # C7-M1: Cache zuruecksetzen bei neuem Lauf
+                S._phase_seen       = set()  # R8-F-L3: Phase-Detection-Cache resetten
                 S.opt_best          = {}
                 S.opt_warnings      = []
                 S.opt_start_time    = None
@@ -4260,6 +4318,7 @@ def _step8():
                 S.opt_done          = False
                 S.opt_log           = []
                 S._translog_cache   = None  # C7-M1: Cache zuruecksetzen bei neuem Lauf
+                S._phase_seen       = set()  # R8-F-L3: Phase-Detection-Cache resetten
                 S.opt_warnings      = []
                 S.results           = None
                 S.excel_bytes    = {}
@@ -4527,9 +4586,11 @@ def _show_results():
         # Aggregat-Metriken (Phase 2 = gemeinsam, daher nur einmal anzeigen
         # — wir nehmen die ersten Werte aus dem Dict)
         _first_lid, _first_res = _valid_res_for_telem[0]
+        # R8-F-L1: Phase-2-Erkennung über explizites Feld `phase2_objective`
+        # (gesetzt durch run_phase2, None bei Phase-1-Fallback). Robuster als
+        # floating-point-Vergleich von best_bound / final_gap.
         _all_same_p2 = all(
-            (r.best_bound == _first_res.best_bound and
-             r.final_gap == _first_res.final_gap)
+            getattr(r, 'phase2_objective', None) is not None
             for _, r in _valid_res_for_telem
         )
 
@@ -5275,13 +5336,20 @@ def _show_results():
                 if not _mv_games:
                     st.caption('Keine Spiele an diesem Spieltag.')
                 else:
+                    # R8-F-L2: Mutationen sind bei Turniertag-Format (gpd>1)
+                    # nicht unterstützt — Buttons disabled, damit User nicht
+                    # erst klicken muss um eine Fehlermeldung zu sehen.
+                    _is_tt = _cfg_mv.games_per_team_per_day > 1
+                    _tt_help_suffix = (' — bei Turniertag-Format nicht unterstützt'
+                                       if _is_tt else '')
                     for _mvi, (_mht, _mat) in enumerate(_mv_games):
                         _gc1, _gc2, _gc3, _gc4 = st.columns([4, 4, 1, 1])
                         _gc1.write(f'**{_mht}** (Heim)')
                         _gc2.write(f'{_mat} (Gast)')
                         if _gc3.button(
                             '📅', key=f'mv_btn_{_mv_lid}_{_sel_day_mv}_{_mvi}',
-                            help='Auf anderen Spieltag verschieben',
+                            help=f'Auf anderen Spieltag verschieben{_tt_help_suffix}',
+                            disabled=_is_tt,
                         ):
                             S.move_pending = {
                                 'lid': _mv_lid, 'day': _sel_day_mv,
@@ -5291,7 +5359,8 @@ def _show_results():
                             st.rerun()
                         if _gc4.button(
                             '❌', key=f'cancel_btn_{_mv_lid}_{_sel_day_mv}_{_mvi}',
-                            help='Als ausgefallen markieren',
+                            help=f'Als ausgefallen markieren{_tt_help_suffix}',
+                            disabled=_is_tt,
                         ):
                             _ht_c, _at_c = _cancel_game(
                                 _res_mv, _cfg_mv, _sel_day_mv, _mvi

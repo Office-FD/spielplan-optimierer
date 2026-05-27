@@ -39,8 +39,17 @@ def _phase1_worker(args):
             status_name = 'NO_SOL'
     except Exception as exc:
         result = None
-        status_name = f'EXC:{_tb.format_exc()}'
-    return lid, result, status_name
+        # R8-A-L4: nur kurze Zusammenfassung im status_name (1-Zeilen-Warnung im UI),
+        # vollen Traceback separat ausgeben, damit das Log nicht zugemuellt wird.
+        _exc_short = f'{type(exc).__name__}: {exc}'.replace('\n', ' ')[:200]
+        status_name = f'EXC:{_exc_short}'
+        # Vollen Traceback in stdout — landet im opt_log fuer Debugging,
+        # aber nicht direkt in der opt_warnings-Liste.
+        import sys as _sys
+        print(f'  [DEBUG] Phase-1-Worker-Traceback fuer {lid} (seed={seed}):\n{_tb.format_exc()}',
+              file=_sys.stdout, flush=True)
+    # R7-A7-M2: seed mit zurueckgeben, damit run_phase1 die Seed-History sammeln kann
+    return lid, result, status_name, seed
 
 
 # ── Phase 1: unabhaengige Ligen ──────────────────────────────────────────────
@@ -58,6 +67,12 @@ def run_phase1(cfgs: Dict[str, LeagueConfig],
 
     n_jobs = len(active) * n_seeds
     cpu = os.cpu_count() or 4
+    # R8-A-L1: Trade-off CPU/Solver-Worker vs. Job-Parallelitaet.
+    # Mehr Worker/Solver beschleunigen den einzelnen Solver (durch CP-SAT-
+    # interne Parallelisierung), reduzieren aber die Anzahl gleichzeitig
+    # laufender Liga×Seed-Jobs. Bei 8 CPU + 4 Ligen × 2 Seeds = 8 Jobs ergibt
+    # das 1 Worker/Solver — alle Jobs parallel. Bei 8 CPU + 1 Liga × 2 Seeds
+    # = 2 Jobs sind es 4 Worker/Solver. Diese Heuristik maximiert Job-Throughput.
     workers_per = max(1, cpu // n_jobs)
 
     banner('PHASE 1 - UNABHAENGIGE LIGA-OPTIMIERUNG (PARALLEL)')
@@ -72,13 +87,18 @@ def run_phase1(cfgs: Dict[str, LeagueConfig],
     ]
 
     raw: Dict[str, list] = {lid: [] for lid in active}
+    # R7-A7-M2: alle Seed-Histories sammeln (auch von Nicht-Gewinnern), damit
+    # Vergleichs-Analysen (welcher Seed konvergierte schneller) möglich sind.
+    all_seed_histories: Dict[str, Dict[int, list]] = {lid: {} for lid in active}
     with ThreadPoolExecutor(max_workers=n_jobs) as pool:
         futures = {pool.submit(_phase1_worker, task): task[0] for task in tasks}
         for f in as_completed(futures):
             try:
-                lid, result, status_name = f.result()
+                lid, result, status_name, seed_used = f.result()
                 if result is not None:
                     raw[lid].append(result)
+                    # Seed-History sammeln (auch von Verlierern)
+                    all_seed_histories[lid][int(seed_used)] = list(result.gap_history or [])
                 elif status_name != 'OK':
                     warn(f'[{lid}] Phase-1-Seed fehlgeschlagen: {status_name}')
             except Exception as worker_exc:
@@ -94,6 +114,8 @@ def run_phase1(cfgs: Dict[str, LeagueConfig],
             warn(f'{lid}: Keine Loesung in Phase 1.')
         else:
             best = max(candidates, key=lambda r: r.objective)
+            # R7-A7-M2: alle Seed-Histories ins beste Result hineinmergen
+            best.seed_histories = all_seed_histories[lid]
             results[lid] = best
             ok(f'  {lid}: beste obj={best.objective:.0f} '
                f'({len(candidates)}/{n_seeds} Seeds erfolgreich)')
@@ -126,7 +148,14 @@ def _add_cohome_constraints(model: cp_model.CpModel,
             continue
 
         for kw, kw_data in kw_compat.items():
-            entries = []
+            # R8-A-L3: Pro Liga ein "home_in_kw"-BoolVar bilden, das True ist,
+            # wenn das Team an *mindestens einem* Spieltag dieser KW Heim spielt
+            # (OR-Aggregation über alle Spieltage in der KW). Bei DST-Wochenende
+            # mit 2 Spieltagen liefert die DST-Constraint home[d1]==home[d2],
+            # daher ist die OR semantisch identisch zu home[d1].
+            # Bei 2 nicht-DST-Spieltagen erweitert das den Co-Home-Effekt:
+            # eines reicht für den Bonus statt nur dem ersten zu vertrauen.
+            home_in_kw_vars = []
             for lid, tname in active.items():
                 if lid not in kw_data:
                     continue
@@ -137,21 +166,30 @@ def _add_cohome_constraints(model: cp_model.CpModel,
                 if cfgs[lid].games_per_team_per_day > 1 or cfgs[lid].n_teams_per_group > 0:
                     continue
                 ti = all_lv[lid].team_idx[tname]
-                # Ersten gültigen Spieltag dieser Liga in der KW verwenden
-                st = next((s for s in sts if s in all_lv[lid].days), None)
-                if st is not None:
-                    entries.append((lid, ti, st))
+                valid_sts = [s for s in sts if s in all_lv[lid].days]
+                if not valid_sts:
+                    continue
+                if len(valid_sts) == 1:
+                    h_in_kw = all_lv[lid].home[ti, valid_sts[0]]
+                else:
+                    h_in_kw = model.NewBoolVar(
+                        f'home_in_kw_{"_".join(club_name.split())}_{lid}_{kw}'
+                    )
+                    # h_in_kw <=> OR(home[ti, s] for s in valid_sts)
+                    for s in valid_sts:
+                        model.AddImplication(all_lv[lid].home[ti, s], h_in_kw)
+                    model.Add(sum(all_lv[lid].home[ti, s] for s in valid_sts)
+                              >= h_in_kw)
+                home_in_kw_vars.append(h_in_kw)
 
-            if len(entries) < 2:
+            if len(home_in_kw_vars) < 2:
                 continue
-
-            home_vars = [all_lv[lid].home[ti, st] for lid, ti, st in entries]
 
             co_var = model.NewBoolVar(
                 f'cohome_{"_".join(club_name.split())}_{kw}'
             )
-            model.AddBoolAnd(home_vars).OnlyEnforceIf(co_var)
-            model.AddBoolOr([v.Not() for v in home_vars]).OnlyEnforceIf(co_var.Not())
+            model.AddBoolAnd(home_in_kw_vars).OnlyEnforceIf(co_var)
+            model.AddBoolOr([v.Not() for v in home_in_kw_vars]).OnlyEnforceIf(co_var.Not())
             cohome_terms.append(w_cohome * co_var)
 
     n_terms = len(cohome_terms)

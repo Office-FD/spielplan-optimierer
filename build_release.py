@@ -14,6 +14,9 @@ OUT = os.path.join(HERE, "app-files.zip")
 EXCLUDE_DIRS = {
     ".venv", ".cache", "Spielplaene", "__pycache__",
     ".git", "installer", "memory", ".pytest_cache",
+    # R8-G-L2: ggf. von PyInstaller/Build-Tools erzeugte Output-Verzeichnisse,
+    # die nicht in das App-ZIP gehoeren.
+    "dist", "build", "Output", "node_modules", "coverage_html",
 }
 EXCLUDE_FILES = {
     "build_release.py",

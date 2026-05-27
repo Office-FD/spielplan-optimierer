@@ -59,14 +59,25 @@ def recompute_result_stats(result, cfg) -> tuple:
         for pos in range(len(days) - 1):
             travels[ti] += int(dist[loc[ti][pos], loc[ti][pos + 1]])
 
+    # R8-B-L4: Heimrecht direkt aus dem Schedule ableiten (statt aus result.home_vals).
+    # Robuster gegen den Fall, dass home_vals nach manuellen Mutationen veraltet ist —
+    # der Schedule ist immer die autoritative Quelle.
     weekends   = cfg.weekends
     sw_counts  = [0] * n
+    team_name  = list(cfg.teams)
     for ti in range(n):
         prev = None
+        my_name = team_name[ti]
         for wknd in weekends:
             if not wknd:
                 continue
-            cur = result.home_vals.get((ti, wknd[0]))
+            d = wknd[0]
+            cur = None
+            for ht, at in result.schedule.get(d, []):
+                if ht == my_name:
+                    cur = 1; break
+                if at == my_name:
+                    cur = 0; break
             if cur is None:
                 prev = None
                 continue
@@ -366,7 +377,10 @@ def build_ics_bytes(result, season_year: int) -> bytes:
         f'X-WR-CALNAME:{_ical_escape(cfg.name)}',
     ]
 
-    dtstamp = _dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ')
+    # R8-B-L1: utcnow() ist in Python 3.12+ deprecated. timezone-aware now() ist
+    # der moderne Weg; .strftime entfernt das Timezone-Suffix wieder, %Z gibt ''
+    # zurueck — daher haengen wir das 'Z' manuell an (UTC-Marker im iCal-Format).
+    dtstamp = _dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     uid_n = 0
     skipped_no_date = 0
     for d in cfg.days:

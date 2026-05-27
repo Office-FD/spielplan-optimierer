@@ -38,9 +38,19 @@ jobs:
         if: always()
         run: python -m coverage report
 
+      - name: Coverage-Gate (Warning ab < 70 %)
+        # R7-D7-L1: Heads-Up wenn Coverage unter Schwelle faellt.
+        # Continue-on-error: kein hartes CI-Gate — kein Refactor wird durch
+        # vorübergehenden Coverage-Drop blockiert. Wer das harten Gate will,
+        # entfernt `continue-on-error` hier.
+        if: always()
+        continue-on-error: true
+        run: python -m coverage report --fail-under=70
+
       - name: HTML-Report als Artifact hochladen
         if: always()
-        uses: actions/upload-artifact@v4
+        # R8-H-L2: konsistent mit anderen Workflows (checkout/setup-python @v6).
+        uses: actions/upload-artifact@v5
         with:
           name: coverage-html
           path: coverage_html/

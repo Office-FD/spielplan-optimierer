@@ -376,7 +376,9 @@ def main():
                     server_proc = _start_streamlit_server()
 
     # 6. Warten bis Server bereit, dann Browser oeffnen
-    if _wait_for_server(timeout=60):
+    # R8-G-L3: 120s statt 60s — auf aelteren Notebooks mit Antivirus oder
+    # waehrend Windows-Updates kann ein Streamlit-Cold-Start 90+ s dauern.
+    if _wait_for_server(timeout=120):
         webbrowser.open(f"http://localhost:{PORT}")
     else:
         _msgbox(

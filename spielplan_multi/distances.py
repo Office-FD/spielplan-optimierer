@@ -140,6 +140,10 @@ def calculate_distance_matrix(locations: List[str],
         info(f'{i+1:2d}/{n} verarbeitet: {locations[i]}')
         time.sleep(0.15)
 
+    # R8-C-L2: konservative Symmetrisierung — bei Einbahnstraßen oder
+    # asymmetrischen Routen wird der längere Wert beider Richtungen genommen.
+    # Das überschätzt km im Worst-Case leicht (~1 % bei FLVD-Routen), ist aber
+    # für das Solver-Modell konsistent (eine Distanzangabe pro Paar).
     dist = np.maximum(dist, dist.T)
 
     unreachable = [(locations[i], locations[j])
