@@ -10,7 +10,7 @@ WEIGHT_SCALES = {
     'sw_fair':        2.0,
     'trav_fair':      0.02,
     'travel':         0.05,
-    'dst_eff':        0.03,
+    'dst_eff':        0.15,
     'round_balance':  2.0,
 }
 WEIGHT_LABELS = [

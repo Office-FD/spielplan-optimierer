@@ -193,7 +193,7 @@ WEIGHT_SCALES = {
     'sw_fair':        2.0,   # max-min Wechsel minimieren
     'travel':         0.05,  # Gesamtkilometer minimieren
     'trav_fair':      0.02,  # max-min km minimieren
-    'dst_eff':        0.03,  # DST-Reiseeffizienz (Standard-UI: 0 = aus)
+    'dst_eff':        0.15,  # DST-Reiseeffizienz (Standard-UI: 3.0)
     'round_balance':  2.0,   # quadr. Abw. Heim/Runde (Standard-UI: 0 = aus)
 }
 ```

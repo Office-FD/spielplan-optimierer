@@ -2690,8 +2690,9 @@ def _step3():
     same = st.checkbox('Gleiche Gewichte für alle Ligen', S.same_weights, key='samew')
     S.same_weights = same
 
+    # dst_eff default 3.0 (an): belohnt geografisch effiziente DST-Paarungen für Randlagen-Teams.
     # round_balance default 0 (aus): quadratische Constraints sind teurer, nur opt-in.
-    _W_DEFAULTS = {'dst_eff': 0.0, 'round_balance': 0.0}
+    _W_DEFAULTS = {'dst_eff': 3.0, 'round_balance': 0.0}
 
     def _weight_inputs(key_prefix: str, existing: dict) -> dict:
         vals = {}
