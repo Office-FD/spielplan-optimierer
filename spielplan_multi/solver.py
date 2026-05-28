@@ -231,6 +231,37 @@ def build_league_vars(model: cp_model.CpModel,
             else:
                 warn(f'[{cfg.league_id}] DST-Block ({d1},{d2}) ausserhalb Spieltage – ignoriert.')
 
+    # DST Heim/Auswärts-Balance: jedes Team bekommt pro Runde gleich viele Heim- und
+    # Auswärts-DST (±1 bei ungerader Anzahl). Verhindert z.B. 3H/1A bei 4 DST gesamt.
+    # Nur Standard-Format (gpd==1) und gerade Teamzahl (Spielfrei-Modus überspringen).
+    #
+    # Feasibility-Bedingung pro Runde: DST-Tage × (n/2) Spiele ≤ (n/2)² Kreuzgruppen-Paarungen
+    # → 2 × _n_dst_r × (n/2) ≤ (n/2)²  →  4 × _n_dst_r ≤ n.
+    # Unterschreitung bedeutet, mehr DST-Spielslots als mögliche Kreuzgruppen-Paarungen existieren
+    # → zwingend INFEASIBLE. Bei diesen Ligen wird die Balance-Einschränkung still übersprungen.
+    if gpd == 1 and cfg.dst_blocks and n % 2 == 0:
+        _valid_dst = [(d1, d2) for d1, d2 in cfg.dst_blocks
+                      if d1 in days_set_early and d2 in days_set_early]
+        for _r in range(n_rounds):
+            _r_start = _r * round_len + 1
+            _r_end = (_r + 1) * round_len if _r < n_rounds - 1 else N
+            _dst_r = [(d1, d2) for d1, d2 in _valid_dst if _r_start <= d1 <= _r_end]
+            _n_dst_r = len(_dst_r)
+            if _n_dst_r < 2:
+                continue
+            if 4 * _n_dst_r > n:
+                # Zu wenige Teams für diese DST-Dichte: Balance-Constraint wäre INFEASIBLE.
+                # Tritt bei kleinen Ligen (≤6 Teams) mit 2+ DST pro Runde auf.
+                warn(f'[{cfg.league_id}] DST-Balance Runde {_r + 1}: {_n_dst_r} DST bei {n} Teams '
+                     f'(braucht {4 * _n_dst_r}) – Balance-Constraint nicht anwendbar, wird übersprungen.')
+                continue
+            _lo = _n_dst_r // 2
+            _hi = (_n_dst_r + 1) // 2
+            for ti in range(n):
+                _dst_home = sum(home[ti, d1] for d1, _ in _dst_r)
+                model.Add(_dst_home >= _lo)
+                model.Add(_dst_home <= _hi)
+
     # Vorberechnung: gesperrte Tage und Wochenenden je Team (fuer Konsekutiv-Constraint)
     days_set = set(days)
     blocked_per_team: dict = {ti: set() for ti in range(n)}

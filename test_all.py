@@ -221,6 +221,59 @@ def main():
         return f'{cfg2.n_matchdays} Spieltage'
     check('DST-Schedule vollstaendig', t2_schedule_ok)
 
+    def t2_dst_balance():
+        """4 DST total, 2 pro Runde → jedes Team genau 1 Heim-DST pro Runde.
+        10 Teams nötig (Bedingung: 4×n_dst_r ≤ n → 8 ≤ 10 ✓).
+        DST-Blöcke in Runde 1 (ST1+2, ST5+6) und Runde 2 (ST10+11, ST14+15)."""
+        teams10 = [f'T{i}' for i in range(1, 11)]
+        dist10 = np.zeros((10, 10), dtype=float)
+        # 10 Teams, n_rounds=2 → n_matchdays=18, hinrunde_end=9
+        cfg_bal = make_cfg('DSTBAL', teams10, dist=dist10,
+                           dst_blocks=[(1, 2), (5, 6), (10, 11), (14, 15)], n_rounds=2)
+        assert cfg_bal.n_matchdays == 18 and cfg_bal.hinrunde_end == 9
+        r = solve(cfg_bal, tl=30)
+        round_len = cfg_bal.hinrunde_end
+        for team in cfg_bal.teams:
+            for rnd in range(cfg_bal.n_rounds):
+                r_start = rnd * round_len + 1
+                r_end = (rnd + 1) * round_len if rnd < cfg_bal.n_rounds - 1 else cfg_bal.n_matchdays
+                dst_r = [(d1, d2) for d1, d2 in cfg_bal.dst_blocks if r_start <= d1 <= r_end]
+                if len(dst_r) < 2:
+                    continue
+                home_count = sum(
+                    1 for d1, _ in dst_r
+                    if any(ht == team for ht, _ in r.schedule.get(d1, []))
+                )
+                lo, hi = len(dst_r) // 2, (len(dst_r) + 1) // 2
+                assert lo <= home_count <= hi, (
+                    f'DST-Balance Runde {rnd+1}: Team {team!r} hat {home_count} Heim-DST '
+                    f'(erwartet {lo}–{hi}) bei {len(dst_r)} DST in dieser Runde'
+                )
+        return '4 DST (2 pro Runde, 10 Teams): alle Teams genau 1H/1A pro Runde'
+    check('DST Heim/Auswärts-Balance pro Runde (4 DST, 10 Teams)', t2_dst_balance)
+
+    def t2_dst_balance_odd():
+        """3 DST total: 2 in Runde 1 (constraint aktiv, 10 Teams → 4×2≤10 ✓), 1 in Runde 2
+        (zu wenig → kein Constraint). Verifikation: Runde-1-Balance erzwungen."""
+        teams10 = [f'T{i}' for i in range(1, 11)]
+        dist10 = np.zeros((10, 10), dtype=float)
+        cfg_odd = make_cfg('DSTODD', teams10, dist=dist10,
+                           dst_blocks=[(1, 2), (5, 6), (12, 13)], n_rounds=2)
+        r = solve(cfg_odd, tl=30)
+        round_len = cfg_odd.hinrunde_end
+        # Runde 1 hat 2 DST (1,2) und (5,6) → Balance-Constraint greift: genau 1 Heim-DST
+        for team in cfg_odd.teams:
+            dst_r1 = [(d1, d2) for d1, d2 in cfg_odd.dst_blocks if 1 <= d1 <= round_len]
+            assert len(dst_r1) == 2, f'Erwarte 2 DST in Runde 1, got {len(dst_r1)}'
+            home_count = sum(1 for d1, _ in dst_r1
+                             if any(ht == team for ht, _ in r.schedule.get(d1, [])))
+            assert home_count == 1, (
+                f'DST-Balance (3 DST ges., Runde 1): Team {team!r} hat {home_count} Heim-DST '
+                f'(erwartet genau 1)'
+            )
+        return '3 DST (2+1 über Runden, 10 Teams): Runde-1-Balance korrekt erzwungen'
+    check('DST Balance bei ungerader Gesamt-DST-Zahl (3 DST, 10 Teams)', t2_dst_balance_odd)
+
     # =========================================================================
     # TEST 3 – Gesamt-km Minimierung
     # =========================================================================
