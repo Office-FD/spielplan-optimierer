@@ -5,6 +5,25 @@ Aktueller Entwicklungsstand und operative Dokumentation: **CLAUDE.md**
 
 ---
 
+## v1.16.0 — Session-Rejoin nach Browser-Verbindungsabbruch
+
+Bei langen Optimierungsläufen (Phase 2, 90 min–8h) kann der Browser die Verbindung zum Streamlit-Server unterbrechen. Bisher war der Solver-Fortschritt dann nicht mehr sichtbar. Ab v1.16.0 kann die neue Session in den laufenden Prozess einsteigen und den Fortschritt live weiterverfolgen.
+
+| Datei | Änderung |
+|---|---|
+| `spielplan_multi/_worker.py` | Subprocess schreibt PID in `.cache/opt_pid.txt` und alle Log-Zeilen parallel in `.cache/opt_log.txt`; PID-Datei wird in `finally` gelöscht |
+| `app.py` | Neue Hilfsfunktionen `_pid_alive()`, `_detach_state()`, `_try_recover_pkl()` |
+| `app.py` | Top-Level-Banner: zeigt "Optimierung läuft im Hintergrund" oder "Ergebnisse verfügbar" direkt auf der Startseite |
+| `app.py` | Schritt 9: Detached-Polling-Zweig liest `.cache/opt_log.txt` inkrementell und zeigt Live-Log + beste Lösung |
+| `app.py` | Step 9 Recovery refaktoriert auf `_try_recover_pkl()` (kein duplizierter Code mehr) |
+
+**Ablauf nach Reconnect:**
+1. Browser reconnectet → Startseite zeigt Banner "Optimierung läuft noch"
+2. Klick auf "In laufende Optimierung einsteigen" → direkt zu Schritt 9 mit Live-Fortschritt
+3. Wenn Solver fertig → `.cache/opt_pid.txt` verschwindet → Ergebnisse automatisch geladen
+
+---
+
 ## v1.15.1 — Hotfix: dst_eff Default-Regression + Telemetrie-Anzeige
 
 | Datei | Änderung |

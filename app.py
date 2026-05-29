@@ -311,6 +311,8 @@ _DEFAULTS: dict = dict(
     move_pending=None,      # {'lid','day','idx','ht','at'} – Spiel zum Verschieben gewählt
     cancel_pending=None,    # {'lid','ht','at'} – ausgefallenes Spiel, Nachholtermin offen
     cal_table={},           # {lid: [{'spieltag':int,'kw':int|None,'date':str}]}
+    opt_detached=False,     # True wenn Session in fremden Subprocess eingehängt (Rejoin)
+    opt_log_pos=0,          # Byte-Position in .cache/opt_log.txt für inkrementelles Lesen
 )
 
 for _k, _v in _DEFAULTS.items():
@@ -3841,12 +3843,109 @@ def _validate_constraints() -> List[dict]:
     return issues
 
 
+# ── Session-Rejoin-Hilfsfunktionen ───────────────────────────────────────────
+
+def _pid_alive(pid: int) -> bool:
+    """Prüft ob Prozess mit PID noch läuft (Windows, ohne psutil)."""
+    try:
+        import ctypes
+        handle = ctypes.windll.kernel32.OpenProcess(0x100000, False, int(pid))
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _detach_state() -> str:
+    """Gibt 'running', 'done' oder '' zurück — unabhängig vom Session-State."""
+    _pid_file = _HERE / '.cache' / 'opt_pid.txt'
+    _pkl      = _HERE / '.cache' / 'last_result.pkl'
+    if _pid_file.exists():
+        try:
+            pid = int(_pid_file.read_text().strip())
+            if _pid_alive(pid):
+                return 'running'
+        except Exception:
+            pass
+        # PID-Datei vorhanden, Prozess tot → noch nicht aufgeräumt
+        return 'done' if _pkl.exists() else ''
+    if _pkl.exists() and not S.opt_done and S.results is None and not S.opt_running:
+        return 'done'
+    return ''
+
+
+def _try_recover_pkl() -> bool:
+    """Lädt .cache/last_result.pkl, baut Excel-Bytes, setzt S.opt_done=True.
+
+    Gibt True zurück wenn erfolgreich. Setzt S._wizard_started=True und S.step=8
+    damit der Nutzer direkt auf die Ergebnisseite landet.
+    """
+    import pickle as _pickle
+    _pkl = _HERE / '.cache' / 'last_result.pkl'
+    if not _pkl.exists():
+        return False
+    try:
+        _data        = _pickle.loads(_pkl.read_bytes())
+        S.results    = _data.get('results', {})
+        S.clubs      = _data.get('clubs',   S.clubs)
+        S.kw_compat  = _data.get('kw_compat', S.kw_compat)
+        S.excel_bytes    = {}
+        S.cohome_bytes   = None
+        S.hall_bytes     = None
+        S.overview_bytes = None
+        from spielplan_multi.excel_output import (
+            build_league_excel, build_cohome_summary, build_hall_schedule,
+            build_overview_excel)
+        for _lid, _res in S.results.items():
+            if _res is None:
+                continue
+            try:
+                _wb  = build_league_excel(_res)
+                _buf = io.BytesIO()
+                _wb.save(_buf)
+                S.excel_bytes[_lid] = _buf.getvalue()
+            except Exception:
+                pass
+        if S.clubs and S.results:
+            try:
+                _wb_ch  = build_cohome_summary(S.results, S.clubs, S.kw_compat)
+                _buf_ch = io.BytesIO()
+                _wb_ch.save(_buf_ch)
+                S.cohome_bytes = _buf_ch.getvalue()
+            except Exception:
+                pass
+        try:
+            _wb_h  = build_hall_schedule(S.results)
+            _buf_h = io.BytesIO()
+            _wb_h.save(_buf_h)
+            S.hall_bytes = _buf_h.getvalue()
+        except Exception:
+            pass
+        try:
+            _wb_ov  = build_overview_excel(S.results, S.clubs, S.kw_compat)
+            _buf_ov = io.BytesIO()
+            _wb_ov.save(_buf_ov)
+            S.overview_bytes = _buf_ov.getvalue()
+        except Exception:
+            pass
+        S.opt_done        = True
+        S._wizard_started = True
+        S.step            = 8
+        _pkl.unlink(missing_ok=True)
+        return True
+    except Exception as _e:
+        st.error(f'Wiederherstellung fehlgeschlagen: {_e}')
+        return False
+
+
 def _step8():
     st.header('9. Optimierung & Ergebnisse')
 
-    # ── Wiederherstellung nach Session-Verlust ────────────────────────────────
+    # ── Wiederherstellung nach Session-Verlust (Fallback wenn nicht über Banner) ──
     _pkl = _HERE / '.cache' / 'last_result.pkl'
-    if _pkl.exists() and not S.opt_done and S.results is None and not S.opt_running:
+    if _pkl.exists() and not S.opt_done and S.results is None and not S.opt_running and not S.opt_detached:
         import pickle as _pickle
         import datetime as _dt
         _mtime   = _dt.datetime.fromtimestamp(_pkl.stat().st_mtime)
@@ -3868,55 +3967,8 @@ def _step8():
         _r1, _r2 = st.columns(2)
         with _r1:
             if st.button('Ergebnisse wiederherstellen', key='recover_pkl', type='primary'):
-                try:
-                    _data    = _pickle.loads(_pkl.read_bytes())
-                    S.results   = _data.get('results', {})
-                    S.clubs     = _data.get('clubs',   S.clubs)
-                    S.kw_compat = _data.get('kw_compat', S.kw_compat)
-                    S.excel_bytes    = {}
-                    S.cohome_bytes   = None
-                    S.hall_bytes     = None
-                    S.overview_bytes = None
-                    from spielplan_multi.excel_output import (
-                        build_league_excel, build_cohome_summary, build_hall_schedule,
-                        build_overview_excel)
-                    for _lid, _res in S.results.items():
-                        if _res is None:
-                            continue
-                        try:
-                            _wb  = build_league_excel(_res)
-                            _buf = io.BytesIO()
-                            _wb.save(_buf)
-                            S.excel_bytes[_lid] = _buf.getvalue()
-                        except Exception:
-                            pass
-                    if S.clubs and S.results:
-                        try:
-                            _wb_ch  = build_cohome_summary(S.results, S.clubs, S.kw_compat)
-                            _buf_ch = io.BytesIO()
-                            _wb_ch.save(_buf_ch)
-                            S.cohome_bytes = _buf_ch.getvalue()
-                        except Exception:
-                            pass
-                    try:
-                        _wb_h  = build_hall_schedule(S.results)
-                        _buf_h = io.BytesIO()
-                        _wb_h.save(_buf_h)
-                        S.hall_bytes = _buf_h.getvalue()
-                    except Exception:
-                        pass
-                    try:
-                        _wb_ov  = build_overview_excel(S.results, S.clubs, S.kw_compat)
-                        _buf_ov = io.BytesIO()
-                        _wb_ov.save(_buf_ov)
-                        S.overview_bytes = _buf_ov.getvalue()
-                    except Exception:
-                        pass
-                    S.opt_done = True
-                    _pkl.unlink(missing_ok=True)
+                if _try_recover_pkl():
                     st.rerun()
-                except Exception as _e:
-                    st.error(f'Wiederherstellung fehlgeschlagen: {_e}')
         with _r2:
             if st.button('Verwerfen', key='discard_pkl'):
                 _pkl.unlink(missing_ok=True)
@@ -3966,6 +4018,83 @@ def _step8():
         return
 
     _dyn = st.empty()
+
+    # ── Detached-Modus: Session in laufenden Subprocess eingehängt (Rejoin) ──
+    if S.opt_detached and not S.opt_done:
+        _log_file = _HERE / '.cache' / 'opt_log.txt'
+        _pid_file = _HERE / '.cache' / 'opt_pid.txt'
+
+        if _log_file.exists():
+            try:
+                with open(_log_file, 'r', encoding='utf-8', errors='replace') as _df:
+                    _df.seek(S.opt_log_pos)
+                    _new_lines = [_l.rstrip('\n') for _l in _df.readlines() if _l.strip()]
+                    S.opt_log_pos = _df.tell()
+                for _line in _new_lines:
+                    S.opt_log.append(_line)
+                    if 'PHASE 3' in _line:
+                        S._phase_seen.add('p3')
+                    elif _line.startswith('[BEST] P2'):
+                        S._phase_seen.add('p2')
+                    if _line.startswith('[BEST]'):
+                        _parts = _line.split()
+                        if len(_parts) >= 4:
+                            _lid_b = _parts[1]
+                            _obj_b = next((p.split('=')[1] for p in _parts
+                                           if p.startswith('obj=')), None)
+                            _t_b   = next((p.split('=')[1] for p in _parts
+                                           if p.startswith('t=')), '')
+                            _cnt_b = next((p.strip('(#)') for p in _parts
+                                           if p.startswith('(#')), '')
+                            if _obj_b:
+                                S.opt_best[_lid_b] = {
+                                    'obj': float(_obj_b), 'elapsed': _t_b, 'count': _cnt_b
+                                }
+            except Exception:
+                pass
+
+        if 'p3' in S._phase_seen:
+            _phase_name = 'Phase 3 – SA-Nachbearbeitung'
+        elif 'p2' in S._phase_seen:
+            _phase_name = 'Phase 2 – Kalender-Koordination'
+        else:
+            _phase_name = 'Phase 1 – Heimrecht-Optimierung'
+
+        with _dyn.container():
+            st.info('Verbunden mit laufender Optimierung (Session-Rejoin)')
+            st.markdown(f'### ⏳ {_phase_name}')
+            if S.opt_best:
+                _m_cols = st.columns(max(1, min(4, len(S.opt_best))))
+                for _ci, (_lid_m, _bst) in enumerate(S.opt_best.items()):
+                    _name_m = (S.leagues.get(_lid_m, {}).get('name', _lid_m)
+                               if _lid_m != 'P2' else 'Phase 2 gesamt')
+                    with _m_cols[_ci % len(_m_cols)]:
+                        st.metric(
+                            label=f'Beste Lösung: {_name_m}',
+                            value=f'{_bst["obj"]:,.0f}',
+                            help=f't={_bst["elapsed"]}  |  #{_bst["count"]} Lösung(en)',
+                        )
+            _readable = _translate_solver_log_cached(S.opt_log, S.leagues)
+            if _readable:
+                st.markdown('#### 📈 Was gerade passiert (Übersetzung)')
+                st.markdown('\n\n'.join(_readable[-12:][::-1]), unsafe_allow_html=True)
+            with st.expander('🔍 Vollständiges Solver-Log (technisch)', expanded=False):
+                st.code('\n'.join(S.opt_log[-80:]), language=None)
+
+        if not _pid_file.exists():
+            # Subprocess fertig (PID-Datei in finally gelöscht)
+            S.opt_detached = False
+            S.opt_log_pos  = 0
+            if (_HERE / '.cache' / 'last_result.pkl').exists():
+                if _try_recover_pkl():
+                    st.rerun()
+            else:
+                st.error('Optimierung abgeschlossen, aber keine Ergebnisse gefunden.')
+        else:
+            time.sleep(2)
+            st.rerun()
+        return
+
     # ── Laufende Optimierung (vor Config-Summary, damit nichts darunter rendert) ──
     if S.opt_running:
         _q = S.opt_queue
@@ -5651,6 +5780,39 @@ def _inject_floorball_css() -> None:
 
 _inject_floorball_css()
 _sidebar()
+
+# ── Session-Rejoin / Ergebnis-Recovery Banner ─────────────────────────────
+if not S.opt_running and not S.opt_detached and not S.opt_done:
+    _ds = _detach_state()
+    if _ds == 'running':
+        st.info(
+            '**Eine Optimierung läuft noch im Hintergrund** – '
+            'die Browser-Verbindung wurde unterbrochen, der Solver läuft weiter.'
+        )
+        if st.button('In laufende Optimierung einsteigen', type='primary',
+                     key='rejoin_btn'):
+            S.opt_detached    = True
+            S.opt_log_pos     = 0
+            S.opt_log         = []
+            S.opt_best        = {}
+            S._phase_seen     = set()
+            S._wizard_started = True
+            S.step            = 8
+            st.rerun()
+    elif _ds == 'done':
+        st.success(
+            '**Ergebnisse einer früheren Optimierung sind verfügbar** – '
+            'die Sitzung wurde unterbrochen, bevor die Ergebnisse angezeigt werden konnten.'
+        )
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            if st.button('Ergebnisse laden', type='primary', key='recover_top_btn'):
+                if _try_recover_pkl():
+                    st.rerun()
+        with _c2:
+            if st.button('Verwerfen', key='discard_top_btn'):
+                (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
+                st.rerun()
 
 if not S._wizard_started:
     _step_intro()
