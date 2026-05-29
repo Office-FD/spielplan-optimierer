@@ -3940,8 +3940,16 @@ def _try_recover_pkl() -> bool:
         return False
 
 
-def _render_detached_view():
-    """Zeigt Live-Status einer laufenden Optimierung im Session-Rejoin-Modus."""
+def _render_detached_view() -> str:
+    """Rendert Live-Status im Session-Rejoin-Modus.
+
+    Gibt 'poll' zurück wenn der Solver noch läuft (Caller soll 2 s warten und rerun),
+    'done' nach erfolgreicher Ergebnis-Wiederherstellung (Caller soll sofort rerun),
+    oder '' wenn nichts mehr zu tun ist.
+    Kein st.rerun() innerhalb dieser Funktion: der Caller ruft es erst NACH dem
+    vollständigen Render-Zyklus auf, damit Streamlit die alte Intro-Seite aus dem
+    DOM entfernt (Finalize-Signal) bevor der Rerun startet.
+    """
     _log_file = _HERE / '.cache' / 'opt_log.txt'
     _pid_file = _HERE / '.cache' / 'opt_pid.txt'
     _dyn = st.empty()
@@ -4009,12 +4017,11 @@ def _render_detached_view():
         S.opt_log_pos  = 0
         if (_HERE / '.cache' / 'last_result.pkl').exists():
             if _try_recover_pkl():
-                st.rerun()
+                return 'done'
         else:
             st.error('Optimierung abgeschlossen, aber keine Ergebnisse gefunden.')
-    else:
-        time.sleep(2)
-        st.rerun()
+        return ''
+    return 'poll'
 
 
 def _step8():
@@ -5815,10 +5822,19 @@ if not S.opt_running and not S.opt_detached and not S.opt_done:
                 (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
                 st.rerun()
 
+_detached_action = ''
 if S.opt_detached and not S.opt_done:
     st.header('9. Optimierung & Ergebnisse')
-    _render_detached_view()
+    _detached_action = _render_detached_view()
 elif not S._wizard_started:
     _step_intro()
 else:
     [_step0, _step1, _step2, _step3, _step4, _step5, _step6, _step7, _step8][max(0, min(S.step, 8))]()
+
+# st.rerun() erst NACH dem vollständigen Render-Zyklus aufrufen, damit Streamlit
+# das Finalize-Signal sendet und alte Komponenten (z. B. Intro-Seite) aus dem DOM entfernt.
+if _detached_action == 'poll':
+    time.sleep(2)
+    st.rerun()
+elif _detached_action == 'done':
+    st.rerun()

@@ -5,6 +5,17 @@ Aktueller Entwicklungsstand und operative Dokumentation: **CLAUDE.md**
 
 ---
 
+## v1.16.2 — Bugfix: Intro-Seite nach Session-Rejoin sofort entfernt
+
+**Root Cause v1.16.1:** `st.rerun()` wurde innerhalb von `_render_detached_view()` aufgerufen, also mitten in einem Render-Zyklus. Streamlit sendet das "Finalize"-Signal (→ Frontend entfernt nicht mehr gerenderte Elemente) erst nach einem vollständigen Render-Zyklus. Da der Zyklus durch `RerunException` abgebrochen wurde, blieb die Intro-Seite im Browser-DOM solange erhalten, bis zufällig ein kompletter Zyklus durchlief.
+
+| Datei | Änderung |
+|---|---|
+| `app.py` | `_render_detached_view()` gibt jetzt `'poll'`, `'done'` oder `''` zurück statt `st.rerun()` selbst aufzurufen |
+| `app.py` | `st.rerun()` / `time.sleep(2)` erst **nach** dem vollständigen Dispatch-Block (nach dem Render-Zyklus) |
+
+---
+
 ## v1.16.1 — Bugfix: Intro-Seite überlagerte Detached-Ansicht in Schritt 9
 
 Nach dem Session-Rejoin war unterhalb des Solver-Logs die Intro-Seite (Floorball-Logo + Marketing-Text) sichtbar — weil das Detached-Rendering innerhalb von `_step8()` lag und `st.rerun()` in bestimmten Streamlit-Situationen nicht zuverlässig verhinderte, dass `_step_intro()` zusätzlich gerendert wurde.
