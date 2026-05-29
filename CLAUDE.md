@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Projektdokumentation
 
-> **v1.15.0 · Mai 2026 · Produktiv-freigegeben für FLVD-Saisonplanung.**
+> **v1.15.1 · Mai 2026 · Produktiv-freigegeben für FLVD-Saisonplanung.**
 > Vollständige Änderungshistorie aller Code-Reviews und Sprints: **CHANGELOG.md**
 
 ---

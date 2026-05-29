@@ -5,6 +5,28 @@ Aktueller Entwicklungsstand und operative Dokumentation: **CLAUDE.md**
 
 ---
 
+## v1.15.1 — Hotfix: dst_eff Default-Regression + Telemetrie-Anzeige
+
+| Datei | Änderung |
+|---|---|
+| `app.py` | **Hotfix:** `_W_DEFAULTS['dst_eff']` von 3.0 → 0.0 zurückgesetzt — verhinderte Crash beim Solver-Start mit DST-Ligen |
+| `app.py` | **Telemetrie-Fix:** `_BEST_LINE_RE` Regex `\d{2}:\d{2}` → `\d+:\d{2}(?::\d{2})?` — Telemetrie-Übersicht zeigte bei Läufen > 99 Minuten keine neuen Lösungen mehr |
+| `spielplan_multi/solver.py` | **Lesbarkeit:** `_ProgressCallback` Zeitformat `mm:ss` → `h:mm:ss` ab einer Stunde Laufzeit |
+
+**Ursache des Crashs:** `dst_eff=3.0` als Standard aktivierte erstmals den dst_eff-Modellbau für alle DST-Ligen. Dieser Codepfad war in Produktion nicht erprobt und führte zu einem unbehandelten Fehler im Solver-Subprocess. dst_eff bleibt auf 0 (opt-in) bis zur vollständigen Verifikation mit echten FLVD-Daten.
+
+---
+
+## v1.15.0 — dst_eff Skalierung
+
+| Datei | Änderung |
+|---|---|
+| `spielplan_multi/config.py` | `WEIGHT_SCALES['dst_eff']` 0.03 → 0.15 (5×) — stärkere Belohnung geografisch effizienter DST-Paarungen für Randlagen-Teams |
+| `app.py` | UI-Tooltip für dst_eff ergänzt |
+| `CLAUDE.md` | `dst_eff`-Scale in Dokumentation aktualisiert |
+
+---
+
 ## v1.14.0 — Niedrig-Cleanup R7+R8
 
 Alle verbleibenden Niedrig-Befunde aus R7 (10 Items) und R8 (25 Items) sowie R8-H-M2 in 4 Etappen:

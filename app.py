@@ -2690,9 +2690,9 @@ def _step3():
     same = st.checkbox('Gleiche Gewichte für alle Ligen', S.same_weights, key='samew')
     S.same_weights = same
 
-    # dst_eff default 3.0 (an): belohnt geografisch effiziente DST-Paarungen für Randlagen-Teams.
+    # dst_eff default 0 (aus): opt-in, da aktiv erst nach Stabilitätstest mit echten Daten.
     # round_balance default 0 (aus): quadratische Constraints sind teurer, nur opt-in.
-    _W_DEFAULTS = {'dst_eff': 3.0, 'round_balance': 0.0}
+    _W_DEFAULTS = {'dst_eff': 0.0, 'round_balance': 0.0}
 
     def _weight_inputs(key_prefix: str, existing: dict) -> dict:
         vals = {}
@@ -3607,7 +3607,7 @@ class _QueueWriter:
 _BEST_LINE_RE = re.compile(
     r'^\[BEST\]\s+(?P<liga>.+?)(?:#s(?P<seed>\d+))?\s{2,}'
     r'obj=(?P<obj>-?\d+(?:\.\d+)?)\s+'
-    r't=(?P<t>\d{2}:\d{2})'
+    r't=(?P<t>\d+:\d{2}(?::\d{2})?)'
     r'(?:\s+d(?P<delta>[+\-]\d+\.\d+)%)?'
     r'(?:\s+(?P<extra>\[.*?\]))?'
     r'\s+\(#(?P<count>\d+)\)'

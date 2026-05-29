@@ -876,7 +876,10 @@ class _ProgressCallback(cp_model.CpSolverSolutionCallback):
         self._count += 1
         obj     = self.ObjectiveValue()
         elapsed = time.time() - self._t0
-        mins, secs = int(elapsed // 60), int(elapsed % 60)
+        hours = int(elapsed // 3600)
+        mins  = int((elapsed % 3600) // 60)
+        secs  = int(elapsed % 60)
+        t_str = f'{hours}:{mins:02d}:{secs:02d}' if hours > 0 else f'{mins:02d}:{secs:02d}'
         delta = ''
         if self._best is not None and abs(self._best) > 0:
             delta = f'  d{(obj - self._best) / abs(self._best) * 100:+.1f}%'
@@ -884,7 +887,7 @@ class _ProgressCallback(cp_model.CpSolverSolutionCallback):
         self.history.append((elapsed, float(obj)))
         seed_tag = f'#s{self._seed}' if self._seed is not None else ''
         sys.stdout.write(
-            f'[BEST] {self._lid}{seed_tag}  obj={obj:.0f}  t={mins:02d}:{secs:02d}{delta}'
+            f'[BEST] {self._lid}{seed_tag}  obj={obj:.0f}  t={t_str}{delta}'
             f'  (#{self._count})\n'
         )
         sys.stdout.flush()
