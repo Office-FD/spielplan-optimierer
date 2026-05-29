@@ -1013,7 +1013,7 @@ def build_overview_excel(
 
     lids   = list(valid.keys())
     n_ligs = len(lids)
-    n_cols = max(2 + 2 * n_ligs, 3)
+    n_cols = max(1 + 3 * n_ligs, 3)
 
     # ── Hilfsfunktionen ───────────────────────────────────────────────────────
 
@@ -1030,10 +1030,12 @@ def build_overview_excel(
 
     def _finish_cols():
         ws.column_dimensions['A'].width = 8
-        ws.column_dimensions['B'].width = 13
+        ws.column_dimensions['B'].width = 16   # ≈ 120px (120 / 7.5)
         for i in range(n_ligs):
-            ws.column_dimensions[get_column_letter(3 + 2 * i)].width = 22
-            ws.column_dimensions[get_column_letter(4 + 2 * i)].width = 22
+            ws.column_dimensions[get_column_letter(3 + 3 * i)].width = 24  # ≈ 180px
+            ws.column_dimensions[get_column_letter(4 + 3 * i)].width = 24  # ≈ 180px
+            if i > 0:
+                ws.column_dimensions[get_column_letter(2 + 3 * i)].width = 3  # ≈ 25px
         ws.freeze_panes = 'A4'
 
     def _add_cohome():
@@ -1137,8 +1139,8 @@ def build_overview_excel(
         c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
         c.alignment = Alignment(horizontal='center', vertical='center')
     for i, lid in enumerate(lids):
-        col_h = 3 + 2 * i
-        col_g = 4 + 2 * i
+        col_h = 3 + 3 * i
+        col_g = 4 + 3 * i
         ws.merge_cells(start_row=2, start_column=col_h,
                        end_row=2, end_column=col_g)
         c = ws.cell(2, col_h, valid[lid].cfg.name)
@@ -1148,8 +1150,8 @@ def build_overview_excel(
 
     # ── Header Zeile 3: "Heim" / "Gast" pro Liga ─────────────────────────────
     for i in range(n_ligs):
-        col_h = 3 + 2 * i
-        col_g = 4 + 2 * i
+        col_h = 3 + 3 * i
+        col_g = 4 + 3 * i
         c = ws.cell(3, col_h, 'Heim')
         c.fill = HDR_FILL; c.font = Font(bold=True, color='FFFFFF')
         c.alignment = Alignment(horizontal='center', vertical='center')
@@ -1181,6 +1183,20 @@ def build_overview_excel(
         for lst in kw_data.values():
             lst.sort()
 
+    # Fallback: kw_compat nutzen wenn cfg.calendar leer (z. B. nach JSON-Restore)
+    if not kw_league_days and kw_compat:
+        for _kw_str, _kw_data in kw_compat.items():
+            try:
+                _kw_int = int(_kw_str)
+            except (ValueError, TypeError):
+                continue
+            for _lid, _spieltage in _kw_data.items():
+                if _lid in valid:
+                    kw_league_days.setdefault(_kw_int, {}).setdefault(_lid, []).extend(_spieltage)
+        for _kw_data_v in kw_league_days.values():
+            for _lst in _kw_data_v.values():
+                _lst.sort()
+
     if not kw_league_days:
         ws.merge_cells(start_row=4, start_column=1, end_row=4, end_column=n_cols)
         c = ws.cell(4, 1,
@@ -1191,9 +1207,11 @@ def build_overview_excel(
         _add_cohome()
         return wb
 
-    # ── Day-Blocks aufbauen und nach realem Datum sortieren ───────────────────
+    # ── Day-Blocks aufbauen und nach KW sortieren ─────────────────────────────
     # Jeder Block = ein Spieltag-Slot einer KW (DST → 2 Slots pro KW).
-    # Sortierung nach Datum statt KW-Nummer → jahresübergreifend korrekt.
+    # Sort-Key ist (year_order, kw, slot_idx) — kein Datum-Parsing für Sortierung,
+    # weil fehlende/unvollständige Datumstrings zu instabilem Sortierverhalten führen.
+    # year_order: KW > 26 → Herbst-Semester (0, zuerst), KW ≤ 26 → Frühjahr (1, danach).
     day_blocks = []
     for kw, kw_data in kw_league_days.items():
         max_slots = max(len(v) for v in kw_data.values())
@@ -1201,7 +1219,6 @@ def build_overview_excel(
         for slot_idx in range(max_slots):
             games_per_lid: Dict[str, list] = {}
             date_str_block = ''
-            sort_key: Optional[_dt.date] = None
             for lid in lids:
                 days_in_kw = kw_data.get(lid, [])
                 if slot_idx < len(days_in_kw):
@@ -1212,7 +1229,6 @@ def build_overview_excel(
                         raw_key = 'week_start' if slot_idx == 0 else 'week_end'
                         raw     = cal.get(raw_key, '') or cal.get('week_start', '')
                         date_str_block = _fmt_date(raw)
-                        sort_key       = _parse_date(raw)
                 else:
                     games_per_lid[lid] = []
 
@@ -1220,11 +1236,7 @@ def build_overview_excel(
             if max_games == 0:
                 max_games = 1
 
-            if sort_key is None:
-                # Heuristik für jahresübergreifende Saisons (Herbst→Frühjahr):
-                # KW > 26 → erstes Halbjahr (Herbst), KW ≤ 26 → zweites (Frühjahr/+1J)
-                year_adj = 0 if kw > 26 else 1
-                sort_key = _dt.date(2000 + year_adj, 1, 1) + _dt.timedelta(weeks=kw)
+            sort_key = (0 if kw > 26 else 1, kw, slot_idx)
 
             day_blocks.append({
                 'kw': kw, 'slot_idx': slot_idx,
@@ -1256,8 +1268,8 @@ def build_overview_excel(
             kw_row_cnt[kw] += 1
 
             for i, lid in enumerate(lids):
-                col_h = 3 + 2 * i
-                col_g = 4 + 2 * i
+                col_h = 3 + 3 * i
+                col_g = 4 + 3 * i
                 games = block['games_per_lid'].get(lid, [])
                 if game_slot < len(games):
                     ht, at = games[game_slot]

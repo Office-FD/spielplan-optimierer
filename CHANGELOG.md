@@ -5,6 +5,17 @@ Aktueller Entwicklungsstand und operative Dokumentation: **CLAUDE.md**
 
 ---
 
+## v1.17.0 — Gesamtübersicht Excel: Sort-Fix + Spaltenstruktur
+
+| Datei | Änderung |
+|---|---|
+| `spielplan_multi/excel_output.py` | Sort-Key in `build_overview_excel()`: Tuple `(year_order, kw, slot_idx)` statt Datums-Parsing — DST-Wochenenden erscheinen jetzt chronologisch (KW > 26 → Herbst, KW ≤ 26 → Frühjahr) |
+| `spielplan_multi/excel_output.py` | kw_compat-Fallback: wenn `cfg.calendar` leer (JSON-Restore), wird `kw_compat` als Datenquelle genutzt |
+| `spielplan_multi/excel_output.py` | Trennerspalte (~25px) zwischen den Ligen |
+| `spielplan_multi/excel_output.py` | Spaltenbreiten: Datum ~120px (16 Einh.), Liga-Heim/Gast je ~180px (24 Einh.), Trenner ~25px (3 Einh.) |
+
+---
+
 ## v1.16.2 — Bugfix: Intro-Seite nach Session-Rejoin sofort entfernt
 
 **Root Cause v1.16.1:** `st.rerun()` wurde innerhalb von `_render_detached_view()` aufgerufen, also mitten in einem Render-Zyklus. Streamlit sendet das "Finalize"-Signal (→ Frontend entfernt nicht mehr gerenderte Elemente) erst nach einem vollständigen Render-Zyklus. Da der Zyklus durch `RerunException` abgebrochen wurde, blieb die Intro-Seite im Browser-DOM solange erhalten, bis zufällig ein kompletter Zyklus durchlief.
