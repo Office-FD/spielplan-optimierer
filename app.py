@@ -3940,6 +3940,83 @@ def _try_recover_pkl() -> bool:
         return False
 
 
+def _render_detached_view():
+    """Zeigt Live-Status einer laufenden Optimierung im Session-Rejoin-Modus."""
+    _log_file = _HERE / '.cache' / 'opt_log.txt'
+    _pid_file = _HERE / '.cache' / 'opt_pid.txt'
+    _dyn = st.empty()
+
+    if _log_file.exists():
+        try:
+            with open(_log_file, 'r', encoding='utf-8', errors='replace') as _df:
+                _df.seek(S.opt_log_pos)
+                _new_lines = [_l.rstrip('\n') for _l in _df.readlines() if _l.strip()]
+                S.opt_log_pos = _df.tell()
+            for _line in _new_lines:
+                S.opt_log.append(_line)
+                if 'PHASE 3' in _line:
+                    S._phase_seen.add('p3')
+                elif _line.startswith('[BEST] P2'):
+                    S._phase_seen.add('p2')
+                if _line.startswith('[BEST]'):
+                    _parts = _line.split()
+                    if len(_parts) >= 4:
+                        _lid_b = _parts[1]
+                        _obj_b = next((p.split('=')[1] for p in _parts
+                                       if p.startswith('obj=')), None)
+                        _t_b   = next((p.split('=')[1] for p in _parts
+                                       if p.startswith('t=')), '')
+                        _cnt_b = next((p.strip('(#)') for p in _parts
+                                       if p.startswith('(#')), '')
+                        if _obj_b:
+                            S.opt_best[_lid_b] = {
+                                'obj': float(_obj_b), 'elapsed': _t_b, 'count': _cnt_b
+                            }
+        except Exception:
+            pass
+
+    if 'p3' in S._phase_seen:
+        _phase_name = 'Phase 3 – SA-Nachbearbeitung'
+    elif 'p2' in S._phase_seen:
+        _phase_name = 'Phase 2 – Kalender-Koordination'
+    else:
+        _phase_name = 'Phase 1 – Heimrecht-Optimierung'
+
+    with _dyn.container():
+        st.info('Verbunden mit laufender Optimierung (Session-Rejoin)')
+        st.markdown(f'### ⏳ {_phase_name}')
+        if S.opt_best:
+            _m_cols = st.columns(max(1, min(4, len(S.opt_best))))
+            for _ci, (_lid_m, _bst) in enumerate(S.opt_best.items()):
+                _name_m = (S.leagues.get(_lid_m, {}).get('name', _lid_m)
+                           if _lid_m != 'P2' else 'Phase 2 gesamt')
+                with _m_cols[_ci % len(_m_cols)]:
+                    st.metric(
+                        label=f'Beste Lösung: {_name_m}',
+                        value=f'{_bst["obj"]:,.0f}',
+                        help=f't={_bst["elapsed"]}  |  #{_bst["count"]} Lösung(en)',
+                    )
+        _readable = _translate_solver_log_cached(S.opt_log, S.leagues)
+        if _readable:
+            st.markdown('#### 📈 Was gerade passiert (Übersetzung)')
+            st.markdown('\n\n'.join(_readable[-12:][::-1]), unsafe_allow_html=True)
+        with st.expander('🔍 Vollständiges Solver-Log (technisch)', expanded=False):
+            st.code('\n'.join(S.opt_log[-80:]), language=None)
+
+    if not _pid_file.exists():
+        # Subprocess fertig (PID-Datei in finally gelöscht)
+        S.opt_detached = False
+        S.opt_log_pos  = 0
+        if (_HERE / '.cache' / 'last_result.pkl').exists():
+            if _try_recover_pkl():
+                st.rerun()
+        else:
+            st.error('Optimierung abgeschlossen, aber keine Ergebnisse gefunden.')
+    else:
+        time.sleep(2)
+        st.rerun()
+
+
 def _step8():
     st.header('9. Optimierung & Ergebnisse')
 
@@ -4018,82 +4095,6 @@ def _step8():
         return
 
     _dyn = st.empty()
-
-    # ── Detached-Modus: Session in laufenden Subprocess eingehängt (Rejoin) ──
-    if S.opt_detached and not S.opt_done:
-        _log_file = _HERE / '.cache' / 'opt_log.txt'
-        _pid_file = _HERE / '.cache' / 'opt_pid.txt'
-
-        if _log_file.exists():
-            try:
-                with open(_log_file, 'r', encoding='utf-8', errors='replace') as _df:
-                    _df.seek(S.opt_log_pos)
-                    _new_lines = [_l.rstrip('\n') for _l in _df.readlines() if _l.strip()]
-                    S.opt_log_pos = _df.tell()
-                for _line in _new_lines:
-                    S.opt_log.append(_line)
-                    if 'PHASE 3' in _line:
-                        S._phase_seen.add('p3')
-                    elif _line.startswith('[BEST] P2'):
-                        S._phase_seen.add('p2')
-                    if _line.startswith('[BEST]'):
-                        _parts = _line.split()
-                        if len(_parts) >= 4:
-                            _lid_b = _parts[1]
-                            _obj_b = next((p.split('=')[1] for p in _parts
-                                           if p.startswith('obj=')), None)
-                            _t_b   = next((p.split('=')[1] for p in _parts
-                                           if p.startswith('t=')), '')
-                            _cnt_b = next((p.strip('(#)') for p in _parts
-                                           if p.startswith('(#')), '')
-                            if _obj_b:
-                                S.opt_best[_lid_b] = {
-                                    'obj': float(_obj_b), 'elapsed': _t_b, 'count': _cnt_b
-                                }
-            except Exception:
-                pass
-
-        if 'p3' in S._phase_seen:
-            _phase_name = 'Phase 3 – SA-Nachbearbeitung'
-        elif 'p2' in S._phase_seen:
-            _phase_name = 'Phase 2 – Kalender-Koordination'
-        else:
-            _phase_name = 'Phase 1 – Heimrecht-Optimierung'
-
-        with _dyn.container():
-            st.info('Verbunden mit laufender Optimierung (Session-Rejoin)')
-            st.markdown(f'### ⏳ {_phase_name}')
-            if S.opt_best:
-                _m_cols = st.columns(max(1, min(4, len(S.opt_best))))
-                for _ci, (_lid_m, _bst) in enumerate(S.opt_best.items()):
-                    _name_m = (S.leagues.get(_lid_m, {}).get('name', _lid_m)
-                               if _lid_m != 'P2' else 'Phase 2 gesamt')
-                    with _m_cols[_ci % len(_m_cols)]:
-                        st.metric(
-                            label=f'Beste Lösung: {_name_m}',
-                            value=f'{_bst["obj"]:,.0f}',
-                            help=f't={_bst["elapsed"]}  |  #{_bst["count"]} Lösung(en)',
-                        )
-            _readable = _translate_solver_log_cached(S.opt_log, S.leagues)
-            if _readable:
-                st.markdown('#### 📈 Was gerade passiert (Übersetzung)')
-                st.markdown('\n\n'.join(_readable[-12:][::-1]), unsafe_allow_html=True)
-            with st.expander('🔍 Vollständiges Solver-Log (technisch)', expanded=False):
-                st.code('\n'.join(S.opt_log[-80:]), language=None)
-
-        if not _pid_file.exists():
-            # Subprocess fertig (PID-Datei in finally gelöscht)
-            S.opt_detached = False
-            S.opt_log_pos  = 0
-            if (_HERE / '.cache' / 'last_result.pkl').exists():
-                if _try_recover_pkl():
-                    st.rerun()
-            else:
-                st.error('Optimierung abgeschlossen, aber keine Ergebnisse gefunden.')
-        else:
-            time.sleep(2)
-            st.rerun()
-        return
 
     # ── Laufende Optimierung (vor Config-Summary, damit nichts darunter rendert) ──
     if S.opt_running:
@@ -5814,7 +5815,10 @@ if not S.opt_running and not S.opt_detached and not S.opt_done:
                 (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
                 st.rerun()
 
-if not S._wizard_started:
+if S.opt_detached and not S.opt_done:
+    st.header('9. Optimierung & Ergebnisse')
+    _render_detached_view()
+elif not S._wizard_started:
     _step_intro()
 else:
     [_step0, _step1, _step2, _step3, _step4, _step5, _step6, _step7, _step8][max(0, min(S.step, 8))]()

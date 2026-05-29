@@ -5,6 +5,20 @@ Aktueller Entwicklungsstand und operative Dokumentation: **CLAUDE.md**
 
 ---
 
+## v1.16.1 — Bugfix: Intro-Seite überlagerte Detached-Ansicht in Schritt 9
+
+Nach dem Session-Rejoin war unterhalb des Solver-Logs die Intro-Seite (Floorball-Logo + Marketing-Text) sichtbar — weil das Detached-Rendering innerhalb von `_step8()` lag und `st.rerun()` in bestimmten Streamlit-Situationen nicht zuverlässig verhinderte, dass `_step_intro()` zusätzlich gerendert wurde.
+
+| Datei | Änderung |
+|---|---|
+| `app.py` | Neue Funktion `_render_detached_view()` aus `_step8()` extrahiert |
+| `app.py` | Detached-Branch aus `_step8()` entfernt |
+| `app.py` | Top-Level-Dispatch: `if S.opt_detached and not S.opt_done:` als ersten Branch vor `_step_intro()` eingefügt — strukturell ausschließend via `if/elif/else` |
+
+Mit `if/elif/else` kann exakt einer der drei Branches ausführen. `_step_intro()` kann strukturell nie gleichzeitig mit dem Detached-View gerendert werden.
+
+---
+
 ## v1.16.0 — Session-Rejoin nach Browser-Verbindungsabbruch
 
 Bei langen Optimierungsläufen (Phase 2, 90 min–8h) kann der Browser die Verbindung zum Streamlit-Server unterbrechen. Bisher war der Solver-Fortschritt dann nicht mehr sichtbar. Ab v1.16.0 kann die neue Session in den laufenden Prozess einsteigen und den Fortschritt live weiterverfolgen.
