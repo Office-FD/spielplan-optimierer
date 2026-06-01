@@ -5,5 +5,5 @@ openpyxl>=3.1,<4
 requests>=2.34.2,<3
 streamlit>=1.57.0,<2
 folium>=0.18,<1
-streamlit-folium>=0.21,<1
+streamlit-folium>=0.27.2,<1
 streamlit-calendar>=1.4,<2
