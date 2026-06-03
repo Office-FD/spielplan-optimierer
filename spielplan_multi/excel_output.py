@@ -999,7 +999,6 @@ def build_overview_excel(
     Sortiert nach realem Datum (jahresübergreifend korrekt).
     Blatt 2 – 'Co-Home' (optional): Co-Home-Realisierung fuer Mehrsparten-Vereine.
     """
-    import datetime as _dt
     from openpyxl.styles import Border, Side
 
     _sep = Side(style='thin', color='AAAAAA')

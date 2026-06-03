@@ -4210,7 +4210,9 @@ def _render_detached_view() -> str:
                      help='Bricht die im Hintergrund laufende Berechnung ab. '
                           'Einstellungen bleiben erhalten – die Optimierung kann '
                           'danach neu gestartet werden.'):
-            import os as _os_c, signal as _sig_c, subprocess as _sp_c
+            import os as _os_c
+            import signal as _sig_c
+            import subprocess as _sp_c
             try:
                 _pid_c = int(_pid_file.read_text().strip())
             except Exception:

@@ -47,7 +47,8 @@ def run_solver(cfgs, clubs, kw_compat, w_cohome, solver_cfg, log_q, base_dir: st
     # nach Browser-Abbruch Laufzeit + Fortschritt anzeigen kann (fremde Session
     # hat kein opt_start_time/Solver-Config).
     try:
-        import time as _time_meta, json as _json_meta
+        import time as _time_meta
+        import json as _json_meta
         _total_est = (int(solver_cfg.get('seeds', 1)) * int(solver_cfg.get('p1', 0))
                       + int(solver_cfg.get('p2', 0))
                       + int(solver_cfg.get('sa', 0)) * max(1, len(cfgs)))
