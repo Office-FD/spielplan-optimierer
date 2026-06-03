@@ -4,7 +4,7 @@ Automatische Spielplanerstellung für Floorball-Ligen des **FLOORBALL VERBAND DE
 
 Das Tool erstellt optimierte Spielpläne für eine oder mehrere Ligen gleichzeitig – mit minimalen Reisewegen, ausgeglichenem Heimrecht und Berücksichtigung von Doppelspieltagen, Pflicht- und Sperrtagen sowie Co-Home-Vereinen.
 
-**Aktuelle Version:** 1.14.0
+**Aktuelle Version:** 1.17.1
 
 ---
 
@@ -43,7 +43,8 @@ Das Tool erstellt optimierte Spielpläne für eine oder mehrere Ligen gleichzeit
 - Pflichtspiele: bestimmte Paarungen auf festen Spieltagen erzwingen
 - Sperrtage: Team kann an bestimmten Spieltagen nicht spielen
 - Heimspiel-Pflichttage: Team muss an bestimmten Spieltagen zuhause spielen
-- Fünf gewichtbare Optimierungsziele: Heimrecht-Wechsel, Wechsel-Fairness, Gesamtkilometer, km-Fairness, DST-Reiseeffizienz
+- Reise-Entlastung (Randlagen-Teams): einzelne Teams auf weniger Heim-Doppelspieltage begrenzen, damit sie ihre DST-Fahrten gebündelt auswärts absolvieren
+- Sechs gewichtbare Optimierungsziele: Heimrecht-Wechsel, Wechsel-Fairness, Gesamtkilometer, km-Fairness, DST-Reiseeffizienz, Runden-Balance
 
 ### Distanzmatrizen
 - Manuell eingeben
@@ -78,7 +79,6 @@ Das Tool erstellt optimierte Spielpläne für eine oder mehrere Ligen gleichzeit
 | Constraints | Zu viele Pflichtspiele oder Sperrtage können die Lösbarkeit verhindern |
 | Turniertag | Spiele verschieben/absagen im UI nicht unterstützt (manuell im Excel nachbearbeiten) |
 | DST-Routing | Zu enger Umwegfaktor (< 2%) führt häufig zu INFEASIBLE |
-| Lagen-Visualisierung | Keine Karten-Ansicht; nur Kilometertabelle und Excel |
 | Multi-Saison | Heimrechts-Kontinuität über zwei Saisons hinweg nicht unterstützt |
 | Skalierung | Getestet bis ~12 Teams/Liga; bei sehr großen Ligen (>16 Teams) deutlich längere Laufzeiten |
 
