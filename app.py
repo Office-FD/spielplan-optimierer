@@ -31,6 +31,12 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
+# Laufdateien (Ergebnis-Pickle, Log, PID) in einen lokalen, OneDrive-freien
+# Cache legen – verhindert blockierte/fehlgeschlagene Schreibzugriffe durch den
+# OneDrive-Sync. Worker UND UI nutzen dieselbe Funktion (gleicher Pfad).
+from spielplan_multi.runtime_paths import run_cache_dir
+_CACHE = run_cache_dir(_HERE)
+
 from spielplan_multi.config import WEIGHT_SCALES
 from spielplan_multi.calendar_parser import build_weekends
 from spielplan_multi.league_types import LeagueConfig, LeagueResult
@@ -286,6 +292,7 @@ _DEFAULTS: dict = dict(
     pinned={},            # {lid: [{'teamA','teamB','day','home'}]}
     blocked={},           # {lid: {team:[days]}}
     forced_home={},       # {lid: {team:[days]}}
+    dst_relief={},        # {lid: {team: max_home_dst}} – Reise-Entlastung Randlagen-Teams
     clubs={},             # {club_name: {lid: team}}
     team_verein_map={},   # {teamname: verein} – beim Hinzufügen aus DB befüllt
     solver=dict(p1=900, p2=5400, nm=False, seeds=2, sa=120),
@@ -952,6 +959,19 @@ def _full_config_excel_bytes() -> bytes:
             _d(ws_fh, fhr, 3, ', '.join(str(d) for d in sorted(days)))
             fhr += 1
 
+    # ── Sheet 9b: Reise-Entlastung (per-Team DST-Balance) ─────────────────────
+    ws_rl = wb.create_sheet('Reise-Entlastung')
+    _set_col_w(ws_rl, [16, 30, 16])
+    for col, h in enumerate(['Liga-ID', 'Team', 'Max-Heim-DST'], 1):
+        _h(ws_rl, 1, col, h)
+    rlr = 2
+    for lid in S.league_order:
+        for team, cap in S.dst_relief.get(lid, {}).items():
+            _d(ws_rl, rlr, 1, lid)
+            _d(ws_rl, rlr, 2, team)
+            _d(ws_rl, rlr, 3, int(cap))
+            rlr += 1
+
     # ── Sheet 10: Co-Home ─────────────────────────────────────────────────────
     # Automatisch erkannte Vereine als Basis, explizit konfigurierte haben Vorrang
     _auto_clubs = _autodetect_cohome(S.league_order, S.leagues, load_club_db(), S.team_verein_map)
@@ -1002,6 +1022,9 @@ def _full_config_excel_bytes() -> bytes:
         ('', False),
         ('Sperrtage', True),
         ('  Spieltage kommagetrennt, z. B.: 3, 7, 12', False),
+        ('', False),
+        ('Reise-Entlastung', True),
+        ('  Max-Heim-DST je Team: niedriger = mehr gebündelte Auswärts-Doppelspieltage.', False),
         ('', False),
         ('Co-Home', True),
         ('  Eine Zeile pro Verein-Liga-Kombination.', False),
@@ -1277,6 +1300,22 @@ def _load_full_config_excel(uploaded_file) -> Optional[dict]:
                     pass
             result['forced_home'] = forced_home_loaded
 
+        # Reise-Entlastung (per-Team DST-Balance)
+        if 'Reise-Entlastung' in sn:
+            df_rl = xl.parse('Reise-Entlastung', dtype=str).fillna('')
+            relief_loaded: dict = {}
+            for _, row in df_rl.iterrows():
+                lid  = str(row.get('Liga-ID', '')).strip()
+                team = str(row.get('Team',    '')).strip()
+                if not lid or lid.lower() == 'nan' or not team or team.lower() == 'nan':
+                    continue
+                try:
+                    cap = int(float(str(row.get('Max-Heim-DST', '')).strip()))
+                    relief_loaded.setdefault(lid, {})[team] = max(0, cap)
+                except (TypeError, ValueError):
+                    pass
+            result['dst_relief'] = relief_loaded
+
         # Co-Home
         if 'Co-Home' in sn:
             df_c = xl.parse('Co-Home', dtype=str).fillna('')
@@ -1443,6 +1482,8 @@ def _step0():
                         S.blocked = parsed['blocked']
                     if 'forced_home' in parsed:
                         S.forced_home = parsed['forced_home']
+                    if 'dst_relief' in parsed:
+                        S.dst_relief = parsed['dst_relief']
                     if 'clubs' in parsed:
                         S.clubs = parsed['clubs']
                     # team_verein_map aus DB für alle geladenen Teams aufbauen
@@ -2013,6 +2054,7 @@ def _step0():
                 S.leagues[new_lid]  = S.leagues.pop(lid)
                 for _state_dict in (S.dist_matrices, S.dst_per_liga, S.routing,
                                     S.weights, S.pinned, S.blocked, S.forced_home,
+                                    S.dst_relief,
                                     S.cal_table, S.time_templates, S.opt_best):
                     if lid in _state_dict:
                         _state_dict[new_lid] = _state_dict.pop(lid)
@@ -2685,6 +2727,46 @@ def _step3():
                 pct = st.slider('Erlaubter Mehraufwand (%)', 1, 100, max(1, cur_pct), 5,
                     key=f'rp_{lid}', help='Wie viel Prozent Mehrkilometer darf ein Team bei einem Doppelwochenende in Kauf nehmen? 1 % = fast kein Umweg erlaubt · 25 % = bis zu 25 % mehr als der direkte Weg')
             S.routing[lid] = (enabled, pct)
+
+    # ── Reise-Entlastung für Randlagen-Teams (per-Team DST-Balance) ──────────
+    _relief_leagues = [lid for lid in S.league_order
+                       if len(S.dst_per_liga.get(lid, [])) >= 2]
+    if _relief_leagues:
+        _relief_active = any(S.dst_relief.get(l) for l in _relief_leagues)
+        with st.expander('Reise-Entlastung für Randlagen-Teams (optional)',
+                         expanded=_relief_active):
+            st.caption('Ausgewählte Teams dürfen mehr Auswärts-Doppelspieltage (DST) bündeln '
+                       'und dafür weniger Heim-DST übernehmen. Sinnvoll für weit abgelegene '
+                       'Teams: ihre langen Auswärtsfahrten werden in Doppelwochenenden '
+                       'zusammengefasst. Die übrigen Teams übernehmen entsprechend mehr Heim-DST.')
+            for lid in _relief_leagues:
+                ld    = S.leagues[lid]
+                teams = [t for t, _ in ld['teams']]
+                B     = len(S.dst_per_liga.get(lid, []))
+                _bal  = B // 2  # Standard-Balance (Heim-DST je Team)
+                cur   = dict(S.dst_relief.get(lid, {}))
+                st.markdown(f'**{ld["name"]}** · {B} DST-Blöcke '
+                            f'(Standard: {_bal} Heim-DST je Team)')
+                sel = st.multiselect(
+                    'Teams mit Reise-Entlastung', teams,
+                    default=[t for t in cur if t in teams],
+                    key=f'relief_sel_{lid}',
+                    help='Nur diese Teams weichen von der Standard-Balance ab.')
+                new_relief: Dict[str, int] = {}
+                for t in sel:
+                    _def_cap = int(min(cur.get(t, max(0, _bal - 1)), _bal))
+                    cap = st.number_input(
+                        f'  {t}: max. Heim-DST (0…{_bal})',
+                        min_value=0, max_value=_bal, value=_def_cap, step=1,
+                        key=f'relief_cap_{lid}_{t}',
+                        help=f'0 = alle {B} DST auswärts (maximale Bündelung) · '
+                             f'{_bal} = normale Balance. Niedriger = mehr gebündelte '
+                             f'Fernfahrten für dieses Team, dafür weniger Heim-Doppelwochenenden.')
+                    new_relief[t] = int(cap)
+                if new_relief:
+                    S.dst_relief[lid] = new_relief
+                elif lid in S.dst_relief:
+                    del S.dst_relief[lid]
 
     st.subheader('Optimierungsziele gewichten')
     st.caption('Lege fest, wie wichtig dir jedes Ziel ist. 0 = wird nicht berücksichtigt · 5 = normal · 10 = höchste Priorität')
@@ -3442,6 +3524,81 @@ def _session_from_json(raw: bytes) -> str:
     except Exception as exc:
         return f'Konfiguration unvollständig – Spielpläne konnten nicht geladen werden: {exc}'
 
+    # Fallback: wenn cfgs leer (z.B. JSON aus Session-Rejoin gespeichert ohne S.leagues),
+    # minimale LeagueConfig aus Schedule + kw_compat rekonstruieren.
+    if not cfgs and results_data:
+        _reconstructed: dict = {}
+        for _lid, _res_data in results_data.items():
+            _sched_raw = _res_data.get('schedule', {})
+            if not _sched_raw:
+                continue
+            _teams_set: set = set()
+            for _games in _sched_raw.values():
+                for _ht, _at in _games:
+                    _teams_set.add(_ht)
+                    _teams_set.add(_at)
+            if not _teams_set:
+                continue
+            _teams = sorted(_teams_set)
+            _n_teams = len(_teams)
+            _n_matchdays = max(int(d) for d in _sched_raw.keys())
+            _n_rounds = 1
+            for _r in [1, 2, 3]:
+                if _r * _n_teams * (_n_teams - 1) // 2 == _n_matchdays:
+                    _n_rounds = _r
+                    break
+            _weekends: list = []
+            _dst_blocks: list = []
+            _calendar: dict = {}
+            _kw_to_days: dict = {}
+            for _kw_int, _kw_data in S.kw_compat.items():
+                _ld_days = _kw_data.get(_lid, [])
+                if _ld_days:
+                    _kw_to_days[_kw_int] = sorted(_ld_days)
+            if _kw_to_days:
+                for _kw_int in sorted(_kw_to_days.keys()):
+                    _wd = _kw_to_days[_kw_int]
+                    _weekends.append(list(_wd))
+                    if len(_wd) == 2:
+                        _dst_blocks.append((_wd[0], _wd[1]))
+                    for _d in _wd:
+                        _calendar[_d] = {'kw': _kw_int, 'week_start': '', 'week_end': ''}
+            else:
+                for _d in sorted(int(d) for d in _sched_raw.keys()):
+                    _weekends.append([_d])
+                    _calendar[_d] = {'kw': 0, 'week_start': '', 'week_end': ''}
+            _reconstructed[_lid] = LeagueConfig(
+                league_id=_lid,
+                name=_lid,
+                teams=_teams,
+                locations=_teams,
+                dist=np.zeros((_n_teams, _n_teams)),
+                dst_blocks=_dst_blocks,
+                weekends=_weekends,
+                apply_routing=False,
+                f_num=0,
+                f_den=1,
+                w_scaled={k: 0.0 for k in WEIGHT_SCALES},
+                raw_weights={k: 0.0 for k in WEIGHT_SCALES},
+                pinned=[],
+                blocked={},
+                forced_home={},
+                calendar=_calendar,
+                hier_weight=1.0,
+                games_per_team_per_day=1,
+                n_rounds=_n_rounds,
+                n_teams_per_group=0,
+                n_active_per_day=0,
+                tt_settings={},
+            )
+        if _reconstructed:
+            cfgs = _reconstructed
+            st.info(
+                f'Konfiguration für {len(_reconstructed)} Liga(s) aus Spielplan-Daten '
+                f'rekonstruiert (Session ohne vollständige Konfiguration gespeichert). '
+                f'Distanzmatrizen und Gewichte nicht verfügbar.'
+            )
+
     from spielplan_multi.excel_output import (
         build_league_excel, build_cohome_summary, build_hall_schedule,
         build_overview_excel,
@@ -3798,6 +3955,7 @@ def _build_league_configs() -> Dict[str, LeagueConfig]:
             blocked=S.blocked.get(lid, {}),
             calendar=spieltage.get(lid, {}),
             forced_home=S.forced_home.get(lid, {}),
+            dst_relief=S.dst_relief.get(lid, {}),
             hier_weight=float(ld.get('hw', 1.0)),
             games_per_team_per_day=gpd,
             n_rounds=n_rounds,
@@ -3823,6 +3981,7 @@ def _validate_constraints() -> List[dict]:
         get_n_rounds_gpd = _get_n_rounds_gpd,
         routing       = S.routing,
         forced_home   = S.forced_home,
+        dst_relief    = S.dst_relief,
     )
     # R8-A-M1: Co-Home-Gewicht-Sanity-Check (UI-Slider 0–10, aber Imports koennen
     # hoehere Werte einschleusen). Bei sehr grossen Werten droht CP-SAT-Overflow.
@@ -3860,8 +4019,8 @@ def _pid_alive(pid: int) -> bool:
 
 def _detach_state() -> str:
     """Gibt 'running', 'done' oder '' zurück — unabhängig vom Session-State."""
-    _pid_file = _HERE / '.cache' / 'opt_pid.txt'
-    _pkl      = _HERE / '.cache' / 'last_result.pkl'
+    _pid_file = _CACHE / 'opt_pid.txt'
+    _pkl      = _CACHE / 'last_result.pkl'
     if _pid_file.exists():
         try:
             pid = int(_pid_file.read_text().strip())
@@ -3883,7 +4042,7 @@ def _try_recover_pkl() -> bool:
     damit der Nutzer direkt auf die Ergebnisseite landet.
     """
     import pickle as _pickle
-    _pkl = _HERE / '.cache' / 'last_result.pkl'
+    _pkl = _CACHE / 'last_result.pkl'
     if not _pkl.exists():
         return False
     try:
@@ -3950,8 +4109,8 @@ def _render_detached_view() -> str:
     vollständigen Render-Zyklus auf, damit Streamlit die alte Intro-Seite aus dem
     DOM entfernt (Finalize-Signal) bevor der Rerun startet.
     """
-    _log_file = _HERE / '.cache' / 'opt_log.txt'
-    _pid_file = _HERE / '.cache' / 'opt_pid.txt'
+    _log_file = _CACHE / 'opt_log.txt'
+    _pid_file = _CACHE / 'opt_pid.txt'
     _dyn = st.empty()
 
     if _log_file.exists():
@@ -3990,9 +4149,44 @@ def _render_detached_view() -> str:
     else:
         _phase_name = 'Phase 1 – Heimrecht-Optimierung'
 
+    # Laufzeit + Fortschritt aus opt_meta.json (von der ursprünglichen Session
+    # geschrieben; diese Rejoin-Session hat kein opt_start_time/Solver-Config).
+    _elapsed = None
+    _total_meta = None
+    try:
+        import json as _json_meta
+        _m = _json_meta.loads((_CACHE / 'opt_meta.json').read_text())
+        _start_meta = float(_m.get('start') or 0)
+        _total_meta = float(_m.get('total') or 0) or None
+        if _start_meta:
+            _elapsed = time.time() - _start_meta
+    except Exception:
+        pass
+    if _elapsed is None and _pid_file.exists():
+        try:
+            _elapsed = time.time() - _pid_file.stat().st_mtime
+        except Exception:
+            pass
+
     with _dyn.container():
         st.info('Verbunden mit laufender Optimierung (Session-Rejoin)')
         st.markdown(f'### ⏳ {_phase_name}')
+        if _elapsed is not None:
+            _h_e = int(_elapsed // 3600)
+            _m_e = int((_elapsed % 3600) // 60)
+            _s_e = int(_elapsed % 60)
+            _estr = (f'{_h_e}h {_m_e:02d}min {_s_e:02d}s' if _h_e
+                     else f'{_m_e}min {_s_e:02d}s')
+            if _total_meta:
+                _pct = min(_elapsed / _total_meta, 0.99)
+                st.progress(_pct)
+                st.markdown(
+                    f'<p style="font-size:1.25rem; margin:-0.3rem 0 0.6rem 0;">'
+                    f'<b>{int(_pct * 100)}&thinsp;%</b>&ensp;·&ensp;{_estr} vergangen</p>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.caption(f'{_estr} vergangen')
         if S.opt_best:
             _m_cols = st.columns(max(1, min(4, len(S.opt_best))))
             for _ci, (_lid_m, _bst) in enumerate(S.opt_best.items()):
@@ -4010,12 +4204,40 @@ def _render_detached_view() -> str:
             st.markdown('\n\n'.join(_readable[-12:][::-1]), unsafe_allow_html=True)
         with st.expander('🔍 Vollständiges Solver-Log (technisch)', expanded=False):
             st.code('\n'.join(S.opt_log[-80:]), language=None)
+        st.divider()
+        if st.button('⏹  OPTIMIERUNG ABBRECHEN', type='primary', width='stretch',
+                     key='cancel_detached',
+                     help='Bricht die im Hintergrund laufende Berechnung ab. '
+                          'Einstellungen bleiben erhalten – die Optimierung kann '
+                          'danach neu gestartet werden.'):
+            import os as _os_c, signal as _sig_c, subprocess as _sp_c
+            try:
+                _pid_c = int(_pid_file.read_text().strip())
+            except Exception:
+                _pid_c = None
+            if _pid_c:
+                try:
+                    _os_c.kill(_pid_c, _sig_c.SIGTERM)
+                except Exception:
+                    try:
+                        _sp_c.run(['taskkill', '/F', '/PID', str(_pid_c)],
+                                  capture_output=True)
+                    except Exception:
+                        pass
+            for _f in ('opt_pid.txt', 'opt_meta.json', 'last_result.pkl'):
+                (_CACHE / _f).unlink(missing_ok=True)
+            S.opt_detached = False
+            S.opt_log      = []
+            S.opt_log_pos  = 0
+            S.opt_best     = {}
+            S._phase_seen  = set()
+            return 'cancel'
 
     if not _pid_file.exists():
         # Subprocess fertig (PID-Datei in finally gelöscht)
         S.opt_detached = False
         S.opt_log_pos  = 0
-        if (_HERE / '.cache' / 'last_result.pkl').exists():
+        if (_CACHE / 'last_result.pkl').exists():
             if _try_recover_pkl():
                 return 'done'
         else:
@@ -4028,7 +4250,7 @@ def _step8():
     st.header('9. Optimierung & Ergebnisse')
 
     # ── Wiederherstellung nach Session-Verlust (Fallback wenn nicht über Banner) ──
-    _pkl = _HERE / '.cache' / 'last_result.pkl'
+    _pkl = _CACHE / 'last_result.pkl'
     if _pkl.exists() and not S.opt_done and S.results is None and not S.opt_running and not S.opt_detached:
         import pickle as _pickle
         import datetime as _dt
@@ -4068,7 +4290,7 @@ def _step8():
             if st.button('🔄  Neu berechnen', key='reopt', width='stretch',
                          help='Konfiguration behalten und Optimierung erneut starten – '
                               'z. B. nach Änderung einzelner Einstellungen.'):
-                (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
+                (_CACHE / 'last_result.pkl').unlink(missing_ok=True)
                 S.opt_done      = False
                 S.opt_running   = False
                 S.results       = None
@@ -4083,7 +4305,7 @@ def _step8():
                 st.rerun()
         with _rcol_b:
             if st.button('↺  Neuen Spielplan erstellen', key='restart', width='stretch'):
-                (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
+                (_CACHE / 'last_result.pkl').unlink(missing_ok=True)
                 import copy as _copy
                 for k, v in _DEFAULTS.items():
                     st.session_state[k] = _copy.deepcopy(v)
@@ -4234,7 +4456,9 @@ def _step8():
         if _done_flag:
             S.opt_running = False
             S.opt_done    = True
-            S.results     = S.opt_result_holder.get('results', {})
+            # S.results wird weiter unten aus last_result.pkl geladen (nach dem
+            # Aufbau von opt_warnings, damit ein Lade-Fehler nicht überschrieben
+            # wird). Nicht mehr über die Queue – siehe Lade-Block.
             # E-L6: Severity erhalten (dict statt str), damit _show_results st.error
             # vs st.warning unterscheiden kann.
             S.opt_warnings = []
@@ -4245,6 +4469,27 @@ def _step8():
                 elif '[!!]' in _wl:
                     S.opt_warnings.append({'level': 'warn',
                                             'msg': _wl.replace('[!!]', '').strip()})
+            # Ergebnisse aus der Datei laden – NICHT mehr über die Queue. Ein so
+            # großes Objekt durch multiprocessing.Queue füllt den ~64 KB-Pipe-
+            # Puffer; der QueueFeederThread blockiert in _send_bytes und der
+            # Worker hängt beim Beenden (_finalize_join → join). Der Worker
+            # schreibt last_result.pkl VOR dem __DONE__-Signal.
+            _holder = (S.opt_result_holder or {}).get('results')
+            if _holder:
+                S.results = _holder   # Rückwärtskompatibilität (älterer Worker)
+            else:
+                import pickle as _pickle_done
+                try:
+                    _d_done = _pickle_done.loads((_CACHE / 'last_result.pkl').read_bytes())
+                    S.results   = _d_done.get('results', {})
+                    S.clubs     = _d_done.get('clubs', S.clubs)
+                    S.kw_compat = _d_done.get('kw_compat', S.kw_compat)
+                except Exception as _e_load:
+                    S.results = {}
+                    S.opt_warnings.append({
+                        'level': 'error',
+                        'msg': f'Ergebnis-Datei konnte nicht geladen werden: {_e_load}',
+                    })
             try:
                 from spielplan_multi.excel_output import (
                     build_league_excel, build_cohome_summary, build_hall_schedule,
@@ -5819,7 +6064,7 @@ if not S.opt_running and not S.opt_detached and not S.opt_done:
                     st.rerun()
         with _c2:
             if st.button('Verwerfen', key='discard_top_btn'):
-                (_HERE / '.cache' / 'last_result.pkl').unlink(missing_ok=True)
+                (_CACHE / 'last_result.pkl').unlink(missing_ok=True)
                 st.rerun()
 
 _detached_action = ''
@@ -5836,5 +6081,5 @@ else:
 if _detached_action == 'poll':
     time.sleep(2)
     st.rerun()
-elif _detached_action == 'done':
+elif _detached_action in ('done', 'cancel'):
     st.rerun()

@@ -28,16 +28,33 @@ def run_solver(cfgs, clubs, kw_compat, w_cohome, solver_cfg, log_q, base_dir: st
         sys.path.insert(0, str(_base))
 
     from spielplan_multi.multi_solver import solve_all
+    from spielplan_multi.runtime_paths import run_cache_dir
     import pickle as _pickle
 
+    # Laufdateien in lokalen, OneDrive-freien Cache (gleiche Funktion wie in app.py).
+    _cache = run_cache_dir(_base)
+
     # ── PID-Datei schreiben (für Session-Rejoin-Erkennung) ───────────────────
-    _pid_file = _base / '.cache' / 'opt_pid.txt'
-    _log_file_path = _base / '.cache' / 'opt_log.txt'
+    _pid_file = _cache / 'opt_pid.txt'
+    _log_file_path = _cache / 'opt_log.txt'
+    _meta_file = _cache / 'opt_meta.json'
     try:
-        _pid_file.parent.mkdir(parents=True, exist_ok=True)
         _pid_file.write_text(str(os.getpid()))
     except Exception:
         _pid_file = None
+
+    # Meta (Startzeit + geschätzte Gesamtlaufzeit) – damit die Rejoin-Ansicht
+    # nach Browser-Abbruch Laufzeit + Fortschritt anzeigen kann (fremde Session
+    # hat kein opt_start_time/Solver-Config).
+    try:
+        import time as _time_meta, json as _json_meta
+        _total_est = (int(solver_cfg.get('seeds', 1)) * int(solver_cfg.get('p1', 0))
+                      + int(solver_cfg.get('p2', 0))
+                      + int(solver_cfg.get('sa', 0)) * max(1, len(cfgs)))
+        _meta_file.write_text(_json_meta.dumps(
+            {'start': _time_meta.time(), 'total': _total_est}))
+    except Exception:
+        _meta_file = None
 
     # Log-Datei öffnen (truncate: neuer Lauf überschreibt alten)
     _log_fh = None
@@ -84,17 +101,25 @@ def run_solver(cfgs, clubs, kw_compat, w_cohome, solver_cfg, log_q, base_dir: st
             n_seeds=solver_cfg['seeds'],
             sa_time=solver_cfg['sa'],
         )
-        _pkl = _base / '.cache' / 'last_result.pkl'
+        # Ergebnis auf Platte schreiben – das ist jetzt der EINZIGE Übergabeweg
+        # an die UI. Fehler NICHT mehr verschlucken: ohne diese Datei kann die
+        # UI nach __DONE__ kein Ergebnis laden.
+        _pkl = _cache / 'last_result.pkl'
         try:
-            _pkl.parent.mkdir(parents=True, exist_ok=True)
             _pkl.write_bytes(_pickle.dumps({
                 'results':   results,
                 'clubs':     clubs,
                 'kw_compat': kw_compat,
             }))
-        except Exception:
-            pass
-        log_q.put(('__RESULTS__', results))
+        except Exception as _pkl_exc:
+            import traceback as _tb_pkl
+            log_q.put(f'[FEHLER] Ergebnis konnte nicht gespeichert werden: {_pkl_exc}')
+            log_q.put(_tb_pkl.format_exc())
+        # WICHTIG: `results` NICHT über die Queue senden. Ein so großes Objekt
+        # füllt den ~64 KB-Pipe-Puffer der multiprocessing.Queue; der
+        # QueueFeederThread blockiert dann in _send_bytes und der Worker hängt
+        # beim Prozess-Ende ewig in _finalize_join (join auf den Feeder).
+        # Die UI lädt das Ergebnis aus last_result.pkl, sobald __DONE__ ankommt.
     except Exception as exc:
         import traceback
         log_q.put(f'[FEHLER] {exc}')
@@ -110,5 +135,10 @@ def run_solver(cfgs, clubs, kw_compat, w_cohome, solver_cfg, log_q, base_dir: st
         if _pid_file is not None:
             try:
                 _pid_file.unlink(missing_ok=True)
+            except Exception:
+                pass
+        if _meta_file is not None:
+            try:
+                _meta_file.unlink(missing_ok=True)
             except Exception:
                 pass

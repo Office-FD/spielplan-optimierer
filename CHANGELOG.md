@@ -5,6 +5,42 @@ Aktueller Entwicklungsstand und operative Dokumentation: **CLAUDE.md**
 
 ---
 
+## v1.17.1 — Reise-Entlastung (Randlagen-Teams) · OneDrive-Cache + Worker-Fix · JSON-Restore-Bugfix
+
+### Reise-Entlastung für Randlagen-Teams (`dst_relief`)
+
+Neue per-Team-Option: Teams in Randlagen können auf eine maximale Anzahl Heim-Doppelspieltage pro Saison begrenzt werden → sie reisen ihre DST-Fahrten gebündelt auswärts, statt zur Standard-Balance gezwungen zu werden. Konfiguration in Wizard-Schritt 3 (per-Team), Persistenz in Konfigurations-Excel.
+
+| Datei | Änderung |
+|---|---|
+| `spielplan_multi/league_types.py` | Neues Feld `dst_relief: Dict[str,int]` ({Team: max_Heim_DST}; leer = Standard-Balance) |
+| `spielplan_multi/solver.py` | DST-Balance pro Runde: markierte Teams werden auf `Heim-DST ≤ cap` (Saison) gecappt; übrige Teams absorbieren (Runden-Obergrenze auf `n_dst_r` gelöst, Untergrenze `lo` bleibt) |
+| `spielplan_multi/config_validator.py` | Validierung: Warnung bei unbekanntem Team, falschem Format (Turniertag/ungerade Teamzahl/<2 DST-Blöcke wirkungslos), und bei zu vielen Entlastungs-Teams (`R > n//4` → INFEASIBLE-Risiko) |
+| `app.py` | Wizard-Schritt 3: per-Team-Eingabe; Session-State `S.dst_relief` (bei Liga-Remove/Rename mitgepflegt); Excel-Persistenz |
+| `test_dst_relief.py` | Feasibility + Cap-Einhaltung + Reise-Entlastungs-Effekt |
+
+**Wichtig:** Da die Summe der Heim-DST pro Tag fix ist (n/2), müssen nicht-markierte Teams die freigewordenen Heim-Slots absorbieren. Der Validator warnt, wenn zu viele Teams markiert sind (Empfehlung: höchstens `n//4`).
+
+### OneDrive-freier Laufzeit-Cache + Worker-Exit-Fix
+
+| Datei | Änderung |
+|---|---|
+| `spielplan_multi/runtime_paths.py` (neu) | `run_cache_dir()`: Laufdateien (pkl/log/pid) landen in lokalem Cache statt im OneDrive-`.cache` — OneDrive-Sync kann sonst Schreibzugriffe sperren und fertige Läufe verlieren |
+| `spielplan_multi/_worker.py` | Ergebnis-Übergabe **nur** via `last_result.pkl`, nie durch `log_q` — großes Result-Objekt füllte sonst die 64-KB-Pipe, der QueueFeederThread blockte beim Exit, `__DONE__` kam nie an und die UI „blieb in Phase 2" |
+| `test_worker_handoff.py` | Worker-Übergabe: kein Exit-Deadlock, results ausschließlich via Pickle |
+
+### Bugfix: JSON-Restore ohne vollständige Liga-Konfiguration
+
+Sitzungs-JSONs, die nach einem Session-Rejoin gespeichert wurden, enthielten eine leere `config.leagues`-Liste (weil `S.leagues` in der frischen Session-Rejoin-Sitzung nie befüllt wurde). Beim Laden einer solchen Datei gab `_build_league_configs()` ein leeres Dict zurück, alle Ligen wurden beim Restore übersprungen, und `S.results` blieb leer.
+
+| Datei | Änderung |
+|---|---|
+| `app.py` | `_session_from_json()`: Fallback nach `_build_league_configs()` — wenn `cfgs` leer, aber `results_data` vorhanden, werden minimale `LeagueConfig`-Objekte aus den Spielplan-Daten rekonstruiert (Teams aus Schedule, Weekends/DST-Blöcke aus `kw_compat`, Kalender aus `kw_compat`; Distanzmatrix und Gewichte stehen als Nullwerte zur Verfügung) |
+
+**Einschränkungen der rekonstruierten Konfiguration:** Distanzmatrizen (→ km-Statistiken sind 0), Solver-Gewichte (→ Fairness-Kennzahlen nicht berechnet), n_rounds-Inferenz per Heuristik (Standard-Hin-Rückrunden). Die Spielpläne und Visualisierungen (Karte, Kalender) werden korrekt wiederhergestellt.
+
+---
+
 ## v1.17.0 — Gesamtübersicht Excel: Sort-Fix + Spaltenstruktur
 
 | Datei | Änderung |

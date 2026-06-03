@@ -1,6 +1,6 @@
 # Spielplan-Optimierer – Projektdokumentation
 
-> **v1.16.0 · Mai 2026 · Produktiv-freigegeben für FLVD-Saisonplanung.**
+> **v1.17.1 · Mai 2026 · Produktiv-freigegeben für FLVD-Saisonplanung.**
 > Vollständige Änderungshistorie aller Code-Reviews und Sprints: **CHANGELOG.md**
 
 ---
@@ -34,7 +34,9 @@ test_distances.py         ← Distanzmatrix-Tests
 test_features.py          ← Feature-Tests (Karte, Kalender, iCal, Co-Home)
 test_launcher.py          ← Launcher-Tests (_parse_version, Port-Check, ZIP-Traversal-Guard)
 test_session_roundtrip.py ← JSON-Session-Roundtrip-Tests (v1.0/v1.1, home_vals)
-test_pytest_runner.py     ← pytest-Wrapper für CI (alle 6 Sub-Suites)
+test_worker_handoff.py    ← Worker-Übergabe: kein Exit-Deadlock, results nur via Pickle
+test_dst_relief.py        ← Per-Team DST-Balance (Reise-Entlastung): Feasibility + Cap + Effekt
+test_pytest_runner.py     ← pytest-Wrapper für CI (alle 8 Sub-Suites)
 
 installer/
   spielplan.iss           ← Inno Setup Script: Bootstrap-Installer
@@ -63,6 +65,8 @@ spielplan_multi/
   ui.py                   ← CLI-Ausgabe: banner(), step(), ok(), warn(), err()
   wizard.py               ← CLI-Wizard: WizardLeagueDef, step0_leagues(), build_configs()
   main.py                 ← CLI-Pipeline: solve_all → Excel-Export
+  runtime_paths.py        ← run_cache_dir(): lokaler (OneDrive-freier) Cache für pkl/log/pid
+  _worker.py              ← Solver-Subprozess (multiprocessing.Process), Ergebnis via Pickle
 ```
 
 ---
@@ -81,6 +85,7 @@ raw_weights: Dict[str,float]  # Rohgewichte 0-10
 pinned: List[dict]            # [{teamA, teamB, day, home}]
 blocked: Dict[str,List[int]]  # {team: [gesperrte_spieltage]}
 forced_home: Dict[str,List[int]]  # {team: [pflicht_heimspieltage]}
+dst_relief: Dict[str,int]     # {team: max_heim_dst} – Reise-Entlastung Randlagen (leer=Standard)
 calendar: Dict[int,dict]      # {spieltag: {kw, week_start, week_end}}
 hier_weight: float            # Ligahierarchie-Gewicht im gemeinsamen Modell
 games_per_team_per_day: int   # 1=Standard, 2+=Turniertag
@@ -145,6 +150,7 @@ S.solver            # dict: {seeds, p1, p2, sa}
 S.cal_table         # {lid: DataFrame} – Spieltag→KW-Zuteilung (bei Remove/Rename mitpflegen!)
 S.time_templates    # {lid: ...} – Spielzeit-Templates (bei Remove/Rename mitpflegen!)
 S.opt_best          # {lid: ...} – bestes Ergebnis (bei Remove/Rename mitpflegen!)
+S.dst_relief        # {lid: {team: max_heim_dst}} – Reise-Entlastung (bei Remove/Rename mitpflegen!)
 S.move_pending      # None|{lid,day,idx,ht,at}
 S.cancel_pending    # None|{lid,ht,at}
 S.map_obj, S.map_lid_keys
@@ -157,7 +163,7 @@ S._translog_cache, S._phase_seen
 | 0 | Ligen & Teams, Liga-ID (Form+Enter, Regex `[A-Z0-9_\-]{1,20}`), Config-Up/Download |
 | 1 | Distanzmatrizen (manuell / CSV-Excel / Google Maps API) |
 | 2 | Rahmenterminplan-Excel + DST-Blöcke konfigurieren |
-| 3 | DST-Routing + Gewichte (switch/sw_fair/travel/trav_fair/dst_eff/round_balance) + Co-Home |
+| 3 | DST-Routing + Reise-Entlastung (`dst_relief`, per-Team) + Gewichte (switch/sw_fair/travel/trav_fair/dst_eff/round_balance) + Co-Home |
 | 4 | Pflichtspiele (pinned) |
 | 5 | Heimspiel-Sperrtage (blocked) |
 | 6 | Co-Home-Vereine |
@@ -209,6 +215,7 @@ Rohgewichte 0-10 × Scale = w_scaled. Co-Home-Gewicht: `_W_COHOME_MAX=50` (Hard-
 - **Sliding-Window 3er/4er:** überspringen Wochen mit DST-Tagen; Minima bei `needs_bye` konditionalisiert (`>= plays_in_window - k`)
 - **DST:** beide Tage identisches Heimrecht (`home[ti,d1] == home[ti,d2]`)
 - **DST-Balance pro Runde:** pro Team `n_dst_r//2 .. ⌈n_dst_r/2⌉` Heim-DST — nur wenn `4*n_dst_r ≤ n` (sonst skip + Warnung)
+- **Reise-Entlastung (`dst_relief`):** Teams im Dict werden auf `Heim-DST ≤ cap` (Saison) begrenzt → mehr gebündelte Auswärts-DST; übrige Teams absorbieren (Runden-Obergrenze auf `n_dst_r` gelöst, Untergrenze `lo` bleibt). Leeres Dict = Standard-Balance.
 - **DST-Nachbarschaft (A/B/C):** max 3 konsekutiv gleich rund um DST-Block; bei `needs_bye` konditionalisiert
 - **DST-Routing:** Reiseweg d1→d2 ≤ (1 + f_num/f_den) × Direktweg; Iteration `for d1, d2 in cfg.dst_blocks`
 - `round_balance`: aktiv nur bei `gpd==1, n_rounds≥2, w_scaled['round_balance']>0`
@@ -230,9 +237,12 @@ Diese Patterns haben in Code-Reviews wiederholt Bugs verursacht:
 | `recompute_result_stats`: Transitions-Modell (`loc[pos]→loc[pos+1]`) | Einzel-Fahrt-Modell weicht vom Solver ab |
 | `sw_rates`-Denominator = `cfg.n_transitions` | `len(weekends)-1` weicht bei DST-Saisons ab |
 | `_TeamColorDict.__missing__` statt `defaultdict(factory)` | defaultdict-Factory wird ohne Argument aufgerufen → TypeError |
-| Liga-Remove/Rename: `S.cal_table`, `S.time_templates`, `S.opt_best` + Widget-Keys mitpflegen | Neue Liga erbt sonst alten Kalender-/Zeit-Status |
+| Liga-Remove/Rename: `S.cal_table`, `S.time_templates`, `S.opt_best`, `S.dst_relief` + Widget-Keys mitpflegen | Neue Liga erbt sonst alten Kalender-/Zeit-/Relief-Status |
+| `dst_relief`: Entlastungs-Teams cap'en Heim-DST, übrige Teams MÜSSEN absorbieren (Runden-Obergrenze gelöst) | Sonst INFEASIBLE: Summe Heim-DST/Tag ist fix (n/2); freigewordene Slots brauchen Aufnehmer. Validator warnt bei zu vielen markierten Teams |
 | `blocked_weekends`: `any(d in blocked for d in wdays)` | Prüfung nur `wdays[0]` übersieht mehrtägige DST-Blöcke |
 | `_W_COHOME_MAX=50` Hard-Cap bei jedem Import-Pfad | w_cohome=1000 → CP-SAT-Objective-Overflow |
+| Worker: `results` NUR via `last_result.pkl`, NIE durch `log_q` (multiprocessing.Queue) | Großes Objekt füllt 64-KB-Pipe → QueueFeederThread blockt in `_send_bytes` → Worker hängt beim Exit (`_finalize_join`) → `__DONE__` kommt nie an, UI „bleibt in Phase 2" |
+| Laufdateien (pkl/log/pid) via `run_cache_dir()` in lokalen Cache, nicht ins OneDrive-`.cache` | OneDrive-Sync kann Schreibzugriffe sperren → pkl-Write schlägt fehl → fertiger Lauf verloren |
 
 ---
 
@@ -293,7 +303,7 @@ CI/QA: Ruff (`ruff.toml`) · pytest · Coverage.py (`.coveragerc`) · CodeQL (`.
 
 **Liga-Excel** (`write_league_excel`): Konfiguration · Spielplan · Gruppen-Uebersicht (TT2) · Heatmap Heimrecht · Kilometerstatistik · Distanzmatrix · Fahrtkostenausgleich · Fairness-Analyse · Team-Ansichten
 
-**Konfigurationsdatei** (`_full_config_excel_bytes`): Ligen & Teams · Einstellungen · Distanzmatrizen · Gewichte · **Kalender** (→ DST-Blöcke via `_detect_dst_blocks()`) · Routing · Pflichtspiele · Sperrtage · Pflichtheim · Co-Home · TT-Spielreihenfolge · Ausrichter-Slots (JSON) · Hinweise
+**Konfigurationsdatei** (`_full_config_excel_bytes`): Ligen & Teams · Einstellungen · Distanzmatrizen · Gewichte · **Kalender** (→ DST-Blöcke via `_detect_dst_blocks()`) · Routing · Pflichtspiele · Sperrtage · Pflichtheim · Reise-Entlastung (`dst_relief`) · Co-Home · TT-Spielreihenfolge · Ausrichter-Slots (JSON) · Hinweise
 
 Rückwärtskompatibilität: Alte Dateien mit „DST-Blöcke"-Sheet werden weiterhin gelesen.
 

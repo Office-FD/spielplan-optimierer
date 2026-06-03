@@ -242,6 +242,15 @@ def build_league_vars(model: cp_model.CpModel,
     if gpd == 1 and cfg.dst_blocks and n % 2 == 0:
         _valid_dst = [(d1, d2) for d1, d2 in cfg.dst_blocks
                       if d1 in days_set_early and d2 in days_set_early]
+        # Reise-Entlastung: {team_idx: max_Heim_DST_Saison}. Diese Teams duerfen
+        # weniger Heim-DST (=> mehr gebuendelte Auswaerts-DST). Die uebrigen Teams
+        # absorbieren die freigewordenen Heim-Slots (Obergrenze pro Runde geloest).
+        _relief_idx = {}
+        for _tn, _cap in (cfg.dst_relief or {}).items():
+            _rti = t_idx.get(_tn)
+            if _rti is not None:
+                _relief_idx[_rti] = max(0, min(int(_cap), len(_valid_dst)))
+        _has_relief = bool(_relief_idx)
         for _r in range(n_rounds):
             _r_start = _r * round_len + 1
             _r_end = (_r + 1) * round_len if _r < n_rounds - 1 else N
@@ -259,8 +268,22 @@ def build_league_vars(model: cp_model.CpModel,
             _hi = (_n_dst_r + 1) // 2
             for ti in range(n):
                 _dst_home = sum(home[ti, d1] for d1, _ in _dst_r)
-                model.Add(_dst_home >= _lo)
-                model.Add(_dst_home <= _hi)
+                if ti in _relief_idx:
+                    # Entlastungs-Team: darf 0 Heim-DST in dieser Runde (mehr auswaerts).
+                    model.Add(_dst_home >= 0)
+                    model.Add(_dst_home <= _hi)
+                elif _has_relief:
+                    # Uebriges Team: absorbiert freigewordene Heim-Slots → keine obere
+                    # Runden-Schranke, aber weiterhin mindestens Standard-Balance.
+                    model.Add(_dst_home >= _lo)
+                    model.Add(_dst_home <= _n_dst_r)
+                else:
+                    model.Add(_dst_home >= _lo)
+                    model.Add(_dst_home <= _hi)
+        if _has_relief:
+            # Saison-Cap: Entlastungs-Team hoechstens cap Heim-DST über die ganze Saison.
+            for ti, _cap in _relief_idx.items():
+                model.Add(sum(home[ti, d1] for d1, _ in _valid_dst) <= _cap)
 
     # Vorberechnung: gesperrte Tage und Wochenenden je Team (fuer Konsekutiv-Constraint)
     days_set = set(days)

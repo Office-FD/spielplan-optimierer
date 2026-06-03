@@ -93,3 +93,13 @@ def test_launcher_script() -> None:
 def test_session_roundtrip_script() -> None:
     """R8-H-M2: JSON-Schema 1.0/1.1 Backward-Compat, home_vals-Rekonstruktion."""
     _run_script('test_session_roundtrip.py', timeout=60)
+
+
+def test_worker_handoff_script() -> None:
+    """Worker-Übergabe: kein Exit-Deadlock, __DONE__ via Queue, results nur via Pickle."""
+    _run_script('test_worker_handoff.py', timeout=180)
+
+
+def test_dst_relief_script() -> None:
+    """Per-Team DST-Balance: FEASIBLE mit Relief, Saison-Cap eingehalten, mehr Bündelung."""
+    _run_script('test_dst_relief.py', timeout=360)

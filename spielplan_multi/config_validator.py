@@ -40,6 +40,7 @@ class _LeagueValCtx:
     forced_home:  Dict[str, List[int]]
     pinned:       List[dict]
     dist:         Optional[np.ndarray]
+    dst_relief:   Dict[str, int] = None  # {team: max_home_dst}; None == {}
 
 
 def _has_nan(arr) -> bool:
@@ -286,6 +287,30 @@ def _validate_league_common(
                            f'{pm.get("teamA","?")} – {pm.get("teamB","?")} '
                            f'erzwingt Auswärtsspiel → unlösbar.')
 
+    # Reise-Entlastung (per-Team DST-Balance): markierte Teams duerfen weniger
+    # Heim-DST. Wirkt nur im Standard-Format, gerade Teamzahl, >=2 DST-Bloecke.
+    relief = ctx.dst_relief or {}
+    if relief:
+        B = len(ctx.dst_blocks)
+        unknown = [t for t in relief if t not in _teams_set]
+        for t in unknown:
+            _warn(lid, f'{name}: Reise-Entlastung-Team «{t}» nicht in der Teamliste – wird ignoriert.')
+        R = len([t for t in relief if t in _teams_set])
+        if R:
+            if ctx.gpd != 1:
+                _warn(lid, f'{name}: Reise-Entlastung wirkt nur im Standard-Format '
+                            '(kein Turniertag) – Einstellung bleibt wirkungslos.')
+            elif n % 2 == 1:
+                _warn(lid, f'{name}: Reise-Entlastung wirkt nur bei gerader Teamzahl '
+                            '– Einstellung bleibt wirkungslos.')
+            elif B < 2:
+                _warn(lid, f'{name}: Reise-Entlastung gesetzt, aber nur {B} DST-Block/-Blöcke – '
+                            'die DST-Balance greift erst ab 2 DST pro Runde, Einstellung wirkungslos.')
+            elif R > max(1, n // 4):
+                _warn(lid, f'{name}: {R} Teams mit Reise-Entlastung bei {n} Teams – '
+                            f'das kann den Spielplan unlösbar machen (INFEASIBLE). '
+                            f'Empfehlung: höchstens {max(1, n // 4)} Team(s) entlasten.')
+
     return True
 
 
@@ -304,6 +329,7 @@ def validate(
     get_n_rounds_gpd,        # callable: (ld: dict) -> (int, int)
     routing:       Optional[Dict[str, tuple]] = None,  # {lid: (apply:bool, pct:int)}
     forced_home:   Optional[Dict[str, dict]] = None,   # {lid: {team:[days]}}
+    dst_relief:    Optional[Dict[str, dict]] = None,   # {lid: {team: max_home_dst}}
 ) -> List[dict]:
     """Prüft die Konfiguration und gibt eine Liste von Problemen zurück.
 
@@ -338,6 +364,7 @@ def validate(
             forced_home=(forced_home or {}).get(lid, {}),
             pinned=pinned.get(lid, []),
             dist=dist_matrices.get(lid),
+            dst_relief=(dst_relief or {}).get(lid, {}),
         )
         if not _validate_league_common(ctx, _err, _warn):
             continue
@@ -431,6 +458,7 @@ def validate_cfgs(cfgs: Dict[str, 'LeagueConfig']) -> List[dict]:
             forced_home=dict(cfg.forced_home),
             pinned=list(cfg.pinned),
             dist=cfg.dist,
+            dst_relief=dict(getattr(cfg, 'dst_relief', {}) or {}),
         )
         _validate_league_common(ctx, _err, _warn)
 

@@ -31,6 +31,10 @@ class LeagueConfig:
     n_teams_per_group: int = 0        # 0 = Stufe 1 (alle Teams), >0 = Stufe 2 (Gruppen)
     n_active_per_day: int = 0         # 0 = alle Teams, >0 = Spielfrei-Modus (< n Teams)
     tt_settings:    Dict = field(default_factory=dict)  # Turniertag-Spielreihenfolge
+    # Reise-Entlastung Randlagen-Teams: {Team: max_Heim_DST_pro_Saison}. Teams im Dict
+    # duerfen weniger Heim-DST (=> mehr gebuendelte Auswaerts-DST) als die Standard-Balance.
+    # Leer = Standard-Verhalten (jedes Team balanciert). Siehe solver.py DST-Balance.
+    dst_relief:     Dict[str, int] = field(default_factory=dict)
 
     @property
     def n_teams(self):        return len(self.teams)
