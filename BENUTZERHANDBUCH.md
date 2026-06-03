@@ -5,9 +5,9 @@
 ## Überblick
 
 Der Spielplan-Optimierer erstellt automatisch optimierte Spielpläne für
-Floorball-Ligen. Sie werden durch einen **8-stufigen Assistenten (Wizard)**
-geführt. Am Ende startet die Optimierung und Sie erhalten die Spielpläne
-als Excel-Datei zum Herunterladen.
+Floorball-Ligen. Sie werden durch einen **9-stufigen Assistenten (Wizard)**
+geführt. Am Ende startet die Optimierung und Sie erhalten die
+Spielpläne als Excel-Datei zum Herunterladen.
 
 **Typischer Ablauf:**
 
@@ -124,6 +124,23 @@ Für die meisten Ligen sind die Standardwerte ein guter Ausgangspunkt.
 Begrenzt, wie weit ein Team am zweiten DST-Tag umweg fahren darf.
 Wert „1" = kein Umweg erlaubt (selten lösbar).
 Empfehlung: Wert **2 bis 3** für eine gute Balance.
+
+**Reise-Entlastung für Randlagen-Teams (optional):**
+Weit abgelegene Teams (z. B. Hamburg, München) können von der normalen
+Heim-/Auswärts-Balance der Doppelspieltage ausgenommen werden, damit ihre
+langen Fahrten in **Auswärts-Doppelwochenenden gebündelt** werden.
+
+- Der Abschnitt erscheint nur, wenn mindestens eine Liga **2 oder mehr
+  Doppelspieltage** hat.
+- Wählen Sie je Liga die zu entlastenden Teams aus.
+- Legen Sie pro Team die **maximale Anzahl Heim-Doppelspieltage** fest
+  (0 = alle DST-Fahrten auswärts / maximale Bündelung; der Standardwert
+  entspricht der normalen Balance).
+- Die übrigen Teams der Liga übernehmen entsprechend **mehr** Heim-Doppelspieltage.
+
+> **Achtung:** Werden zu viele Teams entlastet, kann der Spielplan unlösbar
+> werden („Keine Lösung gefunden"). Empfehlung: höchstens etwa ein Viertel
+> der Teams einer Liga.
 
 **Co-Home-Gewicht:**
 Gibt an, wie stark Mehrspartenvereine (z. B. Herren und Damen eines Vereins)

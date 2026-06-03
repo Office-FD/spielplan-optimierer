@@ -101,7 +101,7 @@ start.bat
 
 ```bat
 python -m pytest test_smoke.py        # Schnell (~30 Sek.)
-python -m pytest test_all.py          # Vollständig (~5 Min.)
+python -m pytest test_all.py          # Vollständig (~14 Min.)
 ```
 
 ### Release erstellen
