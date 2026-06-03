@@ -5892,6 +5892,7 @@ def _step_intro():
 **Terminplanung**
 - Mehrere Ligen gleichzeitig optimieren
 - Doppelspieltage (DST) mit konsistentem Heimrecht
+- Reise-Entlastung für Randlagen-Teams: weite Anfahrten als Auswärts-Doppelspieltage bündeln
 - Vereine mit Teams in mehreren Ligen koordinieren (gleiche Heimspielwochen)
 - Pflichtspiele auf bestimmte Spieltage festlegen
 - Heimspiel-Sperrtage pro Team (z. B. Hallensperrung, kein Heimspiel an Spieltag X)
