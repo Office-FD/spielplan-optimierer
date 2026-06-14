@@ -4,6 +4,6 @@ pandas>=3.0.3,<4
 openpyxl>=3.1,<4
 requests>=2.34.2,<3
 streamlit>=1.57.0,<2
-folium>=0.18,<1
+folium>=0.20.0,<1
 streamlit-folium>=0.21,<1
 streamlit-calendar>=1.4,<2
